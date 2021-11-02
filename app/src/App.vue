@@ -8,10 +8,10 @@
       <pop></pop>
       <div id="nav">
         <ul id="nav-content">
-          <router-link to="/">文章</router-link>
-          <router-link to="/twit">发言</router-link>
-          <router-link to="/playground">游乐园</router-link>
-          <router-link to="/profile">账户</router-link>
+          <router-link to="/"><v-btn text plain>文章</v-btn></router-link>
+          <router-link to="/twit"><v-btn text plain>发言</v-btn></router-link>
+          <router-link to="/playground"><v-btn text plain>游乐园</v-btn></router-link>
+          <router-link to="/profile"><v-btn text plain>账户</v-btn></router-link>
         </ul>
       </div>
     </theme-provider>
@@ -86,8 +86,6 @@ input, textarea {
   border-radius: 0;
   -webkit-appearance: none;
   font-size: .875rem;
-  line-height: 1.25rem;
-  height: 1.25rem;
   resize: none;
   font-family: 'Avenir', Helvetica, Arial, sans-serif;
 }
@@ -103,7 +101,7 @@ ul {
 #app {
   position: relative;
   margin: 0 auto;
-  max-width: 1080px;
+  max-width: 40rem;
   height: 100%;
   text-align: center;
   color: #2c3e50;
@@ -130,30 +128,22 @@ ul {
 }
 @media (min-width: 750px) {
   #nav {
-    position: absolute;
-    padding: 3rem 2rem 0 2rem;
-    top: 0;
-    left: 0;
-    height: calc(100% - 3rem);
-    border-right: 1px solid #eee;
+    position: fixed;
+    left: 50%;
+    transform: translateX(-50%);
+    right: 0;
+    bottom: 0;
+    width: 40rem;
+    height: 3.25rem;
     z-index: 1;
-  }
-  #nav-content {
-    width: 9rem;
-    a {
-      margin-bottom: 1rem;
-      display: block;
-      padding: 0.5rem 0;
-      border-radius: 3rem;
-      transition: .2s;
-      letter-spacing: 2px;
-      user-select: none;
-      &.router-link-exact-active {
-        background-color: #f1f1ff;
-      }
-      &:hover {
-        background-color: #e5e5ff
-      }
+    #nav-content {
+      display: flex;
+      justify-content: space-around;
+      margin: .5rem auto;
+      max-width: 24rem;
+      border-radius: .75rem;
+      box-shadow: 0 0 10px 1px #e8e8e8;
+      background: white;
     }
   }
 }

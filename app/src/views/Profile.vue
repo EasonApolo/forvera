@@ -1,33 +1,43 @@
 <template>
-  <div class='profile'>
+  <div class='profile d-flex'>
     <layout>
       <template #main>
         <list>
           <template #list>
-            <template  v-if="!loginStatus">
-              <input class='item' v-model="username" placeholder="username">
-              <input class='item' v-model='password' placeholder="password" type='password' @keyup.enter="login()">
+            <template v-if="!loginStatus">
+              <div class='item'>
+                <v-text-field v-model="username" :label="'username'" hide-details="auto"></v-text-field>
+              </div>
+              <div class='item'>
+                <v-text-field v-model="password" :label="'password'" hide-details="auto" @keyup.enter="login()" type='password'></v-text-field>
+              </div>
               <div class='item actions'>
-                <btn @click='register()'>注册</btn>
-                <btn @click='login()'>登录</btn>
+                <v-btn class="action" @click='login()'>登录</v-btn>
+                <v-btn class="action" @click='register()'>注册</v-btn>
               </div>
             </template >
-            <template  v-else>
+            <template v-else>
               <div class='item'>
                 <span>{{ userInfo.username }}</span>
-                <btn id='btn-logout' :mr=0 @click='logout'>登出</btn>
+                <v-btn id='btn-logout' :mr=0 @click='logout' small>登出</v-btn>
               </div>
-              <div class='item actions'>
-                <btn @click='toEdit()'>写作</btn>
-                <btn @click='toCats()'>分类</btn>
-              </div>
+              <v-card class='item actions'>
+                <v-btn class="action" @click='toEdit()' depressed>写作</v-btn>
+                <v-btn class="action" @click='toCats()' depressed>分类</v-btn>
+              </v-card>
               <div class='item hint' v-if="posts.length <= 0">还没有发表过文章</div>
-              <div class='item' v-else v-for='post in posts' :key='post.id'>
-                <span>{{ post.title }}</span>
-                <badge>{{ postStatus(post.status) }}</badge>
-                <btn class='to-right' @click='edit(post)' :size='0'>编辑</btn>
+              <div class="item my-posts" v-else>
+                <div v-for='post in posts' :key='post.id' class="my-post">
+                  <div class="d-flex align-center">
+                    <span>{{ post.title }}</span>
+                    <v-chip small>{{ postStatus(post.status) }}</v-chip>
+                  </div>
+                  <div>
+                    <v-btn class='to-right' @click='edit(post)' small>编辑</v-btn>
+                  </div>
+                </div>
               </div>
-            </template >
+            </template>
           </template>
         </list>
       </template>
@@ -135,7 +145,7 @@ export default {
     async getPosts () {
       let posts = await request('post/user', 'POST')
       posts.map(post => {
-        if (!post.title) post.title = '(无标题)'
+        if (!post.title) post.title = '无题'
       })
       this.posts = posts
     },
@@ -168,9 +178,25 @@ export default {
 #btn-logout {
   float: right;
 }
-.actions {
-  & div {
-    margin: 0 .5rem;
+.profile {
+  .my-posts {
+    .my-post {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+      .my-post-left {
+        display: flex;
+        align-items: center;
+      }
+    }
+  }
+  .actions {
+    margin: .5rem 0;
+    padding-left: .5rem;
+    .action {
+      margin-right: 1rem;
+    }
   }
 }
 .to-right {

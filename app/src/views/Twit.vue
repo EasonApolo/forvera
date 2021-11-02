@@ -6,23 +6,50 @@
         <list :loading=intSwitch>
           <template #list>
 
-            <div id='new-twit'>
-              <div id='new-twit-input'>
-                <pre id='support' v-text='contentInPre'></pre>
-                <textarea id='input' class='item' v-model='twit.content' placeholder="content"></textarea>
-              </div>
-              <div class='item' v-if='twit.files.length'>
-                <div class='images'>
-                  <div class='image-item' v-for="(file, index) in twit.files" :key=file.name>
-                    <img :src='file.data'>
-                    <div id='image-control'>
-                      <div class='bg'></div>
-                      <div class='control' v-if='index > 0' @click='forward(index)'>←</div>
-                      <div class='control' v-if='index < twit.files.length-1' @click='backward(index)'>→</div>
-                      <div class='control' @click='remove(index)'>×</div>
+            <div class="twitting" v-if="twit.show">
+              <div class="input">
+                <v-textarea
+                  class="twit-input"
+                  name="twit-input"
+                  label="content"
+                  auto-grow
+                  no-resize
+                  rows="1"
+                  row-height="16"
+                  counter
+                ></v-textarea>
+
+                <div v-if='twit.files.length'>
+                  <div class='images'>
+                    <div class='image-item' v-for="(file, index) in twit.files" :key=file.name>
+                      <img :src='file.data'>
+                      <div id='image-control'>
+                        <div class='bg'></div>
+                        <div class='control' v-if='index > 0' @click='forward(index)'>←</div>
+                        <div class='control' v-if='index < twit.files.length-1' @click='backward(index)'>→</div>
+                        <div class='control' @click='remove(index)'>×</div>
+                      </div>
                     </div>
                   </div>
                 </div>
+
+                <div class="tools">
+                  <v-btn>发送</v-btn>
+                  <div class="placeholder"></div>
+                  <v-switch class="right" v-model="twit.anonymous" :label="`匿名`" inset></v-switch>
+                  <label class="right">
+                    <input id='input-file' ref='inputFile' type="file" accept="image/*" @change="selectImage" multiple>
+                    <v-btn @click='selectImageTrigger'>图片</v-btn>
+                  </label>
+                </div>
+
+              </div>
+            </div>
+
+            <!-- <div id='new-twit'>
+              <div id='new-twit-input'>
+                <pre id='support' v-text='contentInPre'></pre>
+                <textarea id='input' class='item' v-model='twit.content' placeholder="content"></textarea>
               </div>
               <div class='item controls'>
                 <pro :progress='twit.progress.per'></pro>
@@ -33,7 +60,7 @@
                   <btn @click='selectImageTrigger'>图片</btn>
                 </label>
               </div>
-            </div>
+            </div> -->
 
             <div class="item" v-for="(t, index) in data" :key="index">
               <div class='main'>
@@ -61,8 +88,8 @@
                   </div>
                 </div>
                 <div class='reply' v-if='reply.ancestor == t._id'>
-                  <btn class='send-reply' :mr=0 @click='sendReply()' :size=0>发送</btn>
-                  <textarea v-model="reply.content" :placeholder="replyPlaceHolder"></textarea>
+                  <v-textarea class="input" v-model="reply.content" :label="replyPlaceHolder" no-resize auto-grow rows="1"></v-textarea>
+                  <v-btn class='send' @click='sendReply()' rounded small>发送</v-btn>
                 </div>
               </div>
               <!-- <div class="opmenu">
@@ -115,6 +142,7 @@ export default {
   data () {
     return {
       twit: {
+        show: false,
         content: '',
         files: [],
         parent: null,
@@ -429,6 +457,35 @@ export default {
 </script>
 
 <style scoped lang="scss">
+.twitting {
+  position: fixed;
+  width: 40rem;
+  bottom: 3.5rem;
+  z-index: 1;
+  .input {
+    margin: 0 auto;
+    padding: .5rem 1rem;
+    width: 36rem;
+    max-height: 20rem;
+    overflow-y: scroll;
+    background: white;
+    border-radius: .75rem;
+    box-shadow: 0 0 10px 1px #e8e8e8;
+    .tools {
+      display: flex;
+      align-items: center;
+      .placeholder {
+        flex: 1 1 auto;
+      }
+      .right {
+        margin-left: 1rem;
+      }
+      #input-file {
+        display: none;
+      }
+    }
+  }
+}
 #new-twit {
   .item {
     border: none;
@@ -472,23 +529,16 @@ export default {
 }
 .images {
   display: grid;
-  margin: 0 auto .5rem auto;
+  grid-template-columns: repeat(auto-fill, 6rem);
+  grid-gap: .5rem;
   width: calc(100% - 1rem);
-  grid-template-columns: repeat(auto-fill, 32%);
-  grid-row-gap: .5rem;
-  justify-content: space-between;
   .image-item {
     position: relative;
-    // padding/margin-top/bottom在设置百分比值时针对父元素width，用来模拟正方形。这里因为是grid，所以只要设置100%，不用32%。
-    padding-bottom: 100%;
-    width: 100%;
-    height: 0;
     overflow: hidden;
-    border-radius: .75rem;
+    border-radius: .5rem;
     img {
       display: block;
       width: 100%;
-      border-radius: .75rem;
     }
     &:hover #image-control {
       opacity: 1;
@@ -527,11 +577,10 @@ export default {
   }
 }
 .item{
-  padding: .5rem 1rem;
-  width: calc(100% - 2rem);
+  padding: .5rem 0;
   .main {
     .meta {
-      padding: 0 .5rem;
+      height: 1.5rem;
       .name, .date {
         display: inline-block;
         margin: 0 1rem 0 0;
@@ -547,9 +596,9 @@ export default {
     }
     .content {
       position: relative;
-      padding: .25rem .5rem;
+      padding: .25rem 0;
       font-size: 0.875rem;
-      line-height: 1.25rem;
+      line-height: 1.5rem;
       word-break: break-all;
       border-radius: .3125rem;
       transition: background-color .2s ease;
@@ -559,7 +608,6 @@ export default {
       }
     }
     .image-display {
-      margin: 0 auto .5rem auto;
       width: calc(100% - 1rem);
       background-color: #eee;
       img {
@@ -653,20 +701,13 @@ export default {
   }
   .replies {
     .reply {
+      display: flex;
+      align-items: center;
       position: relative;
       margin-top: .25rem;
-      textarea {
-        width: calc(100% - 3.5rem);
-        padding: .25rem .5rem;
-        padding-right: 3rem;
-        background-color: #eee;
-        border-radius: 1rem;
+      .input {
+        margin-right: 1rem;
         font-size: .375rem;
-      }
-      .send-reply {
-        position: absolute;
-        top: .1875rem;
-        right: .1875rem;
       }
     }
     .wrapper {

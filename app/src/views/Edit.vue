@@ -4,26 +4,26 @@
       <template #main>
         <list>
           <template #list>
-            <textarea class='item' id='title' v-model='title' placeholder="title"></textarea>
-            <textarea class='item' id='description' v-model='description' laceholder="描述"></textarea>
-            <div class='item' id='styling'>
-              <btn :size=0 @click='makeBold'>bold</btn>
+            <v-textarea class='item title' v-model='title' placeholder="title" rows="1"></v-textarea>
+            <v-textarea class='item description' v-model='description' placeholder="描述" rows="1"></v-textarea>
+            <!-- <div class='item styling'>
+              <v-btn class="action" @click='makeBold' small>bold</v-btn>
               <div class='btn-group'>
-                <btn :size=0 :mr=0.25 @click='makeH4'>h4</btn>
-                <btn :size=0 :mr=0 @click='makeNormal'>main</btn>
+                <v-btn class="action" small @click='makeH4'>h4</v-btn>
+                <v-btn class="action" small @click='makeNormal'>main</v-btn>
               </div>
               <span v-if='setWidth.target' id='set-width' class='btn-group'>
                 <label for='set-width'>设置图片宽度</label>
                 <input v-model='setWidth.width'>
                 <btn :size=0 :mr=0 @click='setImgWidth'>ok</btn>
               </span>
-            </div>
-            <div class='item' id='content' ref='content' contenteditable="true"
-              placehoder='content' v-html='content'>
-            </div>
+            </div> -->
+            <v-textarea class='item content' ref='content' rows="3" auto-grow
+              placeholder='内容'>
+            </v-textarea>
             <div class='actions'>
-              <btn @click='publish()'>发布</btn>
-              <btn @click='deletePostHandler()' :type='"warning"'>删除</btn>
+              <v-btn @click='publish()' small color="primary">发布</v-btn>
+              <v-btn @click='deletePostHandler()' small>删除</v-btn>
             </div>
           </template>
         </list>
@@ -328,64 +328,59 @@ export default {
 }
 </script>
 
-<style lang="scss">
+<style lang="scss" scoped>
 .edit {
-  $h: .875rem;
-  $lh: 1.25rem;
-  textarea {
-    display: block;
-    width: calc(100% - 4rem);
-    padding: 1rem 2rem;
-  }
-  #title {
-    height: $lh*1;
-  }
-  #styling {
-    position: sticky;
-    top: 0rem;
-    background-color: white;
-    .btn-group {
-      display: inline-block;
-      margin-right: 1rem;
-
-      padding: .25rem .5rem;
-      border-radius: .25rem;
-      background-color: #eee;
+  .list {
+    .item {
+      padding: 0;
     }
-    .button {
-      margin-right: .5rem;
-    }
-    #set-width {
-      font-size: .75rem;
-      input {
-        display: inline-block;
-        margin: 0 .25rem;
-        padding: 0 .25rem;
-        width: 2rem;
+    .styling {
+      position: sticky;
+      display: flex;
+      top: 0rem;
+      background-color: white;
+      .btn-group {
+        display: flex;
+        margin-right: .5rem;
+        padding: 0 .5rem;
         border-radius: .25rem;
-        background-color: #ddd;
+        background-color: #eee;
+        .action:last-child {
+          margin-right: 0;
+        }
+      }
+      .action {
+        margin: .5rem .5rem .5rem 0;
+      }
+      #set-width {
+        font-size: .75rem;
+        input {
+          display: inline-block;
+          margin: 0 .25rem;
+          padding: 0 .25rem;
+          width: 2rem;
+          border-radius: .25rem;
+          background-color: #ddd;
+        }
       }
     }
-  }
-  #content {
-    min-height: $lh*10;
-    overflow: auto;
-    outline: none;
-    img {
-      display: inline-block;
-      resize: both;
-      max-width: 100%;
+    .content {
+      img {
+        display: inline-block;
+        resize: both;
+        max-width: 100%;
+      }
     }
-  }
-  .actions {
-    div {
-      margin: 0 1rem;
+    .actions {
+      div {
+        margin: 0 1rem;
+      }
+      padding: .5rem 0;
     }
-    padding: .5rem 0;
-  }
-  .active {
-    &::after {
-      content: '√'
+    .active {
+      &::after {
+        content: '√'
+      }
     }
   }
 }
