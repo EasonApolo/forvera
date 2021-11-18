@@ -1,0 +1,1 @@
+export const ip = `http://${location.hostname}:3000/`
