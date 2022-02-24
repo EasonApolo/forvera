@@ -19,7 +19,7 @@ export const useToastStore = defineStore('toast', {
       type: '',
       icon: '',
       content: '',
-      timer: 0
+      timer: 0 as any
     }
   },
   actions: {

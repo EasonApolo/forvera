@@ -25,7 +25,7 @@ async function importPosts() {
   const PostModelSchema = new mongoose.Schema(PostSchema)
   const PostModel = mongoose.model('Post', PostModelSchema)
 
-  let data = await readFile('./posts.json', 'utf8')
+  let data = await readFile('./data/posts.json', 'utf8')
   data = JSON.parse(data)
   data.map(p => {
     p.author = '60ebdc900939f6b4beea7faf'
@@ -55,7 +55,7 @@ async function importMessage() {
   })
   const MessageModelSchema = new mongoose.Schema(MessageSchema)
   const MessageModel = mongoose.model('Twit', MessageModelSchema)
-  let data = await readFile('./messages.json', 'utf8')
+  let data = await readFile('./data/messages.json', 'utf8')
   data = JSON.parse(data)
   data.map(p => {
     p.user = '60ebc6c88cff11ac5bb287fc'
