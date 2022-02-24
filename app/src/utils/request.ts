@@ -1,6 +1,8 @@
 import { ip as baseURL } from '../config'
 import axios, { AxiosRequestConfig, Method } from 'axios'
-import { useMainStore } from '../store/storeMain'
+import { useUserStore } from '../store/user'
+import { useMainStore } from '../store/main'
+import { useToastStore } from '../store/toast'
 
 /**
  * @description: 
@@ -25,9 +27,10 @@ export async function request(url: string, method: Method = 'get', params?: any,
   //     if (progressOptions.upload) options.onUploadProgress = uploadFunc
   //     else options.onDownloadProgress = uploadFunc
   // }
+
   // set authorization
-  const mainStore = useMainStore()
-  const bearer = mainStore.userInfo.token
+  const userStore = useUserStore()
+  const bearer = userStore.userInfo.token
   if (bearer) {
     options.headers!['Authorization'] = bearer
   }
@@ -51,6 +54,13 @@ export async function request(url: string, method: Method = 'get', params?: any,
     return res.data
   } catch (err: any) {
     const errCode = err.response.status
+    if (err.response.status === 401) {
+      if (userStore.isLogin) {
+        const toastStore = useToastStore()
+        toastStore.showToast({ content: '登录凭证已过期，请保存后点击个人重新登录。', type: '!', timeout: 3000 })
+      }
+      userStore.logout()
+    }
     return { ERRNO: errCode }
   }
 }

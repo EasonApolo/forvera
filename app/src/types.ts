@@ -21,3 +21,30 @@ interface UserInfo {
   _id: string
   username: string
 }
+
+interface Category {
+  _id: string
+  title: string
+  description: string
+}
+
+interface Post {
+  _id: string
+  title: string
+  description?: string
+  content: string
+  status: 0 | 1
+  category: Array<string>
+  updated_time: string
+}
+
+interface SelectedImage {
+  blob: string
+  file: File
+}
+
+interface FileDescriptor {
+  _id: string
+  url: string,
+  thumb: string
+}

@@ -1,26 +1,34 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia';
-import { useMainStore } from '../store/storeMain';
+import { useMainStore } from '../store/main';
 import Card from '../components/Card.vue';
-import { formatDate, readFile } from '../utils/common';
-import { reactive, ref } from 'vue';
+import { throttle, formatDate, readFile } from '../utils/common';
+import { useMessageStore } from '../store/message';
+import { useUserStore } from '../store/user';
+import Gallery from '../components/Gallery.vue';
+import { useToastStore } from '../store/toast';
+import { onBeforeRouteLeave } from 'vue-router';
 
-const mainStore = useMainStore()
-const { messages, isLogin, messageInput, messageWrapper } = storeToRefs(mainStore)
+const [messageStore, userStore, mainStore, toastStore] = [useMessageStore(), useUserStore(), useMainStore(), useToastStore()]
+const { messages, messageInput, messageWrapper } = storeToRefs(messageStore)
+const { isLogin } = storeToRefs(userStore)
 
-mainStore.fetchMessages()
-
-const fileInput = ref({ files: [] })
-
-const allSelectedImages: Array<{ file: File, blob: string }> = reactive([])
-const fileInputChange = async () => {
-  const files: Array<File> = [...fileInput.value!.files]
-  const blobs = await Promise.all(files.map(readFile))
-  const selected = files.map((file, index) => ({ file, blob: blobs[index] }))
-  allSelectedImages.push(...selected)
-  mainStore.messageInput.files = allSelectedImages.map(obj => obj.file)
+// dataing
+messageStore.fetchMessages(true)
+const doFetch = throttle(async () => {
+  let res = await messageStore.fetchMessages()
+  if (res && res.length <= 0) toastStore.showToast({ content: '没有更多啦', type: '!' })
+})
+const onScroll = () => {
+  let atBottom = document.documentElement.scrollTop + window.innerHeight >= document.body.clientHeight - 10 * 16
+  if (atBottom) {
+    doFetch()
+  }
 }
+window.addEventListener('scroll', onScroll)
+onBeforeRouteLeave(() => window.removeEventListener('scroll', onScroll))
 
+// computed
 const getReplyToUsername = (message: Message, reply: Message) => {
   let replyToUsername
   if (reply.level === 1) {
@@ -32,62 +40,25 @@ const getReplyToUsername = (message: Message, reply: Message) => {
   return replyToUsername
 }
 
-const send = () => {
-  mainStore.addMessage()
-}
 
-const replyTo = (message: Message) => {
-  const parent = message._id
-  const ancestor = message.level === 0 ? message._id : message.ancestor
-  console.log(parent, ancestor)
-  mainStore.$patch({
-    messageInput: {
-      parent,
-      ancestor
-    },
-    messageWrapper: {
-      replyToUsername: message.user.username
-    }
-  })
-}
-const cancelReply = () => {
-  mainStore.$patch({
-    messageInput: {
-      parent: '',
-      ancestor: ''
-    },
-    messageWrapper: {
-      replyToUsername: ''
-    }
-  })
+// reply
+const replyTo = (message?: Message) => {
+  messageStore.reply(message)
+  mainStore.router.push('addMessage')
 }
 </script>
 
 <template>
-  <Card class="input-wrapper">
-    <input class="input" v-model="messageInput.content" />
-    <input type="file" @change="fileInputChange" ref="fileInput" multiple />
-    <div class="gallery">
-      <img class="image" :src="img.blob" v-for="img in allSelectedImages" />
-    </div>
-    <div class="actions">
-      <div class="action send" @click="send">{{ messageWrapper.replyToUsername ? `回复${messageWrapper.replyToUsername}` : '发送'}}</div>
-      <div class="action" v-if="messageInput.parent" @click="cancelReply">取消回复</div>
-      <div class="action">匿名</div>
-    </div>
-  </Card>
   <Card class="message" v-for="message in messages" @click="replyTo(message)">
     <div class="header">
       <div class="name">{{ message.user.username }}</div>
       <div class="date">{{ formatDate(message.created_time) }}</div>
     </div>
     <div class="content">{{ message.content }}</div>
-    <div class="gallery">
-      <img class="image" :src="file.thumb" v-for="file in message.files" />
-    </div>
-    <div class="reply-wrapper">
+    <Gallery v-if="message.files.length" class="gallery" :images="message.files.map(f => f.thumb)"></Gallery>
+    <div class="reply-wrapper" v-if="message.descendants?.length>0">
       <div class="reply" v-for="reply in message.descendants" @click.stop="replyTo(reply)">
-        <div class="reply-header">
+        <div class="header">
           <div class="name">{{ reply.user.username }}</div>
           <div
             class="name"
@@ -99,88 +70,69 @@ const cancelReply = () => {
       </div>
     </div>
   </Card>
+  <div class="send" @click="replyTo()"></div>
 </template>
 
-<style scoped>
-.input-wrapper {
-  position: fixed;
-  left: 1rem;
-  right: 1rem;
-  bottom: 4rem;
-  box-shadow: 1px 1px 10px 1px #eee;
-}
-.input-wrapper .input {
-}
-.input-wrapper .actions {
-  display: flex;
-  margin: 0 auto;
-  width: 18rem;
-  justify-content: space-between;
-}
-.input-wrapper .actions .action {
-  padding: 0 1rem;
-}
-.input-wrapper .actions .send {
-  flex: 0 0 auto;
-  max-width: 6rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+<style lang="scss" scoped>
 .message {
   padding: 0.5rem 1rem;
   text-align: left;
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  &:not(:first-child) {
+    margin-top: 0.5rem;
+  }
+  .name {
+    font-weight: 700;
+  }
+  .date {
+    font-size: 12px;
+    color: #aaa;
+  }
+  .content {
+    font-size: 15px;
+  }
+  .gallery {
+    margin-top: 1rem;
+  }
+  .reply-wrapper {
+    margin-top: 1rem;
+    display: flex;
+    flex-wrap: wrap;
+    /* justify-content: space-between; */
+    .reply {
+      margin: 0 1rem 0.75rem 0;
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.5rem;
+      box-shadow: 1px 2px 6px 1px #eee;
+      .name {
+        font-size: 12px;
+        font-weight: 200;
+      }
+      .content {
+        font-size: 16px;
+      }
+      .header {
+        display: flex;
+        div:not(:last-child) {
+          margin-right: 0.125rem;
+        }
+      }
+    }
+  }
 }
-.message .header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.message:not(:first-child) {
-  margin-top: 0.5rem;
-}
-.message .name {
-  font-weight: 700;
-}
-.message .date {
-  font-size: 12px;
-  color: #aaa;
-}
-.message .content {
-  font-size: 15px;
-}
-.gallery {
-  display: flex;
-  align-items: flex-start;
-  margin-top: 0.5rem;
-}
-.gallery .image {
-  margin-right: 0.5rem;
-  width: 6rem;
-  border-radius: 0.5rem;
-}
-.reply-wrapper {
-  display: flex;
-  flex-wrap: wrap;
-  /* justify-content: space-between; */
-}
-.reply {
-  margin: 0 1rem 0.75rem 0;
-  padding: 0.25rem 0.5rem;
-  border-radius: 0.5rem;
-  box-shadow: 1px 2px 6px 1px #eee;
-}
-.reply-header {
-  display: flex;
-}
-.reply-header div:not(:last-child) {
-  margin-right: 0.125rem;
-}
-.reply .name {
-  font-size: 12px;
-  font-weight: 200;
-}
-.reply .content {
-  font-size: 16px;
+.send {
+  position: fixed;
+  right: 1.5rem;
+  bottom: 4.5rem;
+  width: 2.5rem;
+  height: 2.5rem;
+  background: url(../assets/send.png) center/1.5rem no-repeat;
+  background-color: white;
+  border-radius: .5rem;
+  box-shadow: 1px 1px 10px 0px #eee;
 }
 </style>
