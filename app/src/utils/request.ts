@@ -53,10 +53,14 @@ export async function request(url: string, method: Method = 'get', params?: any,
     const res = await axios(options)
     return res.data
   } catch (err: any) {
+    const toastStore = useToastStore()
+    if (err.message === 'Network Error') {
+      toastStore.showToast({ content: '网络错误，可能是后台挂了～', type: '!', timeout: 3000 })
+      return { ERRNO: 500 }
+    }
     const errCode = err.response.status
-    if (err.response.status === 401) {
+    if (errCode === 401) {
       if (userStore.isLogin) {
-        const toastStore = useToastStore()
         toastStore.showToast({ content: '登录凭证已过期，请保存后点击个人重新登录。', type: '!', timeout: 3000 })
       }
       userStore.logout()

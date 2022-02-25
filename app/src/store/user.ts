@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { request } from '../utils/request'
+import { useToastStore } from './toast'
 
 export const useUserStore = defineStore('user', {
   state: () => ({
@@ -16,6 +17,28 @@ export const useUserStore = defineStore('user', {
     isLogin: state => !!state.userInfo.token
   },
   actions: {
+    // 如果有token则尝试获取userInfo，如果成功则可以免登
+    async getUserInfo() {
+      let token = localStorage.token
+      if (token) {
+        token = `Bearer ${token}`
+        Object.assign(this.userInfo, { token })
+        const res = await request('user/info', 'POST')
+        if (res && !res?.ERRNO) {
+          const { username } = res
+          if (username) {
+            localStorage.username = username
+            Object.assign(this.userInfo, { username })
+          }
+        } else {
+          Object.assign(this.userInfo, { token: undefined })
+          if (res.ERRNO == 401) {
+            const toastStore = useToastStore()
+            toastStore.showToast({ content: '登录信息已失效，可以重新登录～', type: '?' })
+          }
+        }
+      }
+    },
     async login() {
       let token, username
       if (localStorage.token && localStorage.username) {

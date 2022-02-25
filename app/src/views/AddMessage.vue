@@ -80,7 +80,7 @@ const toggleAnonymous = () => {
   <Card class="input-wrapper">
     <div class="content">
       <div class="tips">
-        - {{ userStore.isLogin ? '' : '当前未登录，登录后' }}可以附带最多3张图片和切换身份。<br>
+        - {{ userStore.isLogin ? '' : '当前未登录，登录后' }}可以{{ messageWrapper.replyToUsername ? '' : '附带最多3张图片和' }}切换身份。<br>
         - 退出页面会清空，不要在这里打一堆字哦。<br>
         - 正在以{{ messageWrapper.anonymous ? '随机' : userStore.userInfo.username }}身份{{ messageWrapper.replyToUsername ? `回复${messageWrapper.replyToUsername}` : '发言' }}。<br>
       </div>
@@ -103,7 +103,7 @@ const toggleAnonymous = () => {
         >{{ sendBtnContent }}</Btn>
         <div class="right">
           <FileInput
-            v-if="!messageWrapper.anonymous"
+            v-if="!messageWrapper.anonymous && !messageWrapper.replyToUsername"
             :change="fileInputChange"
             :multiple="true"
           ></FileInput>

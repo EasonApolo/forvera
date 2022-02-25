@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Query } from 'mongoose';
+import { twitPerPage } from 'src/config';
 import { FileService } from 'src/file/file.service';
 import { UserService } from 'src/user/user.service';
 import { AddTwitDTO } from './add.dto';
@@ -10,7 +11,7 @@ import { Twit } from './twit.interface';
 export class TwitService {
   @Inject() private readonly fileService: FileService;
   @Inject() private readonly userService: UserService
-  private readonly PER_PAGE: number = 5;
+  private readonly PER_PAGE: number = twitPerPage;
   constructor(@InjectModel('Twit') private readonly twitModel: Model<Twit>) {}
 
   async addTwit(userId: string, addTwitDTO: AddTwitDTO, uploadedFiles): Promise<Twit> {

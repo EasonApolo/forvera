@@ -1,4 +1,5 @@
-// import { PostSchema } from '../post/schemas/post.schema'
+// 导入post: node import.wordpress.ts posts 需要创建用户，并修改作者id为该id。
+// 导入messages: node import.wordpress.ts messages 可以先启动服务，服务会自动创建匿名用户，再修改用户id为匿名用户id。
 const { readFile, writeFile } = require('fs/promises')
 const mongoose = require('mongoose')
 const mongoDB = 'mongodb://localhost:27017/forvera'

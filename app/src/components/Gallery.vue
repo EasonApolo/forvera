@@ -1,5 +1,5 @@
 <script setup lang="ts">
-defineProps<{ images: string[], onClick?: (index: number) => void }>()
+defineProps<{ images: string[], onClick?: (images: string[], index: number) => void }>()
 </script>
 
 <template>
@@ -8,7 +8,7 @@ defineProps<{ images: string[], onClick?: (index: number) => void }>()
       class="item"
       :style="{ backgroundImage: `url(${img})` }"
       v-for="(img, index) in images"
-      @click="onClick?.(index)"
+      @click.stop="onClick?.(images, index)"
     ></div>
   </div>
 </template>

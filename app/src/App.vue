@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import Nav from './components/Nav.vue'
 import Toast from './components/Toast.vue';
+import { useUserStore } from './store/user';
+import ImagePreview from './components/ImagePreview.vue'
+
+const userStore = useUserStore()
+userStore.getUserInfo()
 </script>
 
 <template>
@@ -11,6 +16,7 @@ import Toast from './components/Toast.vue';
     <Toast class="toast" />
   </transition>
   <Nav />
+  <ImagePreview></ImagePreview>
 </template>
 
 <style lang="scss">

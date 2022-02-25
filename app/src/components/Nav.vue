@@ -6,7 +6,7 @@ import { ref } from 'vue'
   <div class="nav">
     <div class="nav-item"><router-link to="/">文字</router-link></div>
     <div class="nav-item"><router-link to="/message">发言</router-link></div>
-    <div class="nav-item"><router-link to="/playground">果园</router-link></div>
+    <div class="nav-item pg"><router-link to="/playground"><div>play</div><div>ground</div></router-link></div>
     <div class="nav-item"><router-link to="/profile">个人</router-link></div>
   </div>
 </template>
@@ -31,14 +31,19 @@ code {
   position: fixed;
   left: calc(50% - 8rem);
   width: 16rem;
-  bottom: 1rem;
+  bottom: 2rem;
   display: flex;
-  justify-content: space-between;
+  align-items: center;
+  justify-content: space-around;
   border-radius: .5rem;
   background-color: white;
-  box-shadow: 1px 1px 10px 1px #eee;
+  box-shadow: 0px 0px 12px 0px #ccc;
 }
 .nav-item {
-  padding: .5rem 1rem;
+  padding: .5rem 0;
+  line-height: 14px;
+}
+.pg {
+  font-size: 12px;
 }
 </style>

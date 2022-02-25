@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { anonymousNameList } from 'src/config';
 import { CreateUserDTO } from './create-user.dto';
 import { User } from './user.interface';
 
@@ -31,5 +32,9 @@ export class UserService implements OnModuleInit {
     if (res) { return addIfNotExist ? res : null }
     const newUser = await new this.userModel(createUserDTO);
     return newUser.save();
+  }
+
+  async getAnonymousNameList(): Promise<string[]> {
+    return anonymousNameList
   }
 }

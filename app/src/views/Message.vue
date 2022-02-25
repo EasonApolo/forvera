@@ -8,13 +8,15 @@ import { useUserStore } from '../store/user';
 import Gallery from '../components/Gallery.vue';
 import { useToastStore } from '../store/toast';
 import { onBeforeRouteLeave } from 'vue-router';
+import { useImageStore } from '../store/image';
 
-const [messageStore, userStore, mainStore, toastStore] = [useMessageStore(), useUserStore(), useMainStore(), useToastStore()]
+const [messageStore, userStore, mainStore, toastStore, imageStore] = [useMessageStore(), useUserStore(), useMainStore(), useToastStore(), useImageStore()]
 const { messages, messageInput, messageWrapper } = storeToRefs(messageStore)
 const { isLogin } = storeToRefs(userStore)
 
 // dataing
 messageStore.fetchMessages(true)
+messageStore.fetchAnonymousList()
 const doFetch = throttle(async () => {
   let res = await messageStore.fetchMessages()
   if (res && res.length <= 0) toastStore.showToast({ content: '没有更多啦', type: '!' })
@@ -39,7 +41,9 @@ const getReplyToUsername = (message: Message, reply: Message) => {
   }
   return replyToUsername
 }
-
+const clickImage = (images: string[], index: number) => {
+  imageStore.preview(images[index])
+}
 
 // reply
 const replyTo = (message?: Message) => {
@@ -55,7 +59,7 @@ const replyTo = (message?: Message) => {
       <div class="date">{{ formatDate(message.created_time) }}</div>
     </div>
     <div class="content">{{ message.content }}</div>
-    <Gallery v-if="message.files.length" class="gallery" :images="message.files.map(f => f.thumb)"></Gallery>
+    <Gallery v-if="message.files.length" class="gallery" :images="message.files.map(f => f.thumb)" :onClick="clickImage"></Gallery>
     <div class="reply-wrapper" v-if="message.descendants?.length>0">
       <div class="reply" v-for="reply in message.descendants" @click.stop="replyTo(reply)">
         <div class="header">
@@ -86,6 +90,7 @@ const replyTo = (message?: Message) => {
     margin-top: 0.5rem;
   }
   .name {
+    font-size: 15px;
     font-weight: 700;
   }
   .date {
@@ -127,12 +132,17 @@ const replyTo = (message?: Message) => {
 .send {
   position: fixed;
   right: 1.5rem;
-  bottom: 4.5rem;
-  width: 2.5rem;
-  height: 2.5rem;
+  bottom: 6rem;
+  width: 3rem;
+  height: 3rem;
   background: url(../assets/send.png) center/1.5rem no-repeat;
   background-color: white;
-  border-radius: .5rem;
-  box-shadow: 1px 1px 10px 0px #eee;
+  border-radius: 2rem;
+  box-shadow: 0px 0px 16px 0px #ccc;
+  transition: .2s ease;
+  cursor: pointer;
+  &:hover {
+    transform: scale(.9);
+  }
 }
 </style>

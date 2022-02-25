@@ -23,8 +23,12 @@ if (userStore.isLogin) {
 }
 const login = async () => {
   await userStore.login()
-  toastStore.showToast({ content: '登录成功～', type: 'OK' })
-  postStore.fetchMyPosts()
+  if (userStore.isLogin) {
+    toastStore.showToast({ content: '登录成功～', type: 'OK' })
+    postStore.fetchMyPosts()
+  } else {
+    toastStore.showToast({ content: '登录失败，请检查用户名密码～', type: 'ERR' })
+  }
 }
 const register = async () => {
   const res = await userStore.register()
