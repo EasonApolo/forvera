@@ -84,9 +84,10 @@ const toggleAnonymous = () => {
         - 退出页面会清空，不要在这里打一堆字哦。<br>
         - 正在以{{ messageWrapper.anonymous ? '随机' : userStore.userInfo.username }}身份{{ messageWrapper.replyToUsername ? `回复${messageWrapper.replyToUsername}` : '发言' }}。<br>
       </div>
-      <input
+      <textarea
         class="input text-input"
         v-model="messageInput.content"
+        rows="3"
       />
       <DraggableGallery
         v-if="!messageWrapper.anonymous && displayImages?.length"
@@ -128,7 +129,6 @@ const toggleAnonymous = () => {
     justify-content: space-between;
     .send {
       flex: 0 0 auto;
-      max-width: 6rem;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;

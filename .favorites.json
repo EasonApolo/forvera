@@ -1,0 +1,46 @@
+[
+    {
+        "type": "Group",
+        "name": "balance",
+        "parent_id": null,
+        "workspaceRoot": null,
+        "workspacePath": null,
+        "id": "UJo4m9lOgHAFiksc"
+    },
+    {
+        "type": "File",
+        "name": "d:\\vue\\forvera\\server\\src\\balance\\balance.controller.ts",
+        "parent_id": "UJo4m9lOgHAFiksc",
+        "fsPath": "d:\\vue\\forvera\\server\\src\\balance\\balance.controller.ts",
+        "workspaceRoot": null,
+        "workspacePath": null,
+        "id": "z2tbfVinC5AyQWc8"
+    },
+    {
+        "type": "File",
+        "name": "d:\\vue\\forvera\\server\\src\\balance\\balance.interface.ts",
+        "parent_id": "UJo4m9lOgHAFiksc",
+        "fsPath": "d:\\vue\\forvera\\server\\src\\balance\\balance.interface.ts",
+        "workspaceRoot": null,
+        "workspacePath": null,
+        "id": "wZCkhv7GNt01XqpB"
+    },
+    {
+        "type": "File",
+        "name": "d:\\vue\\forvera\\server\\src\\balance\\balance.module.ts",
+        "parent_id": "UJo4m9lOgHAFiksc",
+        "fsPath": "d:\\vue\\forvera\\server\\src\\balance\\balance.module.ts",
+        "workspaceRoot": null,
+        "workspacePath": null,
+        "id": "fqozPgZMFU6ulpC4"
+    },
+    {
+        "type": "File",
+        "name": "d:\\vue\\forvera\\server\\src\\balance\\balance.service.ts",
+        "parent_id": "UJo4m9lOgHAFiksc",
+        "fsPath": "d:\\vue\\forvera\\server\\src\\balance\\balance.service.ts",
+        "workspaceRoot": null,
+        "workspacePath": null,
+        "id": "VveK7XCqZmaf28WF"
+    }
+]

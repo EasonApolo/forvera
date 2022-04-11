@@ -13,6 +13,9 @@ export const usePostDetail = defineStore('detail', {
       const postStore = usePostStore()
       this.post = await postStore.fetchPostById(postId)
       this.post.content = parse(this.post.content)
+    },
+    clear() {
+      this.post = {} as Post
     }
   }
 })

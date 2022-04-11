@@ -124,6 +124,13 @@ const copy = (e: any) => {
 .categories {
   display: flex;
   align-items: center;
+  overflow: auto;
+  div {
+    flex: 0 0 auto;
+  }
+  div:not(:last-child) {
+    margin-right: 1rem;
+  }
 }
 .image-input {
   display: flex;

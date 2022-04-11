@@ -9,6 +9,8 @@ import WriteVue from './views/Write.vue'
 import PostVue from './views/Post.vue'
 import PostListVue from './views/PostList.vue'
 import CategoryVue from './views/Category.vue'
+import Playground from './views/Playground.vue'
+import BalanceVue from './views/Playground/Balance.vue'
 
 const router = {
   history: createWebHashHistory(),
@@ -20,6 +22,8 @@ const router = {
     { path: '/write', component: WriteVue },
     { path: '/post', component: PostVue },
     { path: '/category', component: CategoryVue },
+    { path: '/playground', component: Playground },
+    { path: '/balance', component: BalanceVue },
   ]
 }
 

@@ -16,7 +16,6 @@ const { isLogin } = storeToRefs(userStore)
 
 // dataing
 messageStore.fetchMessages(true)
-messageStore.fetchAnonymousList()
 const doFetch = throttle(async () => {
   let res = await messageStore.fetchMessages()
   if (res && res.length <= 0) toastStore.showToast({ content: '没有更多啦', type: '!' })

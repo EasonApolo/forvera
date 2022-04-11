@@ -17,7 +17,7 @@ export class PostService {
 
   async getPost(postId): Promise<Post> {
     const post = await this.postModel
-      .findById(postId)
+      .findById(postId).populate('author', 'username')
       .exec();
     return post;
   }

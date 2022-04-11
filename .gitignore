@@ -21,3 +21,5 @@ yarn-error.log*
 *.sw*
 
 server/src/scripts/data
+app/package-lock.json
+server/package-lock.json

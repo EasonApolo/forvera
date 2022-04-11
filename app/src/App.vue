@@ -58,6 +58,7 @@ body {
 textarea {
   display: block;
   resize: vertical;
+  font-family: Avenir, Helvetica, Arial, sans-serif;
 }
 .toast-wrapper {
   .toast {

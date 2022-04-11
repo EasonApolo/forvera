@@ -5,7 +5,8 @@ export const useCategories = defineStore('category', {
   state: () => {
     return {
       categories: [] as Array<Category>,
-      editing: {} as Category
+      editing: {} as Category,
+      categoryMap: {} as { [id: string]: Category }
     }
   },
   actions: {
@@ -14,6 +15,7 @@ export const useCategories = defineStore('category', {
     },
     async fetchCategories() {
       this.categories = await request('cat')
+      this.categories.forEach(cat => this.categoryMap[cat._id] = cat)
     },
     checkParam() {
       return this.editing.title && this.editing.description
@@ -39,6 +41,9 @@ export const useCategories = defineStore('category', {
       }
       let res = await request(`cat/${this.editing._id}`, 'DELETE')
       this.clear()
+    },
+    mapCategoryName (catIds: string[]): string[] {
+      return catIds.map(id => this.categoryMap[id].title)
     }
   }
 })

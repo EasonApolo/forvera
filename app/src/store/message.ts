@@ -56,33 +56,11 @@ export const useMessageStore = defineStore('message', {
         })
       })
       if (messages.length > 0) {
-        this.mapAnonymousName(messages)
         this.messages.push(...messages)
         this.page++
       }
       this.loading = false
       return messages
-    },
-    mapAnonymousName(messages: Message[]) {
-      if (this.anonymousNameList.length !== 60) return
-      messages.map(m => {
-        if (m.user.username === 'anonymous') {
-          const sec = new Date(m.created_time).getSeconds()
-          m.user.username = this.anonymousNameList[sec]
-        }
-      })
-    },
-    async fetchAnonymousList() {
-      if (localStorage.anonymousNameList) {
-        this.anonymousNameList = JSON.parse(localStorage.anonymousNameList)
-      } else {
-        const anonymousNameList = await request('user/anonymous', 'GET')
-        if (anonymousNameList?.length === 60) {
-          this.anonymousNameList = anonymousNameList
-          localStorage.anonymousNameList = JSON.stringify(anonymousNameList)
-        }
-      }
-      this.mapAnonymousName(this.messages)
     },
     async addMessage() {
       const { content, parent, ancestor, files } = this.messageInput
