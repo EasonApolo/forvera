@@ -11,8 +11,7 @@ export const parse = (text: string) => {
     set: function (src, prop, val, _) {
       // 当index到底的时候自动更新finished
       if (prop === 'index') {
-        console.log(val, Reflect.get(src, 'source').length)
-        if (val === Reflect.get(src, 'source').length) Reflect.set(src, 'finished', true)
+        if (val >= Reflect.get(src, 'source').length) Reflect.set(src, 'finished', true)
         return Reflect.set(src, 'index', val)
       } else {
         return Reflect.set(src, prop, val)
@@ -21,10 +20,9 @@ export const parse = (text: string) => {
   })
   let i = 0
   while (!context.finished && i < 10) {
-    if (makeList(context)) {}
-    else if (makeTitle(context)) {}
-    else if (context.text.startsWith('#')) { makeTitle(context) }
-    else if (context.text.startsWith('```')) { makeCode(context) }
+    if (makeList(context)) { }
+    else if (makeTitle(context)) { }
+    else if (context.text.startsWith('```\n')) { makeCode(context) }
     else { makeParagraph(context) }
     console.log(context.index, context.finished, context.text, context.res.slice(-1))
     i++
@@ -43,7 +41,15 @@ const parseParagraph = (context: ParseContext) => {
   end = found ? end : text.length
   const next = found ? end + 1 : end
 
-  const content = text.slice(0, end)
+  let content = text.slice(0, end)
+  content = content.replaceAll(/<img\s.+?>/g, (matched) => {
+    const matchDescription = matched.match(/description="(.+)"/)
+    if (matchDescription) {
+      const res = `<span class="image-description">${matchDescription[1]}</span>`
+      return matched + res
+    }
+    return matched
+  })
   return { content, next }
 }
 
@@ -51,8 +57,7 @@ const parseParagraph = (context: ParseContext) => {
 const makeParagraph = (context: ParseContext) => {
   let text = context.text
 
-  const { content, next} = parseParagraph(context)
-  console.log('parseParagraph', content)
+  const { content, next } = parseParagraph(context)
   context.res.push(`<p>${content}</p>`)
 
   context.text = text.slice(next)
@@ -62,17 +67,16 @@ const makeParagraph = (context: ParseContext) => {
 // 生成代码块
 const makeCode = (context: ParseContext) => {
   let text = context.text
-  let i = 3
+  let i = 4
   let flag = false
-  while(i < text.length) {
+  while (i < text.length) {
     if (text[i] === '`' && text.slice(i, i + 3) === '```') {
       flag = true
       break
     }
     i++
   }
-  const code = text.slice(3, i)
-  console.log('parseParagraph', code)
+  const code = text.slice(4, i)
   context.res.push(`<code>${code}</code>`)
   // 吃掉后面跟的第一个换行
   const next = text.slice(i + 3, i + 4) === '\n' ? i + 4 : i + 3

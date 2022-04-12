@@ -67,13 +67,25 @@ onBeforeRouteLeave(() => { postDetailStore.clear(); return true })
 
   .description {
     margin-top: .5rem;
+    padding-bottom: 1rem;
     font-size: 14px;
     color: #888;
+    border-bottom: 1px solid #eee;
   }
 }
 </style>
 
 <style lang="scss">
+code {
+  display: block;
+  padding: .5rem 1rem;
+  line-height: 18px;
+  text-indent: 0;
+  background-color: #f3f3f3;
+  white-space: pre-wrap;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 13px;
+}
 .h1 {
   line-height: 60px;
   font-weight: 700;
@@ -134,5 +146,17 @@ p,
   &::before {
     left: 2.25rem;
   }
+}
+img {
+  display: block;
+  margin: 0 auto;
+}
+.image-description {
+  display: block;
+  font-style: italic;
+  text-indent: 0;
+  text-align: center;
+  color: #aaa;
+  font-size: 12px;
 }
 </style>

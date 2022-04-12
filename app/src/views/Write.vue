@@ -55,7 +55,7 @@ const upload = async () => {
 }
 const onClickImg = (index: number) => {
   const url = getUrlFromFD(files.value[index])
-  linkForCopy.value = `<img src="${url}" width="100%">`
+  linkForCopy.value = `<img src="${url}" width="auto">`
 }
 const linkForCopy = ref('')
 const copy = (e: any) => {

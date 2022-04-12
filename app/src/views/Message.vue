@@ -117,7 +117,7 @@ const replyTo = (message?: Message) => {
         font-weight: 200;
       }
       .content {
-        font-size: 16px;
+        font-size: 14px;
       }
       .header {
         display: flex;
