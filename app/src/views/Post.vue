@@ -63,7 +63,9 @@ onBeforeRouteLeave(() => { postDetailStore.clear(); return true })
   text-align: left;
   text-indent: 2rem;
 
-  .content {}
+  .content {
+    font-size: 15px;
+  }
 
   .description {
     margin-top: .5rem;

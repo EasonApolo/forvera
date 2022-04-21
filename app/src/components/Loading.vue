@@ -21,7 +21,7 @@
   animation: loading-rotate 2s infinite ease-in-out;
 }
 .path {
-  stroke: white; /*给画笔设置一个颜色*/
+  stroke: #42b983; /*给画笔设置一个颜色*/
   stroke-width: 4; /*设置线条的宽度*/
 }
 .path {

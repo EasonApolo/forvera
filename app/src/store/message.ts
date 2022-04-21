@@ -77,7 +77,8 @@ export const useMessageStore = defineStore('message', {
           fd.append('files', file)
         }
       }
-      let res = await request(api, 'POST', fd, { upload: true, progress: this.messageInput })
+      // let res = await request(api, 'POST', fd, { upload: true, progress: this.messageInput })
+      let res = await request(api, 'POST', fd)
       return res
     },
   }

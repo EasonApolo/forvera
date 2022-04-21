@@ -4,6 +4,10 @@ import { useUserStore } from '../store/user'
 import { useMainStore } from '../store/main'
 import { useToastStore } from '../store/toast'
 
+type RequestOptions = {
+  withCredentials?: boolean
+}
+
 /**
  * @description: 
  * @param {*} url
@@ -11,11 +15,11 @@ import { useToastStore } from '../store/toast'
  * @param {*} params String(stringified JSON)/FormData/Object. Object cannot handle multiple files with single key, use FormData in this case.
  * @return {*}
  */
-export async function request(url: string, method: Method = 'get', params?: any, progressOptions?: any) {
+export async function request(url: string, method: Method = 'get', params?: any, requestOptions?: RequestOptions) {
   let options: AxiosRequestConfig = {
     url,
     baseURL,
-    withCredentials: true,
+    withCredentials: requestOptions?.withCredentials ?? true,
     headers: {},
     method
   }

@@ -73,7 +73,7 @@ const replyTo = (message?: Message) => {
       </div>
     </div>
   </Card>
-  <div class="send" @click="replyTo()"></div>
+  <!-- <div class="send" @click="replyTo()"></div> -->
 </template>
 
 <style lang="scss" scoped>
@@ -128,20 +128,20 @@ const replyTo = (message?: Message) => {
     }
   }
 }
-.send {
-  position: fixed;
-  right: 1.5rem;
-  bottom: 6rem;
-  width: 3rem;
-  height: 3rem;
-  background: url(../assets/send.png) center/1.5rem no-repeat;
-  background-color: white;
-  border-radius: 2rem;
-  box-shadow: 0px 0px 16px 0px #ccc;
-  transition: .2s ease;
-  cursor: pointer;
-  &:hover {
-    transform: scale(.9);
-  }
-}
+// .send {
+//   position: fixed;
+//   right: 1.5rem;
+//   bottom: 6rem;
+//   width: 3rem;
+//   height: 3rem;
+//   background: url(../assets/send.png) center/1.5rem no-repeat;
+//   background-color: white;
+//   border-radius: 2rem;
+//   box-shadow: 0px 0px 16px 0px #ccc;
+//   transition: .2s ease;
+//   cursor: pointer;
+//   &:hover {
+//     transform: scale(.9);
+//   }
+// }
 </style>

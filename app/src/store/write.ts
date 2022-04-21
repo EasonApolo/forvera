@@ -63,7 +63,9 @@ export const useWriteStore = defineStore('write', {
     },
     async initUploadedImages() {
       const postStore = usePostStore()
-      this.files = await postStore.fetchImagesOfPost(this.postId) as FileDescriptor[]
+      const files = await postStore.fetchImagesOfPost(this.postId) as FileDescriptor[]
+      files.map(f => { f.url = f.url.replaceAll('\\', '/') })
+      this.files = files
     }
   }
 })

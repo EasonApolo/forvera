@@ -11,6 +11,7 @@ import PostListVue from './views/PostList.vue'
 import CategoryVue from './views/Category.vue'
 import Playground from './views/Playground.vue'
 import BalanceVue from './views/Playground/Balance.vue'
+import SiteInfoVue from './views/Playground/SiteInfo.vue'
 
 const router = {
   history: createWebHashHistory(),
@@ -24,6 +25,7 @@ const router = {
     { path: '/category', component: CategoryVue },
     { path: '/playground', component: Playground },
     { path: '/balance', component: BalanceVue },
+    { path: '/siteinfo', component: SiteInfoVue }
   ]
 }
 

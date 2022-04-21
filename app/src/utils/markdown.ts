@@ -7,6 +7,7 @@ type ParseContext = {
 }
 
 export const parse = (text: string) => {
+  const t1 = new Date()
   let context: ParseContext = new Proxy({ source: text, text, finished: false, index: 0, res: [] }, {
     set: function (src, prop, val, _) {
       // 当index到底的时候自动更新finished
@@ -19,14 +20,15 @@ export const parse = (text: string) => {
     }
   })
   let i = 0
-  while (!context.finished && i < 10) {
+  while (!context.finished && i < 2000) {
     if (makeList(context)) { }
     else if (makeTitle(context)) { }
     else if (context.text.startsWith('```\n')) { makeCode(context) }
     else { makeParagraph(context) }
-    console.log(context.index, context.finished, context.text, context.res.slice(-1))
+    // console.log(context.index, context.finished, context.text, context.res.slice(-1))
     i++
   }
+  console.log(`parse time: ${new Date().getTime() - t1.getTime()}ms`)
   return context.res.join('')
 }
 
@@ -42,7 +44,7 @@ const parseParagraph = (context: ParseContext) => {
   const next = found ? end + 1 : end
 
   let content = text.slice(0, end)
-  content = content.replaceAll(/<img\s.+?>/g, (matched) => {
+  content = content.replaceAll(/(?:<img\s.+?>)|(?:[.+](.+?))/g, (matched) => {
     const matchDescription = matched.match(/description="(.+)"/)
     if (matchDescription) {
       const res = `<span class="image-description">${matchDescription[1]}</span>`

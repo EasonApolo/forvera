@@ -16,6 +16,33 @@ const { posts } = storeToRefs(postStore)
 categoryStore.init()
 const { categories } = storeToRefs(categoryStore)
 
+const groupedPosts = computed(() => {
+  const now = Date.now()
+  const month = 3600 * 24 * 30 * 1000
+  type PostGroup = { name: string, posts: Post[] }
+  let group = {} as PostGroup
+  const groups: PostGroup[] = []
+  filteredPosts.value.map(post => {
+    const updatedDate = new Date(post.updated_time)
+    if (now - updatedDate.getTime() < month) {
+      if (!group.name) {
+        group = { name: 'Recent', posts: [post] }
+        groups.push(group)
+      }
+      else group.posts.push(post)
+    } else {
+      const year = `${updatedDate.getFullYear()}`
+      if (group.name !== year) {
+        group = { name: year, posts: [post] }
+        groups.push(group)
+      } else {
+        group.posts.push(post)
+      }
+    }
+  })
+  return groups
+})
+
 let activeCatId = ref('')
 const filterByCategory = (category: Category) => {
   if (activeCatId.value === category._id) activeCatId.value = ''
@@ -38,25 +65,24 @@ const read = (postId: string) => {
       <Card class="categories-wrapper">
         <span>标签</span>
         <div class="categories">
-          <Label
-            :active="activeCatId === cat._id"
-            v-for="cat in categories"
-            @click="filterByCategory(cat)"
-          >{{ cat.title }}</Label>
+          <Label :active="activeCatId === cat._id" v-for="cat in categories" @click="filterByCategory(cat)">{{
+            cat.title
+          }}</Label>
         </div>
       </Card>
-      <Card class="post" v-for="post in filteredPosts" @click="read(post._id)">
-        <div class="left">{{ post.title || '无标题' }}
-        </div>
-        <div class="right">
-          <div class="date">{{ formatDate(post.updated_time) }}</div>
-          <div class="post-cat" v-if="categories">
-            <div
-              v-for="cat in post.category"
-            >{{ categories.find(catInfo => catInfo._id === cat)?.title }}</div>
+      <div v-for="group in groupedPosts" :key="group.name" class="post-group">
+        <div class="group-name">{{ group.name }}</div>
+        <Card class="post" v-for="post in group.posts" @click="read(post._id)">
+          <div class="left">{{ post.title || '无标题' }}
           </div>
-        </div>
-      </Card>
+          <div class="right">
+            <div class="date">{{ formatDate(post.updated_time) }}</div>
+            <div class="post-cat" v-if="categories">
+              <div v-for="cat in post.category">{{ categories.find(catInfo => catInfo._id === cat)?.title }}</div>
+            </div>
+          </div>
+        </Card>
+      </div>
     </template>
   </List>
 </template>
@@ -65,49 +91,71 @@ const read = (postId: string) => {
 .categories-wrapper {
   display: flex;
   align-items: center;
+
   span {
     flex: 0 0 auto;
   }
+
   .categories {
     display: flex;
     align-items: center;
     margin-left: 1rem;
     overflow: auto;
+
     * {
       flex: 0 0 auto;
       margin-right: 1rem;
     }
   }
 }
-.post {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  .left {
+
+.post-group {
+  margin-top: 1rem;
+  .group-name {
+    margin: 0 0 .5rem 3px;
     text-align: left;
+    font-size: 14px;
+    color: #aaa;
+    font-family: Avenir, Helvetica, Arial, sans-serif;
   }
-  .right {
+  .post {
     display: flex;
-    flex-direction: column;
-    flex: 0 0 auto;
-    align-items: flex-end;
-    .post-cat {
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+
+    .left {
+      text-align: left;
+    }
+
+    .right {
       display: flex;
-      font-size: 12px;
-      color: #aaa;
-      div:not(:last-child){
-        margin-right: .25rem;
-        &::after{
-          content: ' /'
+      flex-direction: column;
+      flex: 0 0 auto;
+      align-items: flex-end;
+
+      .post-cat {
+        display: flex;
+        font-size: 12px;
+        color: #aaa;
+
+        div:not(:last-child) {
+          margin-right: .25rem;
+
+          &::after {
+            content: ' /'
+          }
         }
       }
-    }
-    .date {
-      font-size: 12px;
-      color: #888;
+
+      .date {
+        font-size: 12px;
+        color: #888;
+      }
     }
   }
 }
+
 a {
   color: #42b983;
 }

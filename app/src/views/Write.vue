@@ -77,7 +77,7 @@ const copy = (e: any) => {
         <input class="text-input" v-model="post.description" />
       </Card>
       <Card>
-        <textarea class="text-input textarea" v-model="post.content"></textarea>
+        <textarea class="text-input textarea" v-model="post.content" rows="15"></textarea>
       </Card>
       <Card>
         <template v-slot:title>选择标签</template>
