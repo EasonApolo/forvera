@@ -16,6 +16,7 @@ type RequestOptions = {
  * @return {*}
  */
 export async function request(url: string, method: Method = 'get', params?: any, requestOptions?: RequestOptions) {
+  console.log(requestOptions)
   let options: AxiosRequestConfig = {
     url,
     baseURL,
@@ -33,10 +34,12 @@ export async function request(url: string, method: Method = 'get', params?: any,
   // }
 
   // set authorization
-  const userStore = useUserStore()
-  const bearer = userStore.userInfo.token
-  if (bearer) {
-    options.headers!['Authorization'] = bearer
+  if (options.withCredentials) {
+    const userStore = useUserStore()
+    const bearer = userStore.userInfo.token
+    if (bearer) {
+      options.headers!['Authorization'] = bearer
+    }
   }
   // set body
   if (params) {

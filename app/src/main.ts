@@ -12,11 +12,12 @@ import CategoryVue from './views/Category.vue'
 import Playground from './views/Playground.vue'
 import BalanceVue from './views/Playground/Balance.vue'
 import SiteInfoVue from './views/Playground/SiteInfo.vue'
+import HomeVue from './views/Home.vue'
 
 const router = {
   history: createWebHashHistory(),
   routes: [
-    { path: '/', component: PostListVue },
+    { path: '/', component: HomeVue },
     { path: '/message', component: MessageVue },
     { path: '/profile', component: Profile },
     { path: '/addMessage', component: AddMessageVue },

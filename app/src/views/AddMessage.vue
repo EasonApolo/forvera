@@ -2,6 +2,7 @@
 import { storeToRefs } from 'pinia'
 import { reactive, ref, computed } from 'vue'
 import Btn from '../components/Btn.vue'
+import List from '../components/layout/List.vue'
 import Card from '../components/Card.vue'
 import { useMainStore } from '../store/main'
 import { useMessageStore } from '../store/message'
@@ -77,47 +78,36 @@ const toggleAnonymous = () => {
 </script>
 
 <template>
-  <Card class="input-wrapper">
-    <div class="content">
-      <div class="tips">
-        - {{ userStore.isLogin ? '' : '当前未登录，登录后' }}可以{{ messageWrapper.replyToUsername ? '' : '附带最多3张图片和' }}切换身份。<br>
-        - 退出页面会清空，不要在这里打一堆字哦。<br>
-        - 正在以{{ messageWrapper.anonymous ? '随机' : userStore.userInfo.username }}身份{{ messageWrapper.replyToUsername ? `回复${messageWrapper.replyToUsername}` : '发言' }}。<br>
-      </div>
-      <textarea
-        class="input text-input"
-        v-model="messageInput.content"
-        rows="3"
-      />
-      <DraggableGallery
-        v-if="!messageWrapper.anonymous && displayImages?.length"
-        :images="displayImages"
-        class="gallery"
-        :is-draggable="true"
-        :onDrag="onDrag"
-        :onRemove="onRemove"
-      ></DraggableGallery>
-      <div class="actions">
-        <Btn
-          class="action send"
-          @click="send"
-        >{{ sendBtnContent }}</Btn>
-        <div class="right">
-          <FileInput
-            v-if="!messageWrapper.anonymous && !messageWrapper.replyToUsername"
-            :change="fileInputChange"
-            :multiple="true"
-          ></FileInput>
-          <Label
-            class="action"
-            @click="toggleAnonymous"
-            :active="messageWrapper.anonymous"
-          >{{ messageWrapper.anonymous ? '匿名中' : '启用匿名' }}</Label>
+  <List>
+    <template v-slot:content>
+      <Card class="input-wrapper">
+        <div class="content">
+          <div class="tips">
+            - {{ userStore.isLogin ? '' : '当前未登录，登录后' }}可以{{ messageWrapper.replyToUsername ? '' : '附带最多3张图片和'
+            }}切换身份。<br>
+            - 退出页面会清空，不要在这里打一堆字哦。<br>
+            - 正在以{{ messageWrapper.anonymous ? '随机' : userStore.userInfo.username }}身份{{ messageWrapper.replyToUsername
+                ? `回复${messageWrapper.replyToUsername}` : '发言'
+            }}。<br>
+          </div>
+          <textarea class="input text-input" v-model="messageInput.content" rows="3" />
+          <DraggableGallery v-if="!messageWrapper.anonymous && displayImages?.length" :images="displayImages"
+            class="gallery" :is-draggable="true" :onDrag="onDrag" :onRemove="onRemove"></DraggableGallery>
+          <div class="actions">
+            <Btn class="action send" @click="send">{{ sendBtnContent }}</Btn>
+            <div class="right">
+              <FileInput v-if="!messageWrapper.anonymous && !messageWrapper.replyToUsername" :change="fileInputChange"
+                :multiple="true"></FileInput>
+              <Label class="action" @click="toggleAnonymous" :active="messageWrapper.anonymous">{{
+                  messageWrapper.anonymous ? '匿名中' : '启用匿名'
+              }}</Label>
+            </div>
+          </div>
         </div>
-      </div>
-    </div>
-    <div class="icon"></div>
-  </Card>
+        <div class="icon"></div>
+      </Card>
+    </template>
+  </List>
 </template>
 
 <style lang="scss" scoped>
@@ -127,25 +117,31 @@ const toggleAnonymous = () => {
     margin: 1rem auto 0;
     align-items: center;
     justify-content: space-between;
+
     .send {
       flex: 0 0 auto;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
+
     .right {
       margin-left: auto;
       display: flex;
+
       .action {
         margin-left: 1rem;
       }
     }
   }
+
   .gallery {
     margin-top: 1rem;
   }
+
   .content {
     transition: 0.05s ease-out;
+
     .tips {
       margin-bottom: 8px;
       text-align: left;

@@ -44,7 +44,9 @@ fetchCommits()
           <div class="version">{{ commit.version }}</div>
           <div class="title">{{ commit.title }}</div>
           <div class="message">
-            <div v-for="c in commit.content">{{ c }}</div>
+            <div>
+              <div v-for="c in commit.content">{{ c }}</div>
+            </div>
           </div>
           <div class="date">{{ commit.date }}</div>
         </div>
@@ -60,31 +62,53 @@ fetchCommits()
   width: 25px;
   height: 25px;
 }
+
 .card {
   text-align: left;
 }
-.card > .title{
+
+.card>.title {
   margin-bottom: 4px;
   font-weight: bold;
 }
+
 .commits {
   .commit {
     display: flex;
     margin-top: .5rem;
+    width: 100%;
     align-items: flex-start;
     line-height: 1rem;
     font-size: 14px;
+
+    &>div {
+      flex: 0 0 auto;
+    }
+
     .version {
-      width: 4rem;
+      width: 2.5rem;
       font-style: italic;
     }
+
     .title {
-      width: 10rem;
+      width: 8rem;
     }
+
     .message {
       flex: 1 0 auto;
+      width: calc(100% - 18rem);
+
+      &>div {
+        word-break: break-all;
+        overflow: auto;
+        div {
+          white-space: nowrap;
+        }
+      }
     }
+
     .date {
+      width: 6rem;
       font-size: 12px;
       color: #aaa;
     }

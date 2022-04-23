@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia';
 import { useMainStore } from '../store/main';
+import List from '../components/layout/List.vue';
 import Card from '../components/Card.vue';
 import { throttle, formatDate, readFile } from '../utils/common';
 import { useMessageStore } from '../store/message';
@@ -20,14 +21,15 @@ const doFetch = throttle(async () => {
   let res = await messageStore.fetchMessages()
   if (res && res.length <= 0) toastStore.showToast({ content: '没有更多啦', type: '!' })
 })
-const onScroll = () => {
-  let atBottom = document.documentElement.scrollTop + window.innerHeight >= document.body.clientHeight - 10 * 16
+const onScroll = (e: any) => {
+  let parentHeight = e.target.clientHeight
+  let scrollHeight = e.target.scrollTop
+  let childHeight = e.target.getElementsByClassName('layout-list')[0].clientHeight
+  let atBottom = scrollHeight + parentHeight >= childHeight - 10 * 16
   if (atBottom) {
     doFetch()
   }
 }
-window.addEventListener('scroll', onScroll)
-onBeforeRouteLeave(() => window.removeEventListener('scroll', onScroll))
 
 // computed
 const getReplyToUsername = (message: Message, reply: Message) => {
@@ -52,75 +54,89 @@ const replyTo = (message?: Message) => {
 </script>
 
 <template>
-  <Card class="message" v-for="message in messages" @click="replyTo(message)">
-    <div class="header">
-      <div class="name">{{ message.user.username }}</div>
-      <div class="date">{{ formatDate(message.created_time) }}</div>
-    </div>
-    <div class="content">{{ message.content }}</div>
-    <Gallery v-if="message.files.length" class="gallery" :images="message.files.map(f => f.thumb)" :onClick="clickImage"></Gallery>
-    <div class="reply-wrapper" v-if="message.descendants?.length>0">
-      <div class="reply" v-for="reply in message.descendants" @click.stop="replyTo(reply)">
+  <List @scroll="onScroll">
+    <template v-slot:content>
+      <Card class="message" v-for="message in messages" @click="replyTo(message)">
         <div class="header">
-          <div class="name">{{ reply.user.username }}</div>
-          <div
-            class="name"
-            v-if="getReplyToUsername(message, reply)"
-          >: {{ getReplyToUsername(message, reply) }}</div>
+          <div class="name">{{ message.user.username }}</div>
+          <div class="date">{{ formatDate(message.created_time) }}</div>
         </div>
-        <div class="date">{{ formatDate(reply.created_time) }}</div>
-        <div class="content">{{ reply.content }}</div>
-      </div>
-    </div>
-  </Card>
-  <!-- <div class="send" @click="replyTo()"></div> -->
+        <div class="content">{{ message.content }}</div>
+        <Gallery v-if="message.files.length" class="gallery" :images="message.files.map(f => f.thumb)"
+          :onClick="clickImage"></Gallery>
+        <div class="reply-wrapper" v-if="message.descendants?.length > 0">
+          <div class="reply" v-for="reply in message.descendants" @click.stop="replyTo(reply)">
+            <div class="header">
+              <div class="name">{{ reply.user.username }}</div>
+              <div class="name" v-if="getReplyToUsername(message, reply)">: {{ getReplyToUsername(message, reply) }}
+              </div>
+            </div>
+            <div class="date">{{ formatDate(reply.created_time) }}</div>
+            <div class="content">{{ reply.content }}</div>
+          </div>
+        </div>
+      </Card>
+    </template>
+  </List>
 </template>
 
 <style lang="scss" scoped>
 .message {
   padding: 0.5rem 1rem;
   text-align: left;
+
   .header {
     display: flex;
     justify-content: space-between;
     align-items: center;
   }
+
   &:not(:first-child) {
     margin-top: 0.5rem;
   }
+
   .name {
     font-size: 15px;
     font-weight: 700;
   }
+
   .date {
     font-size: 12px;
     color: #aaa;
   }
+
   .content {
     font-size: 15px;
   }
+
   .gallery {
     margin-top: 1rem;
   }
+
   .reply-wrapper {
     margin-top: 1rem;
     display: flex;
     flex-wrap: wrap;
+
     /* justify-content: space-between; */
     .reply {
       margin: 0 1rem 0.75rem 0;
       padding: 0.25rem 0.5rem;
       border-radius: 0.5rem;
       box-shadow: 1px 2px 6px 1px #eee;
+
       .name {
         font-size: 12px;
         font-weight: 200;
       }
+
       .content {
         font-size: 14px;
       }
+
       .header {
         display: flex;
+
         div:not(:last-child) {
           margin-right: 0.125rem;
         }
@@ -128,6 +144,7 @@ const replyTo = (message?: Message) => {
     }
   }
 }
+
 // .send {
 //   position: fixed;
 //   right: 1.5rem;

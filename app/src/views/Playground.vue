@@ -15,4 +15,8 @@ import List from '../components/layout/List.vue'
 </template>
 
 <style lang="scss" scoped>
+a {
+  text-decoration: none;
+  color: inherit;
+}
 </style>

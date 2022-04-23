@@ -28,7 +28,7 @@ const { type, show, content, icon } = storeToRefs(toastStore)
   top: 0;
   left: 0;
   right: 0;
-  bottom: 0;
+  height: 5rem;
   display: flex;
   align-items: top;
   justify-content: center;
