@@ -105,7 +105,7 @@ const replyTo = () => {
     width: 100%;
     top: -.75rem;
     height: 2.5rem;
-    background-image: linear-gradient(rgba(255, 255, 255, 1), rgba(0, 0, 0, 0) 25%, rgba(0, 0, 0, 0) 75%, rgba(255, 255, 255, 1));
+    background-image: linear-gradient(rgba(255, 255, 255, 1), rgba(255, 255, 255, 0) 25%, rgba(255, 255, 255, 0) 75%, rgba(255, 255, 255, 1));
     isolation: isolate;
     overflow: hidden;
 

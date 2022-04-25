@@ -7,7 +7,7 @@
   </div>
 </template>
 
-<style lang="scss" scoped>
+<style lang="scss">
 .list {
   height: 100vh;
     overflow-y: auto;

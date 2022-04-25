@@ -28,7 +28,7 @@ const publish = async () => {
   const res = await writeStore.publish()
   if (res) {
     toastStore.showToast({ content: '已更新', type: 'OK' })
-    mainStore.go('profile')
+    mainStore.go('/')
   }
 }
 const deletePost = async () => {
@@ -36,7 +36,7 @@ const deletePost = async () => {
   if (!res) return
   await writeStore.deletePost()
   toastStore.showToast({ content: '已删除～', type: 'OK' })
-  mainStore.go('profile')
+  mainStore.go('/')
 }
 const changeStatus = () => {
   writeStore.changeStatus()
