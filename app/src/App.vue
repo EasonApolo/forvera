@@ -37,6 +37,20 @@ body {
   color: #2c3e50;
 }
 
+::-webkit-scrollbar {
+  width: 6px;
+  height: 16px;
+}
+
+::-webkit-scrollbar-track {
+  background-color: #f6f6f6;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 16px;
+  background-color: #ddd;
+}
+
 .flex-center {
   display: flex;
   align-items: center;

@@ -84,6 +84,7 @@ const replyTo = (message?: Message) => {
 .message {
   padding: 0.5rem 1rem;
   text-align: left;
+  cursor: pointer;
 
   .header {
     display: flex;

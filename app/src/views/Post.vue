@@ -32,6 +32,7 @@ onBeforeRouteLeave(() => { postDetailStore.clear(); return true })
           <div class="content" v-html="post.content"></div>
         </div>
       </Card>
+      <div class="ending" v-if="post">—— 完 ——</div>
     </template>
   </List>
 </template>
@@ -73,7 +74,13 @@ onBeforeRouteLeave(() => { postDetailStore.clear(); return true })
     font-size: 14px;
     color: #888;
     border-bottom: 1px solid #eee;
+    text-indent: 0;
   }
+}
+.ending {
+  margin-top: 1rem;
+  font-size: 12px;
+  color: #aaa;
 }
 </style>
 
@@ -88,22 +95,25 @@ code {
   font-family: Consolas, "Courier New", monospace;
   font-size: 13px;
 }
+.h1, .h2, .h3, .h4 {
+  text-indent: 0;
+  font-weight: bold;
+}
 .h1 {
   line-height: 60px;
-  font-weight: 700;
   font-size: 28px;
 }
-
 .h2 {
   line-height: 48px;
-  font-weight: 600;
   font-size: 24px;
 }
-
 .h3 {
   line-height: 36px;
-  font-weight: 500;
   font-size: 20px;
+}
+.h4 {
+  line-height: 24px;
+  font-size: 17px;
 }
 
 p,

@@ -38,7 +38,7 @@ const replyTo = () => {
 </script>
 
 <template>
-  <swiper :slides-per-view="1" :space-between="50" @swiper="onSwiper" @slideChange="onSlideChange">
+  <swiper :slides-per-view="1" :space-between="50" @swiper="onSwiper" @slideChange="onSlideChange" :threshold="20">
     <swiper-slide v-for="tab in tabs">
       <component v-bind:is="tab.component"></component>
     </swiper-slide>
@@ -90,6 +90,8 @@ const replyTo = () => {
     padding: .5rem 0;
     line-height: 14px;
     transition: color .2s ease;
+    cursor: pointer;
+    user-select: none;
   }
 
   .active {
