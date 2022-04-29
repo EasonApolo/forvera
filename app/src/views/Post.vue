@@ -62,7 +62,6 @@ onBeforeRouteLeave(() => { postDetailStore.clear(); return true })
 
 .main {
   text-align: left;
-  text-indent: 2rem;
 
   .content {
     font-size: 15px;
@@ -74,7 +73,6 @@ onBeforeRouteLeave(() => { postDetailStore.clear(); return true })
     font-size: 14px;
     color: #888;
     border-bottom: 1px solid #eee;
-    text-indent: 0;
   }
 }
 .ending {
@@ -87,16 +85,16 @@ onBeforeRouteLeave(() => { postDetailStore.clear(); return true })
 <style lang="scss">
 code {
   display: block;
+  margin: 1em 0;
   padding: .5rem 1rem;
   line-height: 18px;
-  text-indent: 0;
   background-color: #f3f3f3;
   white-space: pre-wrap;
   font-family: Consolas, "Courier New", monospace;
   font-size: 13px;
 }
 .h1, .h2, .h3, .h4 {
-  text-indent: 0;
+  margin: 1em 0 0 0;
   font-weight: bold;
 }
 .h1 {
@@ -113,21 +111,20 @@ code {
 }
 .h4 {
   line-height: 24px;
-  font-size: 17px;
+  font-size: 16px;
 }
 
 p,
 .ul1,
 .ul2,
 .ul3 {
-  line-height: 28px;
+  line-height: 26px;
 }
 
 .ul1,
 .ul2,
 .ul3 {
   position: relative;
-
   &::before {
     content: '•';
     position: absolute;
@@ -166,7 +163,6 @@ img {
 .image-description {
   display: block;
   font-style: italic;
-  text-indent: 0;
   text-align: center;
   color: #aaa;
   font-size: 12px;

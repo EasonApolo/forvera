@@ -108,6 +108,7 @@ const replyTo = (message?: Message) => {
 
   .content {
     font-size: 15px;
+    white-space: break-spaces;
   }
 
   .gallery {
