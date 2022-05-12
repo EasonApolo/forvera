@@ -8,7 +8,7 @@ import List from '../components/layout/List.vue'
   <List>
     <template v-slot:content>
       <router-link to="/siteinfo"><Card>最近更新</Card></router-link>
-      <!-- <Card><router-link to="/balance">记账本</router-link></Card> -->
+      <Card><router-link to="/balance">记账本</router-link></Card>
       <!-- <Card>豆瓣酱</Card> -->
     </template>
   </List>
