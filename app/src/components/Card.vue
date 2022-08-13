@@ -14,16 +14,16 @@ const showTitle = slots.title
   </div>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .card {
   padding: 1rem;
   border-radius: 0.5rem;
   background-color: white;
-}
-.title {
-  margin-bottom: 0.75rem;
-  font-size: 18px;
-  font-weight: 500;
-  text-align: left;
+  & > .title {
+    margin-bottom: 0.25rem;
+    font-size: 18px;
+    font-weight: bold;
+    text-align: left;
+  }
 }
 </style>

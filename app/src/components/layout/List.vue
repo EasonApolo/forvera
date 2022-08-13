@@ -1,5 +1,5 @@
 <template>
-  <div class="list">
+  <div class="component-list">
     <slot name="layout-title" class="title"></slot>
     <div class="layout-list">
       <slot name="content"></slot>
@@ -8,7 +8,7 @@
 </template>
 
 <style lang="scss">
-.list {
+.component-list {
   height: 100vh;
     overflow-y: auto;
     overflow-x: hidden;

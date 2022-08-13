@@ -8,7 +8,7 @@ import { useMessageStore } from '../store/message';
 import { useUserStore } from '../store/user';
 import Gallery from '../components/Gallery.vue';
 import { useToastStore } from '../store/toast';
-import { onBeforeRouteLeave } from 'vue-router';
+import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router';
 import { useImageStore } from '../store/image';
 
 const [messageStore, userStore, mainStore, toastStore, imageStore] = [useMessageStore(), useUserStore(), useMainStore(), useToastStore(), useImageStore()]

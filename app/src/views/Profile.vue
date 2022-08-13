@@ -9,7 +9,6 @@ import { usePostStore } from '../store/post';
 import { formatDate } from '../utils/common';
 import { useWriteStore } from '../store/write';
 import Label from '../components/Label.vue'
-import TextInput from '../components/TextInput.vue'
 import { ref } from 'vue';
 import { useToastStore } from '../store/toast';
 

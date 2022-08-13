@@ -12,7 +12,12 @@ export class TwitController {
   @UseInterceptors(FilesInterceptor('files'))
   async addTwit(@Req() req, @Body() addTwitDTO: AddTwitDTO, @UploadedFiles() files) {
     let userId = req.user.userId
-    return await this.twitService.addTwit(userId, addTwitDTO, files)
+    const newRecord = await this.twitService.addTwit(userId, addTwitDTO, files)
+    if (addTwitDTO.ancestor) {
+      return await this.twitService.getTwitById(addTwitDTO.ancestor)
+    } else {
+      return newRecord
+    }
   }
 
   @Public()

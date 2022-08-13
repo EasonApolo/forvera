@@ -1,10 +1,23 @@
 import { Document } from 'mongoose';
 
 export interface Balance extends Document {
-  user: string
-  value: Number,
-  category: Number,
-  type: Number, // 0 - income, 1 - expense
-  created_time: Date,
-  description: String,
+  userId: string;
+  value: number;
+  category: number;
+  type: number; // 0 - income, 1 - expense
+  createdTime: Date;
+  updatedTime: Date;
+  dateStamp: number;
+  year: number;
+  month: number;
+  date: number;
+  description: string;
+}
+
+export interface BalanceDTO extends Document {
+  value: number;
+  category: number;
+  type: number; // 0 - income, 1 - expense
+  dateStamp: number;
+  description: string;
 }

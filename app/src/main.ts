@@ -17,7 +17,7 @@ import HomeVue from './views/Home.vue'
 const router = {
   history: createWebHashHistory(),
   routes: [
-    { path: '/', component: HomeVue },
+    { path: '/', component: HomeVue, name: 'home' },
     { path: '/message', component: MessageVue },
     { path: '/profile', component: Profile },
     { path: '/addMessage', component: AddMessageVue },

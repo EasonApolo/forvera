@@ -10,7 +10,7 @@ userStore.getUserInfo()
 <template>
   <!-- router-view cannot be inside KeepAlive or Transition -->
   <router-view v-slot="{ Component }">
-    <keep-alive>
+    <keep-alive include="Home">
       <component :is="Component" />
     </keep-alive>
   </router-view>

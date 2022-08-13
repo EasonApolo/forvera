@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { reactive, computed, ref, onMounted } from 'vue'
 
+export type PickedDate = { year: number, month: number, date: number }
+const emit = defineEmits<{ (e: 'change', date: PickedDate): void }>()
+
 // initialize
 const cur = new Date()
 const curYear = cur.getFullYear()
@@ -10,9 +13,16 @@ const curDate = cur.getDate()
 // picker scroll initialize
 const yearPicker: any = ref(null)
 const monthPicker: any = ref(null)
+const getPickerScrollUpdater = (picker: any, step: number) => {
+  return (index: number) => {
+    picker.value.scrollLeft = index * step
+  }
+}
+const yearPickerUpdater = getPickerScrollUpdater(yearPicker, 3 * 16)
+const monthPickerUpdater = getPickerScrollUpdater(monthPicker, 2 * 16)
 onMounted(() => {
-  yearPicker.value.scrollLeft = (calendar.year.indexOf(datePicker.year) * 3) * 16
-  monthPicker.value.scrollLeft = (calendar.month.indexOf(datePicker.month) * 2) * 16
+  yearPickerUpdater(calendar.year.indexOf(datePicker.year))
+  monthPickerUpdater(calendar.month.indexOf(datePicker.month))
 })
 
 // update methods
@@ -39,7 +49,7 @@ const getDayOffsetInMonth = () => {
 }
 
 // main data source
-const datePicker = reactive({ year: curYear, month: curMonth, date: curDate })
+const datePicker: PickedDate = reactive({ year: curYear, month: curMonth, date: curDate })
 const calendar = reactive({
   year: [curYear - 1, curYear],
   month: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
@@ -48,38 +58,40 @@ const calendar = reactive({
   DAY: ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
 })
 
-const computedDate = computed(() => {
-  return `${datePicker.year}-${datePicker.month + 1}-${datePicker.date}`
-})
-
 // onSelect
 const selectDate = (newDate: number) => {
   datePicker.date = newDate
+  emit('change', datePicker)
 }
 const selectYear = (newYear: number) => {
   datePicker.year = newYear
   calendar.dayOffset = getDayOffsetInMonth()
-  if (datePicker.date > calendar.date) datePicker.date = 1
+  datePicker.date = 0
+  yearPickerUpdater(calendar.year.indexOf(datePicker.year))
 }
 const selectMonth = (newMonth: number) => {
   datePicker.month = newMonth
   calendar.date = getAllDateInMonth({ m: datePicker.month, y: datePicker.year })
   calendar.dayOffset = getDayOffsetInMonth()
-  if (datePicker.date > calendar.date) datePicker.date = 1
+  datePicker.date = 0
+  monthPickerUpdater(calendar.month.indexOf(datePicker.month))
 }
-
 </script>
 
 <template>
-  <div class="date-picker">日期
+  <div class="date-picker">
     <div class="header">
-      <div class="year-picker" ref="yearPicker">
-        <div class="year" :class="{ active: datePicker.year === y }" v-for="y in calendar.year" @click="selectYear(y)">
-          {{ y }}</div>
+      <div class="picker-wrapper">
+        <div class="year-picker" ref="yearPicker">
+          <div class="year" :class="{ active: datePicker.year === y }" v-for="y in calendar.year"
+            @click="selectYear(y)">{{ y }}</div>
+        </div>
       </div>
-      <div class="month-picker" ref="monthPicker">
-        <div class="month" :class="{ active: datePicker.month === m }" v-for="m in calendar.month"
-          @click="selectMonth(m)">{{ m + 1 }}</div>
+      <div class="picker-wrapper">
+        <div class="month-picker" ref="monthPicker">
+          <div class="month" :class="{ active: datePicker.month === m }" v-for="m in calendar.month"
+            @click="selectMonth(m)">{{ m + 1 }}</div>
+        </div>
       </div>
     </div>
     <div class="calendar">
@@ -134,21 +146,29 @@ const selectMonth = (newMonth: number) => {
     }
   }
 
-  .year-picker,
-  .month-picker {
-    display: flex;
-    overflow-x: auto;
+  .picker-wrapper {
+    background-image: linear-gradient(to right, rgba(255, 255, 255, 1) 0, rgba(255, 255, 255, 0) 10%, rgba(255, 255, 255, 0) 90%, rgba(255, 255, 255, 1) 100%);
+    isolation: isolate;
 
-    .year,
-    .month {
-      flex: 0 0 auto;
-      text-align: center;
-      line-height: 1.5rem;
-      height: 1.5rem;
-    }
+    .year-picker,
+    .month-picker {
+      display: flex;
+      overflow-x: auto;
+      mix-blend-mode: overlay;
+      scroll-behavior: smooth;
 
-    &::-webkit-scrollbar {
-      display: none;
+      .year,
+      .month {
+        flex: 0 0 auto;
+        text-align: center;
+        line-height: 1.5rem;
+        height: 1.5rem;
+      }
+
+      &::-webkit-scrollbar {
+        height: 4px;
+        // display: none;
+      }
     }
   }
 
