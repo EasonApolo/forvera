@@ -15,7 +15,7 @@ interface Balance {
   user: string;
   value: number;
   category: number;
-  type: number; // 0 - income, 1 - expense
+  type: 0 | 1; // 0 - income, 1 - expense
   createdTime: Date;
   updatedTime: Date;
   dateStamp: number;
@@ -47,8 +47,9 @@ const date = reactive({
 const computedDate = computed(() => {
   return `${date.year}-${date.month + 1}-${date.date}`;
 });
-const updateDate = (newDate: PickedDate) => {
+const updateDate = async (newDate: PickedDate) => {
   Object.assign(date, newDate);
+  data.value = await getByDate()
 };
 
 /**
@@ -67,6 +68,12 @@ const type: Ref<0 | 1> = ref(1);
 const changeType = () => {
   type.value = type.value ? 0 : 1;
   selectTag({} as Tag);
+};
+const getTagName = (balance: Balance) => {
+  const balanceTag = tags[balance.type].find(
+    (tag) => tag.id === balance.category
+  );
+  return balanceTag?.name || "";
 };
 
 /**
@@ -125,8 +132,11 @@ const submit = async () => {
   data.value = await request(`/balance`, "POST", JSON.stringify(dto));
 };
 const init = async () => {
-  data.value = await request(`/balance/${getDateStamp(date)}`);
+  data.value = await getByDate()
 };
+const getByDate = async () => {
+  return (await request(`/balance/${getDateStamp(date)}`)) as Balance[];
+}
 init();
 </script>
 
@@ -137,7 +147,7 @@ init();
         <template v-slot:title>统计</template>
       </Card>
       <Card>
-        <template v-slot:title>日历</template>
+        <template v-slot:title>日期</template>
         <DatePicker v-on:change="updateDate" />
         <div class="entry">
           <div class="label">日期</div>
@@ -192,8 +202,24 @@ init();
       </Card>
       <div v-if="!data.length" class="ending">—— 这一天还没有记账哦 ——</div>
       <Card v-else>
-        <div v-for="record in data" :key="record._id">
-          {{ record.description }}
+        <div class="table">
+          <div class="row header">
+            <div class="type" style="opacity: 0"></div>
+            <div class="category">类型</div>
+            <div class="description">描述</div>
+            <div class="value">金额</div>
+          </div>
+          <div v-for="record in data" :key="record._id" class="row">
+            <div
+              class="type"
+              :style="{
+                'background-color': record.type === 0 ? 'red' : 'green',
+              }"
+            ></div>
+            <div class="category">{{ getTagName(record) }}</div>
+            <div class="description">{{ record.description }}</div>
+            <div class="value">{{ record.value }}</div>
+          </div>
         </div>
       </Card>
     </template>
@@ -270,5 +296,39 @@ init();
   margin-top: 1rem;
   font-size: 12px;
   color: #aaa;
+}
+
+.table {
+  .row {
+    display: flex;
+    align-items: center;
+    height: 2rem;
+    text-align: left;
+    font-size: .875rem;
+    .type {
+      margin-right: 1rem;
+      width: .5rem;
+      height: .5rem;
+      border-radius: 100%;
+      background-color: blue;
+    }
+    .category {
+      width: 4rem;
+    }
+    .description {
+      flex: 1 1 auto;
+      color: #aaa;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .value {
+      width: 4rem;
+      text-align: right;
+    }
+  }
+  .header {
+    color: #aaa;
+    font-size: .75rem;
+  }
 }
 </style>
