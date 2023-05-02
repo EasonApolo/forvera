@@ -36,6 +36,7 @@ interface Post {
   status: 0 | 1
   category: Array<string>
   updated_time: string
+  created_time: string
   author: UserInfo
 }
 

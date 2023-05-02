@@ -66,9 +66,9 @@ const goCategory = () => {
 <template>
   <List>
     <template v-slot:content>
-      <Card v-if="!isLogin" class="login-wrapper">
-        <input class="text-input" v-model="loginData.username" />
-        <input class="text-input" v-model="loginData.password" type="password" />
+      <Card v-if="!isLogin" class="login-wrapper" @keyup.enter="login">
+        <input class="text-input login-input" v-model="loginData.username" placeholder="username" />
+        <input class="text-input login-input" v-model="loginData.password" placeholder="password" type="password" />
         <div class="flex-center">
           <Btn type="primary" @click="login" :loading="loading.login">登录</Btn>
           <Btn @click="register" :loading="loading.register">注册</Btn>
@@ -79,13 +79,17 @@ const goCategory = () => {
           <div>{{ userInfo.username }}</div>
           <Btn @click="logout">登出</Btn>
         </Card>
-        <Card class="item">
-          <div class="actions">
-            <Btn @click="create" :loading="loading.write">写文章</Btn>
-            <Btn @click="goCategory">编辑分类</Btn>
-          </div>
-        </Card>
-        <div class="my-posts">
+        <div class="card-group">
+          <div class="card-group-name">导航</div>
+          <Card class="item card-group">
+            <div class="actions">
+              <Btn @click="create" :loading="loading.write">写文章</Btn>
+              <Btn @click="goCategory">编辑分类</Btn>
+            </div>
+          </Card>
+        </div>
+        <div class="my-posts card-group">
+          <div class="card-group-name">文章列表</div>
           <Card class="item post" v-for="post in myPosts" :class="{ hidden: post.status !== 1 }">
             <div class="post-info">
               <span class="title">{{ post.title }}</span>
@@ -130,7 +134,6 @@ const goCategory = () => {
 }
 
 .my-posts {
-  margin-top: 0.5rem;
 
   .post {
     display: flex;

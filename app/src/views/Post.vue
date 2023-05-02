@@ -16,17 +16,22 @@ onBeforeRouteLeave(() => { postDetailStore.clear(); return true })
 <template>
   <List>
     <template v-slot:content>
+      <div class="card-group-name">by {{ post.author?.username || '' }}</div>
       <Card>
-        <Skeleton v-if="!post" />
+        <Skeleton v-if="!post._id" />
         <div class="meta" v-else>
-          <div class="title">{{ post.title }}</div>
-          <div class="author">by {{ post.author?.username || '' }}</div>
-          <div class="time">{{ formatDate(post.updated_time) }}</div>
-          <div class="categories">{{ categoryStore.mapCategoryName(post.category || []).join(' / ') }}</div>
+          <div class="left">
+            <div class="title">{{ post.title }}</div>
+            <div class="categories">{{ categoryStore.mapCategoryName(post.category || []).join(' / ') }}</div>
+          </div>
+          <div class="right">
+            <div class="time" v-if="post.created_time !== post.updated_time">=> {{ formatDate(post.updated_time) }}</div>
+            <div class="time">{{ formatDate(post.created_time) }}</div>
+          </div>
         </div>
       </Card>
       <Card class="main">
-        <Skeleton v-if="!post" />
+        <Skeleton v-if="!post._id" />
         <div v-else>
           <div class="description" v-if="post.description">{{ post.description }}</div>
           <div class="content" v-html="post.content"></div>
@@ -40,27 +45,37 @@ onBeforeRouteLeave(() => { postDetailStore.clear(); return true })
 <style lang="scss" scoped>
 .meta {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   text-align: left;
 
-  .title {
-    font-size: 18px;
+  .left {
+    flex: 1 1 auto;
+    .title {
+      font-size: 18px;
+    }
+    .categories {
+      margin-top: 4px;
+      font-size: 12px;
+      color: #888;
+    }
   }
 
-  .time,
-  .author,
-  .categories {
-    margin-left: .5rem;
-    font-size: 12px;
-    color: #888;
-  }
-
-  .time {
-    flex: 1 0 auto;
+  .right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    flex: 0 1 auto;
+    .time {
+      flex: 1 0 auto;
+      font-size: 12px;
+      color: #888;
+    }
   }
 }
 
 .main {
+  padding: 0 1rem;
+  overflow: hidden;
   text-align: left;
 
   .content {
@@ -68,8 +83,7 @@ onBeforeRouteLeave(() => { postDetailStore.clear(); return true })
   }
 
   .description {
-    margin-top: .5rem;
-    padding-bottom: 1rem;
+    padding: 1rem 0 .75rem;
     font-size: 14px;
     color: #888;
     border-bottom: 1px solid #eee;

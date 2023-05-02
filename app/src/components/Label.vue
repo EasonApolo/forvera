@@ -13,12 +13,12 @@ defineProps<{ active?: boolean }>()
   padding: .375rem 1rem;
   color: rgba(0, 0, 0, .6);
   border-radius: 4px;
-  background-color: #E0E1E2;
+  background-color: rgba(13,12,34,0.05);
   transition: .2s ease;
   cursor: pointer;
 }
 .active {
-  background-color: #2285D0;
+  background-color: #1a73e8;
   color: white;
 }
 </style>

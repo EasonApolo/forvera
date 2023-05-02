@@ -75,6 +75,17 @@ body {
   }
 }
 
+.card-group {
+  margin-top: 1rem;
+}
+.card-group-name {
+  margin: 0 0 .5rem 3px;
+  text-align: left;
+  font-size: 14px;
+  color: #aaa;
+  font-family: Avenir, Helvetica, Arial, sans-serif;
+}
+
 textarea {
   display: block;
   resize: vertical;

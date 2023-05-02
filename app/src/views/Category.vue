@@ -5,10 +5,15 @@ import Card from '../components/Card.vue'
 import List from '../components/layout/List.vue'
 import { useCategories } from '../store/category'
 import { usePostDetail } from '../store/postDetail'
+import { computed } from 'vue'
 
 const [categoryStore] = [useCategories()]
 const { categories, editing } = storeToRefs(categoryStore)
 categoryStore.init()
+
+const submitText = computed(() => {
+  return editing.value._id ? '更新' : '新增'
+})
 
 const submit = async ({ remove = false }) => {
   if (remove) {
@@ -29,7 +34,7 @@ const submit = async ({ remove = false }) => {
         <input class="text-input" v-model="editing.title" />
         <input class="text-input" v-model="editing.description" />
         <div class="actions">
-          <Btn type="primary" @click="submit({})">提交</Btn>
+          <Btn type="primary" @click="submit({})">{{ submitText }}</Btn>
           <Btn @click="categoryStore.clear()" v-if="editing.title || editing.description">取消</Btn>
           <Btn class="right" @click="submit({ remove: true })">删除</Btn>
         </div>

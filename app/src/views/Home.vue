@@ -8,9 +8,14 @@ import Profile from './Profile.vue'
 import { useMessageStore } from '@/store/message';
 import { useMainStore } from '@/store/main';
 import { computed, ref } from 'vue';
+import { usePostStore } from '@/store/post';
+import { useToastStore } from '@/store/toast';
+import Loading from '@/components/Loading.vue';
 
 const messageStore = useMessageStore()
 const mainStore = useMainStore()
+const postStore = usePostStore()
+const toastStore = useToastStore()
 
 let swiperInstance: any
 const tabs = [
@@ -26,8 +31,20 @@ const activeIndex = ref(0)
 const onSlideChange = (swiper: any) => {
   activeIndex.value = swiper.activeIndex
 }
+const isLoadingPosts = ref(false)
 const clickTab = (index: number) => {
+  console.log(index, activeIndex)
+  onClickTab(index)
   swiperInstance.slideTo(index)
+}
+const onClickTab = async (index: number) => {
+  if (index === 0 && activeIndex.value === 0) {
+    if (isLoadingPosts.value) { return }
+    isLoadingPosts.value = true
+    await postStore.fetchPosts()
+    setTimeout(() => isLoadingPosts.value = false, 1000)
+    // toastStore.showToast({ content: '已刷新~', type: 'LOADING', timeout: 1000 })
+  }
 }
 
 const replyTo = () => {
@@ -47,7 +64,11 @@ const replyTo = () => {
   <div class="nav">
     <div class="nav-item" v-for="(tab, index) in tabs" :class="{ 'active': activeIndex === index }"
       @click="clickTab(index)">
-      <template v-if="index === 1">
+      <template v-if="index === 0">
+        <div v-if="!isLoadingPosts">文字</div>
+        <Loading class="tab-loading" v-else />
+      </template>
+      <template v-else-if="index === 1">
         <div class="message">
           <div :class="{ 'move-up': activeIndex === index }">
             <div class="message-text" key="text">发言</div>
@@ -96,6 +117,11 @@ const replyTo = () => {
 
   .active {
     color: #42b983;
+  }
+
+  .tab-loading {
+    width: 1.5rem;
+    height: 1.5rem;
   }
 
   .playground {

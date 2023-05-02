@@ -62,8 +62,8 @@ const read = (postId: string) => {
 <template>
   <List>
     <template v-slot:content>
-      <Card class="categories-wrapper">
-        <span>标签</span>
+      <Card class="categories-wrapper" @mousedown.stop>
+        <span style="color:#888;">分类</span>
         <div class="categories">
           <Label :active="activeCatId === cat._id" v-for="cat in categories" @click="filterByCategory(cat)">{{
             cat.title
@@ -91,6 +91,7 @@ const read = (postId: string) => {
 .categories-wrapper {
   display: flex;
   align-items: center;
+  padding: .5rem 1rem;
 
   span {
     flex: 0 0 auto;

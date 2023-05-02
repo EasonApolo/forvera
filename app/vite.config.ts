@@ -6,6 +6,7 @@ import path from 'path'
 export default defineConfig({
   plugins: [vue()],
   server: {
+    host: '192.168.31.228',
     port: 10000
   },
   resolve: {
