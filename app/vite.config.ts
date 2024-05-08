@@ -6,15 +6,14 @@ import path from 'path'
 export default defineConfig({
   plugins: [vue()],
   server: {
-    host: '192.168.31.228',
-    port: 10000
+    port: 10000,
   },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      'components': path.resolve(__dirname, './src/components'),
-      'views': path.resolve(__dirname, './src/views'),
-      'store': path.resolve(__dirname, './src/store'),
-    }
-  }
+      components: path.resolve(__dirname, './src/components'),
+      views: path.resolve(__dirname, './src/views'),
+      store: path.resolve(__dirname, './src/store'),
+    },
+  },
 })

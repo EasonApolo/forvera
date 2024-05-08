@@ -1,3 +1,8 @@
-export const env = location.href.includes('easons') ? 'online' : 'local'
+export const env = 'online' // location.href.includes('easons') ? 'online' : 'local'
 
-export const ip = env === 'online' ? `http://106.54.172.20:3000/` : `http://${location.hostname}:3000/`
+const protocol = location.protocol
+
+export const ip =
+  env === 'online'
+    ? `${protocol}//api.eason-s.life/`
+    : `${protocol}//${location.hostname}:3000/`
