@@ -1,4 +1,4 @@
-export const env = 'online' // location.href.includes('easons') ? 'online' : 'local'
+export const env = 'online' // location.href.includes('easons') ? 'online' :  'local'
 
 const protocol = location.protocol
 
