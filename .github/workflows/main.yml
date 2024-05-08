@@ -28,4 +28,6 @@ jobs:
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          repository_name: EasonApolo/easonapolo.github.io
+          branch: master
           publish_dir: ./app/dist  # 或者是您的构建输出目录
