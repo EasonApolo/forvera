@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useImageStore } from '../store/image';
+import { useImageStore } from '../store/image'
 
 const imageStore = useImageStore()
 const onClick = () => {
@@ -9,11 +9,7 @@ const onClick = () => {
 
 <template>
   <transition name="fade">
-    <div
-      class="image-preview"
-      @click="onClick"
-      v-if="imageStore.show"
-    >
+    <div class="image-preview" @click="onClick" v-if="imageStore.show">
       <div class="bg"></div>
       <img class="image" :src="imageStore.url" />
     </div>
@@ -40,13 +36,16 @@ const onClick = () => {
   .image {
     position: relative;
     display: block;
-    width: 100%;
+    max-width: 100%;
+    max-height: 100%;
   }
 }
-.fade-enter-active, .fade-leave-active {
-  transition: .2s ease;
+.fade-enter-active,
+.fade-leave-active {
+  transition: 0.2s ease;
 }
-.fade-enter-from, .fade-leave-to {
+.fade-enter-from,
+.fade-leave-to {
   opacity: 0;
 }
 </style>

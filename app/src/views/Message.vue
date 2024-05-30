@@ -1,16 +1,22 @@
 <script setup lang="ts">
-import { storeToRefs } from 'pinia';
-import { useMainStore } from '../store/main';
-import List from '../components/layout/List.vue';
-import Card from '../components/Card.vue';
-import { throttle, formatDate, readFile } from '../utils/common';
-import { useMessageStore } from '../store/message';
-import { useUserStore } from '../store/user';
-import Gallery from '../components/Gallery.vue';
-import { useToastStore } from '../store/toast';
-import { useImageStore } from '../store/image';
+import { storeToRefs } from 'pinia'
+import { useMainStore } from '../store/main'
+import List from '../components/layout/List.vue'
+import Card from '../components/Card.vue'
+import { throttle, formatDate, readFile } from '../utils/common'
+import { useMessageStore } from '../store/message'
+import { useUserStore } from '../store/user'
+import Gallery from '../components/Gallery.vue'
+import { useToastStore } from '../store/toast'
+import { useImageStore } from '../store/image'
 
-const [messageStore, userStore, mainStore, toastStore, imageStore] = [useMessageStore(), useUserStore(), useMainStore(), useToastStore(), useImageStore()]
+const [messageStore, userStore, mainStore, toastStore, imageStore] = [
+  useMessageStore(),
+  useUserStore(),
+  useMainStore(),
+  useToastStore(),
+  useImageStore(),
+]
 const { messages, messageInput, messageWrapper } = storeToRefs(messageStore)
 const { isLogin } = storeToRefs(userStore)
 
@@ -18,12 +24,14 @@ const { isLogin } = storeToRefs(userStore)
 messageStore.fetchMessages(true)
 const doFetch = throttle(async () => {
   let res = await messageStore.fetchMessages()
-  if (res && res.length <= 0) toastStore.showToast({ content: '没有更多啦', type: '!' })
+  if (res && res.length <= 0)
+    toastStore.showToast({ content: '没有更多啦', type: '!' })
 })
 const onScroll = (e: any) => {
   let parentHeight = e.target.clientHeight
   let scrollHeight = e.target.scrollTop
-  let childHeight = e.target.getElementsByClassName('layout-list')[0].clientHeight
+  let childHeight =
+    e.target.getElementsByClassName('layout-list')[0].clientHeight
   let atBottom = scrollHeight + parentHeight >= childHeight - 10 * 16
   if (atBottom) {
     doFetch()
@@ -55,19 +63,32 @@ const replyTo = (message?: Message) => {
 <template>
   <List @scroll="onScroll">
     <template v-slot:content>
-      <Card class="message" v-for="message in messages" @click="replyTo(message)">
+      <Card
+        class="message"
+        v-for="message in messages"
+        @click="replyTo(message)"
+      >
         <div class="header">
           <div class="name">{{ message.user.username }}</div>
           <div class="date">{{ formatDate(message.created_time) }}</div>
         </div>
         <div class="content">{{ message.content }}</div>
-        <Gallery v-if="message.files.length" class="gallery" :images="message.files.map(f => f.thumb)"
-          :onClick="clickImage"></Gallery>
+        <Gallery
+          v-if="message.files.length"
+          class="gallery"
+          :images="message.files.map(f => f.thumb)"
+          :onClick="clickImage"
+        ></Gallery>
         <div class="reply-wrapper" v-if="message.descendants?.length > 0">
-          <div class="reply" v-for="reply in message.descendants" @click.stop="replyTo(reply)">
+          <div
+            class="reply"
+            v-for="reply in message.descendants"
+            @click.stop="replyTo(reply)"
+          >
             <div class="header">
               <div class="name">{{ reply.user.username }}</div>
-              <div class="name" v-if="getReplyToUsername(message, reply)">: {{ getReplyToUsername(message, reply) }}
+              <div class="name" v-if="getReplyToUsername(message, reply)">
+                : {{ getReplyToUsername(message, reply) }}
               </div>
             </div>
             <div class="date">{{ formatDate(reply.created_time) }}</div>
@@ -111,7 +132,7 @@ const replyTo = (message?: Message) => {
   }
 
   .gallery {
-    margin-top: 1rem;
+    margin: 0.5rem 0 0.5rem;
   }
 
   .reply-wrapper {

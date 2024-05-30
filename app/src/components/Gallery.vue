@@ -1,5 +1,8 @@
 <script setup lang="ts">
-defineProps<{ images: string[], onClick?: (images: string[], index: number) => void }>()
+defineProps<{
+  images: string[]
+  onClick?: (images: string[], index: number) => void
+}>()
 </script>
 
 <template>
@@ -15,8 +18,8 @@ defineProps<{ images: string[], onClick?: (images: string[], index: number) => v
 
 <style lang="scss" scoped>
 .gallery {
-  display: flex;
-  grid-template-columns: repeat(auto-fill, 6rem);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(6rem, 1fr));
   grid-gap: 1rem;
   .item {
     width: 6rem;
@@ -24,6 +27,7 @@ defineProps<{ images: string[], onClick?: (images: string[], index: number) => v
     background-position: center;
     background-size: cover;
     background-repeat: no-repeat;
+    border-radius: 4px;
   }
 }
 </style>

@@ -1,8 +1,16 @@
-export const env = 'online' // location.href.includes('easons') ? 'online' :  'local'
+export const backend: 'remote' | 'local' = 'remote' // location.href.includes('easons') ? 'online' :  'local'
 
 const protocol = location.protocol
 
-export const ip =
-  env === 'online'
-    ? `${protocol}//api.eason-s.life/`
-    : `${protocol}//${location.hostname}:3001/`
+let backend_url
+if (backend === 'remote') {
+  if (protocol === 'https:') {
+    backend_url = 'https://api.eason-s.life/'
+  } else {
+    backend_url = 'http://106.54.172.20:3000/'
+  }
+} else {
+  backend_url = 'http://localhost:3000/'
+}
+
+export const ip = backend_url
