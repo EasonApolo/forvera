@@ -15,7 +15,7 @@ const goto = (routeName: string) => {
   if (isLogin.value) {
     router.push(routeName)
   } else {
-    toastStore.showToast({ content: '需要登录~', type: '!', timeout: 3000 })
+    toastStore.showToast({ content: '需要登录~~', type: '!', timeout: 3000 })
   }
 }
 </script>
