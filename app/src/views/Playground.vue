@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { useToastStore } from '@/store/toast';
-import { useUserStore } from '@/store/user';
+import { useToastStore } from '@/store/toast'
+import { useUserStore } from '@/store/user'
 import { storeToRefs } from 'pinia'
-import { useRouter } from 'vue-router';
+import { useRouter } from 'vue-router'
 import Card from '../components/Card.vue'
 import List from '../components/layout/List.vue'
 
@@ -29,7 +29,9 @@ const goto = (routeName: string) => {
       <Card class="entry" @click="goto('balance')">
         <span :class="{ disabled: !isLogin }">记账本</span>
       </Card>
-      <!-- <Card>豆瓣酱</Card> -->
+      <Card class="entry" @click="goto('rating')">
+        <span :class="{ disabled: !isLogin }">Rating</span>
+      </Card>
     </template>
   </List>
 </template>
@@ -44,6 +46,6 @@ a {
 }
 
 .disabled {
-  opacity: .7;
+  opacity: 0.7;
 }
 </style>

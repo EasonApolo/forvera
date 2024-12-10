@@ -1,4 +1,4 @@
-export const backend = 'remote' as 'remote' | 'local' // location.href.includes('easons') ? 'online' :  'local'
+export const backend = 'local' as 'remote' | 'local' // location.href.includes('easons') ? 'online' :  'local'
 
 const protocol = location.protocol
 

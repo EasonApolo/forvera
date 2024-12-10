@@ -13,6 +13,7 @@ import { ServeStaticModule } from '@nestjs/serve-static';
 import { staticPath } from './shared/staticPath';
 import { TwitModule } from './twit/twit.module';
 import { BalanceModule } from './balance/balance.module';
+import { RatingModule } from './rating/app.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { BalanceModule } from './balance/balance.module';
     }),
     TwitModule,
     BalanceModule,
+    RatingModule,
   ],
   controllers: [AppController],
   providers: [
