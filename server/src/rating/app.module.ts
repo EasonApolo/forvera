@@ -16,6 +16,7 @@ import { MongooseModule, Schema, Prop, SchemaFactory } from '@nestjs/mongoose';
 import { Document as MongooseDocument } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import axios from 'axios';
 
 // Document Schema
 @Schema()
@@ -25,6 +26,11 @@ export class Comment extends MongooseDocument {
   @Prop() content: string;
   @Prop() rate: number;
   @Prop() userId: string;
+
+  constructor() {
+    super();
+    this.date = new Date(); // Initialize date with current timestamp
+  }
 }
 
 export const CommentSchema = SchemaFactory.createForClass(Comment);
@@ -35,6 +41,7 @@ export class Document extends MongooseDocument {
   @Prop() title: string;
   @Prop() date: Date;
   @Prop() type: string;
+  @Prop() rate: number;
   @Prop([CommentSchema]) comments: Comment[];
 }
 
@@ -46,18 +53,18 @@ export class CreateDocumentDto {
   title: string;
   date: Date;
   type: string;
-  comments: CreateCommentDto[];
 }
 
 export class CreateCommentDto {
+  documentId: string; // Add documentId to the DTO
   id: string;
-  date: Date;
   content: string;
   rate: number;
-  userId: string;
 }
 
 export class EditCommentDto {
+  documentId: string; // Add documentId to the DTO
+  commentId: string; // Add commentId to the DTO
   content: string;
   rate: number;
 }
@@ -67,6 +74,7 @@ export class EditCommentDto {
 export class DocumentService {
   constructor(
     @InjectModel(Document.name) private documentModel: Model<Document>,
+    @InjectModel(Comment.name) private commentModel: Model<Comment>,
   ) {}
 
   async addDocument(createDocumentDto: CreateDocumentDto): Promise<Document> {
@@ -74,24 +82,19 @@ export class DocumentService {
     return createdDocument.save();
   }
 
-  async editComment(
-    documentId: string,
-    commentId: string,
-    editCommentDto: EditCommentDto,
-    userId: string,
-  ): Promise<Document> {
-    const document = await this.documentModel
-      .findOne({ id: documentId, 'comments.id': commentId })
+  async createComment(createCommentDto: CreateCommentDto): Promise<Document> {
+    const { documentId, ...commentData } = createCommentDto;
+    const document: Document = await this.documentModel
+      .findOne({ id: documentId })
       .exec();
-    const comment = document.comments.find(
-      (comment) => comment.id === commentId,
-    );
+    const comment = new this.commentModel(commentData);
+    document.comments.push(comment);
+    document.rate = createCommentDto.rate; // Update document rate
+    return document.save();
+  }
 
-    if (comment.userId !== userId) {
-      throw new UnauthorizedException(
-        'You are not authorized to edit this comment',
-      );
-    }
+  async editComment(editCommentDto: EditCommentDto): Promise<Document> {
+    const { documentId, commentId } = editCommentDto;
 
     return this.documentModel
       .findOneAndUpdate(
@@ -135,11 +138,12 @@ export class DocumentService {
   }
 
   async getDocuments(
+    type: string,
     rate?: number,
     pageSize?: number,
     pageNumber?: number,
   ): Promise<Document[]> {
-    const query = rate ? { 'comments.rate': rate } : {};
+    const query = { type, ...(rate && { rate }) };
     const skip = pageSize && pageNumber ? (pageNumber - 1) * pageSize : 0;
     const limit = pageSize ? pageSize : 10;
 
@@ -151,6 +155,14 @@ export class DocumentService {
       { key: 'movie', title: '电影', children: [] },
       // Add more types as needed
     ];
+  }
+
+  async searchMovies(query: string): Promise<any> {
+    const url = `https://movie.douban.com/j/subject_suggest?q=${encodeURIComponent(
+      query,
+    )}`;
+    const response = await axios.get(url);
+    return response.data;
   }
 }
 
@@ -164,44 +176,45 @@ export class DocumentController {
     return this.documentService.addDocument(createDocumentDto);
   }
 
-  @Put(':documentId/comments/:commentId')
-  async editComment(
-    @Param('documentId') documentId: string,
-    @Param('commentId') commentId: string,
-    @Body() editCommentDto: EditCommentDto,
-    @Req() req,
-  ) {
-    const userId = req.user.userId;
-    return this.documentService.editComment(
-      documentId,
-      commentId,
-      editCommentDto,
-      userId,
-    );
+  @Post('comment')
+  async createComment(@Body() createCommentDto: CreateCommentDto) {
+    return this.documentService.createComment({ ...createCommentDto });
   }
 
-  @Delete(':documentId/comments/:commentId')
+  @Put('comment')
+  async editComment(@Body() editCommentDto: EditCommentDto) {
+    return this.documentService.editComment(editCommentDto);
+  }
+
+  @Delete('comment')
   async deleteComment(
-    @Param('documentId') documentId: string,
-    @Param('commentId') commentId: string,
+    @Body() deleteCommentDto: { documentId: string; commentId: string },
     @Req() req,
   ) {
+    const { documentId, commentId } = deleteCommentDto;
     const userId = req.user.userId;
     return this.documentService.deleteComment(documentId, commentId, userId);
   }
 
   @Get()
   async getDocuments(
+    @Query('type') type: string,
     @Query('rate') rate?: number,
     @Query('pageSize') pageSize?: number,
     @Query('pageNumber') pageNumber?: number,
   ) {
-    return this.documentService.getDocuments(rate, pageSize, pageNumber);
+    console.log(pageSize, pageNumber);
+    return this.documentService.getDocuments(type, rate, pageSize, pageNumber);
   }
 
   @Get('types')
   async getTypes() {
     return this.documentService.getTypes();
+  }
+
+  @Get('search')
+  async searchMovies(@Query('query') query: string) {
+    return this.documentService.searchMovies(query);
   }
 }
 
