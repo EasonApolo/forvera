@@ -9,20 +9,25 @@ type RequestOptions = {
 }
 
 /**
- * @description: 
+ * @description:
  * @param {*} url
  * @param {*} method default GET
  * @param {*} params String(stringified JSON)/FormData/Object. Object cannot handle multiple files with single key, use FormData in this case.
  * @return {*}
  */
-export async function request(url: string, method: Method = 'get', params?: any, requestOptions?: RequestOptions) {
+export async function request(
+  url: string,
+  method: Method = 'get',
+  params?: any,
+  requestOptions?: RequestOptions
+) {
   const userStore = useUserStore()
   let options: AxiosRequestConfig = {
     url,
     baseURL,
     withCredentials: requestOptions?.withCredentials ?? true,
     headers: {},
-    method
+    method,
   }
   // if (progressOptions) {
   //     if (!progressOptions.hasOwnProperty('upload')) console.log(`ERR[Request]: UPLOAD is required for progresssOptions`)
@@ -40,34 +45,50 @@ export async function request(url: string, method: Method = 'get', params?: any,
       options.headers!['Authorization'] = bearer
     }
   }
+
   // set body
   if (params) {
-    if (typeof params == 'string') {
-      options.data = params
-      options.headers!['Content-Type'] = 'application/json'
-    } else if (params instanceof FormData) {
-      options.data = params
+    if (method.toLowerCase() === 'get') {
+      const queryString = new URLSearchParams(params).toString()
+      url += url.includes('?') ? `&${queryString}` : `?${queryString}`
+      options.url = url
     } else {
-      let formData = new FormData()
-      for (let key in params) {
-        formData.append(key, params[key])
+      if (typeof params == 'string') {
+        options.data = params
+        options.headers!['Content-Type'] = 'application/json'
+      } else if (params instanceof FormData) {
+        options.data = params
+      } else {
+        let formData = new FormData()
+        for (let key in params) {
+          formData.append(key, params[key])
+        }
+        options.data = formData
       }
-      options.data = formData
     }
   }
+
   try {
     const res = await axios(options)
     return res.data
   } catch (err: any) {
     const toastStore = useToastStore()
     if (err.message === 'Network Error') {
-      toastStore.showToast({ content: '网络错误，可能是后台挂了～', type: '!', timeout: 3000 })
+      toastStore.showToast({
+        content: '网络错误，可能是后台挂了～',
+        type: '!',
+        timeout: 3000,
+      })
       return { ERRNO: 500 }
     }
     const errCode = err.response.status
     if (errCode === 401) {
       if (userStore.isLogin) {
-        toastStore.showToast({ content: '登录凭证已过期，请保存后点击个人重新登录。', type: '!', timeout: 3000 })
+        toastStore.showToast({
+          content: '登录凭证已过期，请保存后点击个人重新登录。',
+          type: '!',
+          timeout: 3000,
+        })
       }
       userStore.logout()
     }

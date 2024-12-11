@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import Toast from './components/Toast.vue';
-import { useUserStore } from './store/user';
+import Toast from './components/Toast.vue'
+import { useUserStore } from './store/user'
 import ImagePreview from './components/ImagePreview.vue'
 
 const userStore = useUserStore()
@@ -56,9 +56,13 @@ body {
   align-items: center;
   justify-content: center;
 
-  &>*:not(:last-child) {
+  & > *:not(:last-child) {
     margin-right: 1rem;
   }
+}
+
+.flex {
+  display: flex;
 }
 
 .text-input {
@@ -79,11 +83,14 @@ body {
   margin-top: 1rem;
 }
 .card-group-name {
-  margin: 0 0 .5rem 3px;
+  margin: 0 0 0.5rem 3px;
   text-align: left;
   font-size: 14px;
   color: #aaa;
   font-family: Avenir, Helvetica, Arial, sans-serif;
+  &:not(:first-child) {
+    margin-top: 0.75rem;
+  }
 }
 
 textarea {
@@ -100,7 +107,7 @@ textarea {
 
 .toast-slide-enter-active,
 .toast-slide-leave-active {
-  transition: .3s ease-out;
+  transition: 0.3s ease-out;
 }
 
 .toast-slide-enter-from,
