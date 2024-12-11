@@ -6,11 +6,15 @@ import Card from '../components/Card.vue'
 import List from '../components/layout/List.vue'
 import Label from '../components/Label.vue'
 import { usePostDetail } from '../store/postDetail'
-import { formatDate } from '../utils/common';
+import { formatDate } from '../utils/common'
 import { useCategories } from '@/store/category'
 import { computed, ref } from 'vue'
 
-const [mainStore, postStore, categoryStore] = [useMainStore(), usePostStore(), useCategories()]
+const [mainStore, postStore, categoryStore] = [
+  useMainStore(),
+  usePostStore(),
+  useCategories(),
+]
 postStore.fetchPosts()
 const { posts } = storeToRefs(postStore)
 categoryStore.init()
@@ -19,7 +23,7 @@ const { categories } = storeToRefs(categoryStore)
 const groupedPosts = computed(() => {
   const now = Date.now()
   const month = 3600 * 24 * 30 * 1000
-  type PostGroup = { name: string, posts: Post[] }
+  type PostGroup = { name: string; posts: Post[] }
   let group = {} as PostGroup
   const groups: PostGroup[] = []
   filteredPosts.value.map(post => {
@@ -28,8 +32,7 @@ const groupedPosts = computed(() => {
       if (!group.name) {
         group = { name: 'Recent', posts: [post] }
         groups.push(group)
-      }
-      else group.posts.push(post)
+      } else group.posts.push(post)
     } else {
       const year = `${updatedDate.getFullYear()}`
       if (group.name !== year) {
@@ -49,7 +52,9 @@ const filterByCategory = (category: Category) => {
   else activeCatId.value = category._id
 }
 const filteredPosts = computed(() => {
-  return activeCatId.value ? posts.value.filter(post => post.category.includes(activeCatId.value)) : posts.value
+  return activeCatId.value
+    ? posts.value.filter(post => post.category.includes(activeCatId.value))
+    : posts.value
 })
 
 const read = (postId: string) => {
@@ -63,22 +68,26 @@ const read = (postId: string) => {
   <List>
     <template v-slot:content>
       <Card class="categories-wrapper" @mousedown.stop>
-        <span style="color:#888;">分类</span>
+        <span style="color: #888">分类</span>
         <div class="categories">
-          <Label :active="activeCatId === cat._id" v-for="cat in categories" @click="filterByCategory(cat)">{{
-            cat.title
-          }}</Label>
+          <Label
+            :active="activeCatId === cat._id"
+            v-for="cat in categories"
+            @click="filterByCategory(cat)"
+            >{{ cat.title }}</Label
+          >
         </div>
       </Card>
       <div v-for="group in groupedPosts" :key="group.name" class="post-group">
         <div class="group-name">{{ group.name }}</div>
         <Card class="post" v-for="post in group.posts" @click="read(post._id)">
-          <div class="left">{{ post.title || '无标题' }}
-          </div>
+          <div class="left">{{ post.title || '无标题' }}</div>
           <div class="right">
             <div class="date">{{ formatDate(post.updated_time) }}</div>
             <div class="post-cat" v-if="categories">
-              <div v-for="cat in post.category">{{ categories.find(catInfo => catInfo._id === cat)?.title }}</div>
+              <div v-for="cat in post.category">
+                {{ categories.find(catInfo => catInfo._id === cat)?.title }}
+              </div>
             </div>
           </div>
         </Card>
@@ -87,11 +96,11 @@ const read = (postId: string) => {
   </List>
 </template>
 
-<style lang="scss" scoped>
+<style lang="less" scoped>
 .categories-wrapper {
   display: flex;
   align-items: center;
-  padding: .5rem 1rem;
+  padding: 0.5rem 1rem;
 
   span {
     flex: 0 0 auto;
@@ -113,7 +122,7 @@ const read = (postId: string) => {
 .post-group {
   margin-top: 1rem;
   .group-name {
-    margin: 0 0 .5rem 3px;
+    margin: 0 0 0.5rem 3px;
     text-align: left;
     font-size: 14px;
     color: #aaa;
@@ -141,10 +150,10 @@ const read = (postId: string) => {
         color: #aaa;
 
         div:not(:last-child) {
-          margin-right: .25rem;
+          margin-right: 0.25rem;
 
           &::after {
-            content: ' /'
+            content: ' /';
           }
         }
       }

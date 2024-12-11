@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { useToastStore } from '../store/toast'
 
-import { storeToRefs } from 'pinia';
-import Loading from './Loading.vue';
+import { storeToRefs } from 'pinia'
+import Loading from './Loading.vue'
 
 const toastStore = useToastStore()
 const { type, show, content, icon } = storeToRefs(toastStore)
@@ -22,7 +22,7 @@ const { type, show, content, icon } = storeToRefs(toastStore)
   </div>
 </template>
 
-<style lang="scss" scoped>
+<style lang="less" scoped>
 .toast-wrapper {
   position: fixed;
   top: 0;

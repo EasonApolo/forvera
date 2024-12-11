@@ -1,20 +1,25 @@
 <script setup lang="ts">
-import { storeToRefs } from 'pinia';
-import Card from '../components/Card.vue';
-import { useUserStore } from '../store/user';
-import Btn from '../components/Btn.vue';
-import { useMainStore } from '../store/main';
-import { getUrlFromFD, useWriteStore } from '../store/write';
-import { useCategories } from '../store/category';
-import List from '../components/layout/List.vue';
-import Label from '../components/Label.vue';
+import { storeToRefs } from 'pinia'
+import Card from '../components/Card.vue'
+import { useUserStore } from '../store/user'
+import Btn from '../components/Btn.vue'
+import { useMainStore } from '../store/main'
+import { getUrlFromFD, useWriteStore } from '../store/write'
+import { useCategories } from '../store/category'
+import List from '../components/layout/List.vue'
+import Label from '../components/Label.vue'
 import FileInput from '../components/FileInput.vue'
-import { readFile } from '../utils/common';
+import { readFile } from '../utils/common'
 import { ref } from 'vue'
-import Gallery from '../components/DraggableGallery.vue';
-import { useToastStore } from '../store/toast';
+import Gallery from '../components/DraggableGallery.vue'
+import { useToastStore } from '../store/toast'
 
-const [writeStore, categoryStore, toastStore, mainStore] = [useWriteStore(), useCategories(), useToastStore(), useMainStore()]
+const [writeStore, categoryStore, toastStore, mainStore] = [
+  useWriteStore(),
+  useCategories(),
+  useToastStore(),
+  useMainStore(),
+]
 const { post, images, files } = storeToRefs(writeStore)
 const { categories } = storeToRefs(categoryStore)
 writeStore.initUploadedImages()
@@ -60,8 +65,11 @@ const onClickImg = (index: number) => {
 const linkForCopy = ref('')
 const copy = (e: any) => {
   e.target.select()
-  document.execCommand("Copy")
-  toastStore.showToast({ content: '已复制图片代码，请粘贴到文章中。', type: 'OK' })
+  document.execCommand('Copy')
+  toastStore.showToast({
+    content: '已复制图片代码，请粘贴到文章中。',
+    type: 'OK',
+  })
 }
 </script>
 
@@ -77,7 +85,11 @@ const copy = (e: any) => {
         <input class="text-input" v-model="post.description" />
       </Card>
       <Card>
-        <textarea class="text-input textarea" v-model="post.content" rows="15"></textarea>
+        <textarea
+          class="text-input textarea"
+          v-model="post.content"
+          rows="15"
+        ></textarea>
       </Card>
       <Card>
         <template v-slot:title>选择标签</template>
@@ -86,29 +98,44 @@ const copy = (e: any) => {
             :active="hasCategory(cat._id)"
             v-for="cat in categories"
             @click="toggleCat(cat._id)"
-          >{{ cat.title }}</Label>
+            >{{ cat.title }}</Label
+          >
         </div>
       </Card>
       <Card>
         <template v-slot:title>图片</template>
         <div class="image-input">
           <FileInput :change="onSelectImage" :multiple="false"></FileInput>
-          <Btn class="upload-btn"  @click="upload">上传</Btn>
+          <Btn class="upload-btn" @click="upload">上传</Btn>
           <img class="preview" :src="selected.blob" />
         </div>
-        <textarea class="copy-container text-input" v-if="linkForCopy" v-model="linkForCopy" readonly @click="copy" rows="3"></textarea>
-        <Gallery :images="images" :onClick="onClickImg" class="gallery" v-if="images.length > 0"></Gallery>
+        <textarea
+          class="copy-container text-input"
+          v-if="linkForCopy"
+          v-model="linkForCopy"
+          readonly
+          @click="copy"
+          rows="3"
+        ></textarea>
+        <Gallery
+          :images="images"
+          :onClick="onClickImg"
+          class="gallery"
+          v-if="images.length > 0"
+        ></Gallery>
       </Card>
       <Card class="actions">
         <Btn @click="publish">提交</Btn>
-        <Label @click="changeStatus" :active="post.status === 1">{{post.status === 1 ? '已公开' : '已隐藏'}}</Label>
+        <Label @click="changeStatus" :active="post.status === 1">{{
+          post.status === 1 ? '已公开' : '已隐藏'
+        }}</Label>
         <Btn @click="deletePost">删除</Btn>
       </Card>
     </template>
   </List>
 </template>
 
-<style lang="scss" scoped>
+<style lang="less" scoped>
 .item {
   &:not(:first-child) {
     margin-top: 0.5rem;

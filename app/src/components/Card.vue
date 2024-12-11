@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useSlots } from 'vue';
+import { useSlots } from 'vue'
 
 const slots = useSlots()
 const showTitle = slots.title
@@ -14,7 +14,7 @@ const showTitle = slots.title
   </div>
 </template>
 
-<style lang="scss" scoped>
+<style lang="less" scoped>
 .card {
   padding: 1rem;
   border-radius: 0.5rem;

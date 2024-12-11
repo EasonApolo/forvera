@@ -16,7 +16,7 @@ const onClick = () => {
   </transition>
 </template>
 
-<style scoped lang="scss">
+<style scoped lang="less">
 .image-preview {
   position: fixed;
   display: flex;

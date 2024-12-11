@@ -20,7 +20,7 @@ userStore.getUserInfo()
   <ImagePreview></ImagePreview>
 </template>
 
-<style lang="scss">
+<style lang="less">
 body {
   margin: 0;
   background-color: #f6f6f6;

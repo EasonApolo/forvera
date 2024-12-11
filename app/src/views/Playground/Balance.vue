@@ -1,126 +1,124 @@
 <script setup lang="ts">
-import Card from "@/components/Card.vue";
-import List from "components/layout/List.vue";
-import { reactive, computed, ref, onMounted, Ref } from "vue";
-import DatePicker from "../../components/DatePicker.vue";
-import type { PickedDate } from "@/components/DatePicker.vue";
-import Label from "@/components/Label.vue";
-import Btn from "@/components/Btn.vue";
-import { request } from "@/utils/request";
-import Popper from "@/components/layout/Popper.vue";
-import { useToastStore } from "@/store/toast";
+import Card from '@/components/Card.vue'
+import List from 'components/layout/List.vue'
+import { reactive, computed, ref, onMounted, Ref } from 'vue'
+import DatePicker from '../../components/DatePicker.vue'
+import type { PickedDate } from '@/components/DatePicker.vue'
+import Label from '@/components/Label.vue'
+import Btn from '@/components/Btn.vue'
+import { request } from '@/utils/request'
+import Popper from '@/components/layout/Popper.vue'
+import { useToastStore } from '@/store/toast'
 
 interface Balance {
-  _id: string;
-  user: string;
-  value: number;
-  category: number;
-  type: 0 | 1; // 0 - income, 1 - expense
-  createdTime: Date;
-  updatedTime: Date;
-  dateStamp: number;
-  year: number;
-  month: number;
-  date: number;
-  description: string;
+  _id: string
+  user: string
+  value: number
+  category: number
+  type: 0 | 1 // 0 - income, 1 - expense
+  createdTime: Date
+  updatedTime: Date
+  dateStamp: number
+  year: number
+  month: number
+  date: number
+  description: string
 }
 
 interface BalanceDTO {
-  value: number;
-  category: number;
-  type: number;
-  dateStamp: number;
-  description?: string;
+  value: number
+  category: number
+  type: number
+  dateStamp: number
+  description?: string
 }
 
-const [toastStore] = [useToastStore()];
+const [toastStore] = [useToastStore()]
 
 /**
  * date picker
  */
-const cur = new Date();
+const cur = new Date()
 const date = reactive({
   year: cur.getFullYear(),
   month: cur.getMonth(),
   date: cur.getDate(),
-} as PickedDate);
+} as PickedDate)
 const computedDate = computed(() => {
-  return `${date.year}-${date.month + 1}-${date.date}`;
-});
+  return `${date.year}-${date.month + 1}-${date.date}`
+})
 const updateDate = async (newDate: PickedDate) => {
-  Object.assign(date, newDate);
+  Object.assign(date, newDate)
   data.value = await getByDate()
-};
+}
 
 /**
  * tag list
  */
-type Tag = { id: number; name: string; icon?: string };
-type Tags = { [0]: Tag[]; 1: Tag[] };
+type Tag = { id: number; name: string; icon?: string }
+type Tags = { [0]: Tag[]; 1: Tag[] }
 const tags: Tags = {
   0: [
-    { id: 10, name: "工资" },
-    { id: 11, name: "抽奖" },
+    { id: 10, name: '工资' },
+    { id: 11, name: '抽奖' },
   ],
-  1: [{ id: 20, name: "饭" }],
-};
-const type: Ref<0 | 1> = ref(1);
+  1: [{ id: 20, name: '饭' }],
+}
+const type: Ref<0 | 1> = ref(1)
 const changeType = () => {
-  type.value = type.value ? 0 : 1;
-  selectTag({} as Tag);
-};
+  type.value = type.value ? 0 : 1
+  selectTag({} as Tag)
+}
 const getTagName = (balance: Balance) => {
-  const balanceTag = tags[balance.type].find(
-    (tag) => tag.id === balance.category
-  );
-  return balanceTag?.name || "";
-};
+  const balanceTag = tags[balance.type].find(tag => tag.id === balance.category)
+  return balanceTag?.name || ''
+}
 
 /**
  * tag selection
  */
-const activeTag = reactive({} as Tag);
+const activeTag = reactive({} as Tag)
 const selectTag = (tag: Tag) => {
-  activeTag.id = tag.id;
-  activeTag.name = tag.name;
-  activeTag.icon = tag.icon;
-  showTagList.value = false;
-};
+  activeTag.id = tag.id
+  activeTag.name = tag.name
+  activeTag.icon = tag.icon
+  showTagList.value = false
+}
 const unselectTag = () => {
-  selectTag({} as Tag);
-};
-const showTagList = ref(false);
+  selectTag({} as Tag)
+}
+const showTagList = ref(false)
 const toggleTagList = () => {
-  showTagList.value = !showTagList.value;
-};
+  showTagList.value = !showTagList.value
+}
 
-const description = ref("");
+const description = ref('')
 
 /**
  * money
  */
-const money = ref(0);
+const money = ref(0)
 const onInputMoney = () => {
-  const tmp = `${money.value}`.split(".");
+  const tmp = `${money.value}`.split('.')
   if (tmp.length > 1 && tmp[1].length > 2) {
-    tmp[1] = tmp[1].slice(0, 2);
+    tmp[1] = tmp[1].slice(0, 2)
   }
-  money.value = parseFloat(tmp.join("."));
-};
+  money.value = parseFloat(tmp.join('.'))
+}
 
 /**
  * dataing
  */
-let data = ref([] as Balance[]);
+let data = ref([] as Balance[])
 const getDateStamp = ({ year, month, date }: PickedDate) =>
-  new Date(year, month, date).getTime();
+  new Date(year, month, date).getTime()
 const submit = async () => {
   if (!activeTag.id || isNaN(money.value)) {
-    toastStore.showToast({ content: "类型和金额需要填哦～", type: "ERR" });
-    return;
+    toastStore.showToast({ content: '类型和金额需要填哦～', type: 'ERR' })
+    return
   }
   if (money.value <= 0) {
-    toastStore.showToast({ content: "至少得1分吧！", type: "ERR" });
+    toastStore.showToast({ content: '至少得1分吧！', type: 'ERR' })
   }
   const dto: BalanceDTO = {
     category: activeTag.id,
@@ -128,16 +126,16 @@ const submit = async () => {
     type: type.value,
     dateStamp: getDateStamp(date),
     description: description.value,
-  };
-  data.value = await request(`/balance`, "POST", JSON.stringify(dto));
-};
+  }
+  data.value = await request(`/balance`, 'POST', JSON.stringify(dto))
+}
 const init = async () => {
   data.value = await getByDate()
-};
-const getByDate = async () => {
-  return (await request(`/balance/${getDateStamp(date)}`)) as Balance[];
 }
-init();
+const getByDate = async () => {
+  return (await request(`/balance/${getDateStamp(date)}`)) as Balance[]
+}
+init()
 </script>
 
 <template>
@@ -156,7 +154,7 @@ init();
         <div class="entry">
           <div class="label">类型</div>
           <Label @click="changeType" :active="type === 0">{{
-            type === 1 ? "支出" : "收入"
+            type === 1 ? '支出' : '收入'
           }}</Label>
           <div class="dropdown">
             <input
@@ -226,7 +224,7 @@ init();
   </List>
 </template>
 
-<style lang="scss" scoped>
+<style lang="less" scoped>
 .entry {
   display: flex;
   align-items: center;
@@ -304,11 +302,11 @@ init();
     align-items: center;
     height: 2rem;
     text-align: left;
-    font-size: .875rem;
+    font-size: 0.875rem;
     .type {
       margin-right: 1rem;
-      width: .5rem;
-      height: .5rem;
+      width: 0.5rem;
+      height: 0.5rem;
       border-radius: 100%;
       background-color: blue;
     }
@@ -328,7 +326,7 @@ init();
   }
   .header {
     color: #aaa;
-    font-size: .75rem;
+    font-size: 0.75rem;
   }
 }
 </style>

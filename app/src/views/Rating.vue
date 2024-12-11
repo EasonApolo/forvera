@@ -156,7 +156,7 @@ const createDocument = async () => {
             <div className="path-segment" @click="selectPath(index)">
               {{ seg }}
             </div>
-            <span class="dash">/</span>
+            <div class="dash">/</div>
           </template>
           <div class="divider">></div>
           <div
@@ -229,6 +229,10 @@ const createDocument = async () => {
 .path-chooser {
   display: flex;
   align-items: center;
+  div {
+    height: 16px;
+    line-height: 16px;
+  }
   .dash {
     margin: 0 8px;
   }

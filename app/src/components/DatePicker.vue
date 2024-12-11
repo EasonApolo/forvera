@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { reactive, computed, ref, onMounted } from 'vue'
 
-export type PickedDate = { year: number, month: number, date: number }
+export type PickedDate = { year: number; month: number; date: number }
 const emit = defineEmits<{ (e: 'change', date: PickedDate): void }>()
 
 // initialize
@@ -26,7 +26,7 @@ onMounted(() => {
 })
 
 // update methods
-const getAllDateInMonth = ({ m, y }: { m: number, y: number }) => {
+const getAllDateInMonth = ({ m, y }: { m: number; y: number }) => {
   if ([4, 6, 9, 11].includes(m + 1)) return 30
   else if (m + 1 === 2) return y % 4 ? 28 : 29
   else return 31
@@ -49,13 +49,17 @@ const getDayOffsetInMonth = () => {
 }
 
 // main data source
-const datePicker: PickedDate = reactive({ year: curYear, month: curMonth, date: curDate })
+const datePicker: PickedDate = reactive({
+  year: curYear,
+  month: curMonth,
+  date: curDate,
+})
 const calendar = reactive({
   year: [curYear - 1, curYear],
   month: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
   date: getAllDateInMonth({ m: curMonth, y: curYear }),
   dayOffset: getDayOffsetInMonth(),
-  DAY: ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
+  DAY: ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'],
 })
 
 // onSelect
@@ -83,27 +87,45 @@ const selectMonth = (newMonth: number) => {
     <div class="header">
       <div class="picker-wrapper">
         <div class="year-picker" ref="yearPicker">
-          <div class="year" :class="{ active: datePicker.year === y }" v-for="y in calendar.year"
-            @click="selectYear(y)">{{ y }}</div>
+          <div
+            class="year"
+            :class="{ active: datePicker.year === y }"
+            v-for="y in calendar.year"
+            @click="selectYear(y)"
+          >
+            {{ y }}
+          </div>
         </div>
       </div>
       <div class="picker-wrapper">
         <div class="month-picker" ref="monthPicker">
-          <div class="month" :class="{ active: datePicker.month === m }" v-for="m in calendar.month"
-            @click="selectMonth(m)">{{ m + 1 }}</div>
+          <div
+            class="month"
+            :class="{ active: datePicker.month === m }"
+            v-for="m in calendar.month"
+            @click="selectMonth(m)"
+          >
+            {{ m + 1 }}
+          </div>
         </div>
       </div>
     </div>
     <div class="calendar">
       <div class="h" v-for="d in calendar.DAY">{{ d }}</div>
       <div class="" v-for="o in calendar.dayOffset"></div>
-      <div class="date" :class="{ active: datePicker.date === i }" v-for="i in calendar.date" @click="selectDate(i)">
-        {{ i }}</div>
+      <div
+        class="date"
+        :class="{ active: datePicker.date === i }"
+        v-for="i in calendar.date"
+        @click="selectDate(i)"
+      >
+        {{ i }}
+      </div>
     </div>
   </div>
 </template>
 
-<style lang="scss" scoped>
+<style lang="less" scoped>
 .date-picker {
   margin: 0 auto;
   width: max-content;
@@ -147,7 +169,13 @@ const selectMonth = (newMonth: number) => {
   }
 
   .picker-wrapper {
-    background-image: linear-gradient(to right, rgba(255, 255, 255, 1) 0, rgba(255, 255, 255, 0) 10%, rgba(255, 255, 255, 0) 90%, rgba(255, 255, 255, 1) 100%);
+    background-image: linear-gradient(
+      to right,
+      rgba(255, 255, 255, 1) 0,
+      rgba(255, 255, 255, 0) 10%,
+      rgba(255, 255, 255, 0) 90%,
+      rgba(255, 255, 255, 1) 100%
+    );
     isolation: isolate;
 
     .year-picker,
@@ -180,7 +208,7 @@ const selectMonth = (newMonth: number) => {
   .year,
   .month,
   .date {
-    transition: background-color .2s ease, color .2s ease;
+    transition: background-color 0.2s ease, color 0.2s ease;
     cursor: pointer;
 
     &:hover {
@@ -206,8 +234,6 @@ const selectMonth = (newMonth: number) => {
       font-size: 12px;
       color: #bbb;
     }
-
   }
-
 }
 </style>

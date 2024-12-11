@@ -1,18 +1,24 @@
 <script setup lang="ts">
-import { storeToRefs } from 'pinia';
-import List from '../components/layout/List.vue';
-import Card from '../components/Card.vue';
-import { useUserStore } from '../store/user';
-import Btn from '../components/Btn.vue';
-import { useMainStore } from '../store/main';
-import { usePostStore } from '../store/post';
-import { formatDate } from '../utils/common';
-import { useWriteStore } from '../store/write';
+import { storeToRefs } from 'pinia'
+import List from '../components/layout/List.vue'
+import Card from '../components/Card.vue'
+import { useUserStore } from '../store/user'
+import Btn from '../components/Btn.vue'
+import { useMainStore } from '../store/main'
+import { usePostStore } from '../store/post'
+import { formatDate } from '../utils/common'
+import { useWriteStore } from '../store/write'
 import Label from '../components/Label.vue'
-import { ref } from 'vue';
-import { useToastStore } from '../store/toast';
+import { ref } from 'vue'
+import { useToastStore } from '../store/toast'
 
-const [userStore, mainStore, postStore, writeStore, toastStore] = [useUserStore(), useMainStore(), usePostStore(), useWriteStore(), useToastStore()]
+const [userStore, mainStore, postStore, writeStore, toastStore] = [
+  useUserStore(),
+  useMainStore(),
+  usePostStore(),
+  useWriteStore(),
+  useToastStore(),
+]
 const { loginData, isLogin, userInfo } = storeToRefs(userStore)
 const { myPosts } = storeToRefs(postStore)
 
@@ -27,7 +33,10 @@ const login = async () => {
     toastStore.showToast({ content: '登录成功～', type: 'OK' })
     postStore.fetchMyPosts()
   } else {
-    toastStore.showToast({ content: '登录失败，请检查用户名密码～', type: 'ERR' })
+    toastStore.showToast({
+      content: '登录失败，请检查用户名密码～',
+      type: 'ERR',
+    })
   }
 }
 const register = async () => {
@@ -67,8 +76,17 @@ const goCategory = () => {
   <List>
     <template v-slot:content>
       <Card v-if="!isLogin" class="login-wrapper" @keyup.enter="login">
-        <input class="text-input login-input" v-model="loginData.username" placeholder="username" />
-        <input class="text-input login-input" v-model="loginData.password" placeholder="password" type="password" />
+        <input
+          class="text-input login-input"
+          v-model="loginData.username"
+          placeholder="username"
+        />
+        <input
+          class="text-input login-input"
+          v-model="loginData.password"
+          placeholder="password"
+          type="password"
+        />
         <div class="flex-center">
           <Btn type="primary" @click="login" :loading="loading.login">登录</Btn>
           <Btn @click="register" :loading="loading.register">注册</Btn>
@@ -90,7 +108,11 @@ const goCategory = () => {
         </div>
         <div class="my-posts card-group">
           <div class="card-group-name">文章列表</div>
-          <Card class="item post" v-for="post in myPosts" :class="{ hidden: post.status !== 1 }">
+          <Card
+            class="item post"
+            v-for="post in myPosts"
+            :class="{ hidden: post.status !== 1 }"
+          >
             <div class="post-info">
               <span class="title">{{ post.title }}</span>
               <span class="desc">{{ formatDate(post.updated_time) }}</span>
@@ -106,9 +128,9 @@ const goCategory = () => {
   </List>
 </template>
 
-<style lang="scss" scoped>
+<style lang="less" scoped>
 .login-wrapper {
-  &>* {
+  & > * {
     margin-bottom: 0.75rem;
   }
 }
@@ -128,13 +150,12 @@ const goCategory = () => {
 .actions {
   display: flex;
 
-  >div {
+  > div {
     margin-right: 1rem;
   }
 }
 
 .my-posts {
-
   .post {
     display: flex;
     align-items: center;
@@ -158,7 +179,7 @@ const goCategory = () => {
       }
 
       .status {
-        margin-left: .5rem;
+        margin-left: 0.5rem;
         font-size: 13px;
         color: #666;
       }

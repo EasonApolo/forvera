@@ -1,9 +1,19 @@
 <script setup lang="ts">
-import { useSlots } from 'vue';
+import { useSlots } from 'vue'
 import { ref } from 'vue'
 import draggable from 'vuedraggable'
 
-const { isDraggable = false, onDrag, onRemove } = defineProps<{ images: string[], onClick?: (index: number) => void, isDraggable?: boolean, onDrag?: (newIndex: number, oldIndex: number) => void, onRemove?: (removeIndex: number) => void }>()
+const {
+  isDraggable = false,
+  onDrag,
+  onRemove,
+} = defineProps<{
+  images: string[]
+  onClick?: (index: number) => void
+  isDraggable?: boolean
+  onDrag?: (newIndex: number, oldIndex: number) => void
+  onRemove?: (removeIndex: number) => void
+}>()
 let dragSrc: number | undefined = undefined
 let dragTgt: number | undefined = undefined
 let drag = ref(false)
@@ -58,7 +68,7 @@ const onDragLeaveRemove = () => {
   </div>
 </template>
 
-<style lang="scss" scoped>
+<style lang="less" scoped>
 .gallery-wrapper {
   margin: 1rem 0;
   .gallery {

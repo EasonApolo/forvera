@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import Btn from './Btn.vue';
+import Btn from './Btn.vue'
 import { ref } from 'vue'
 
-const { change, multiple=false } = defineProps<{ change: (target: HTMLInputElement) => void, multiple: boolean }>()
+const { change, multiple = false } = defineProps<{
+  change: (target: HTMLInputElement) => void
+  multiple: boolean
+}>()
 
 const fileInput = ref({} as HTMLInputElement)
 const proxyClick = () => {
@@ -15,10 +18,16 @@ const proxyHandler = (e: Event) => {
 
 <template>
   <Btn @click="proxyClick">选择</Btn>
-  <input ref="fileInput" class="input" type="file" @change="proxyHandler" :multiple="multiple"/>
+  <input
+    ref="fileInput"
+    class="input"
+    type="file"
+    @change="proxyHandler"
+    :multiple="multiple"
+  />
 </template>
 
-<style lang="scss" scoped>
+<style lang="less" scoped>
 .input {
   display: none;
   outline: none;

@@ -4,17 +4,11 @@
 
 <template>
   <svg viewBox="0 0 50 50" class="loading-svg">
-    <circle
-      cx="25"
-      cy="25"
-      r="20"
-      fill="none"
-      class="path"
-    />
+    <circle cx="25" cy="25" r="20" fill="none" class="path" />
   </svg>
 </template>
 
-<style lang="scss" scoped>
+<style lang="less" scoped>
 .loading-svg {
   width: 50px; /*设置svg显示区域大小*/
   height: 50px;

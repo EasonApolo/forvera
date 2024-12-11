@@ -164,7 +164,7 @@ const loading = ref({ send: false })
   </List>
 </template>
 
-<style lang="scss" scoped>
+<style lang="less" scoped>
 .input-wrapper {
   .actions {
     display: flex;

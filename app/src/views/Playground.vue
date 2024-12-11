@@ -36,7 +36,7 @@ const goto = (routeName: string) => {
   </List>
 </template>
 
-<style lang="scss" scoped>
+<style lang="less" scoped>
 a {
   text-decoration: none;
   color: inherit;

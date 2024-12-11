@@ -17,6 +17,7 @@ import { Document as MongooseDocument } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import axios from 'axios';
+import { OptionalParseIntPipe } from 'src/shared/parse-int.pipe';
 
 // Document Schema
 @Schema()
@@ -37,11 +38,15 @@ export const CommentSchema = SchemaFactory.createForClass(Comment);
 
 @Schema()
 export class Document extends MongooseDocument {
-  @Prop() id: string;
+  @Prop() id: string; // movie id
   @Prop() title: string;
-  @Prop() date: Date;
   @Prop() type: string;
   @Prop() rate: number;
+  @Prop() episode?: string; // '26' for movie
+  @Prop() img?: string; //  for movie
+  @Prop() url?: string; //  for movie
+  @Prop() year?: string; // '2011' for movie
+  @Prop() sub_title: string; //  for movie
   @Prop([CommentSchema]) comments: Comment[];
 }
 
@@ -173,6 +178,7 @@ export class DocumentController {
 
   @Post('add')
   async addDocument(@Body() createDocumentDto: CreateDocumentDto) {
+    console.log(createDocumentDto);
     return this.documentService.addDocument(createDocumentDto);
   }
 
@@ -199,11 +205,10 @@ export class DocumentController {
   @Get()
   async getDocuments(
     @Query('type') type: string,
-    @Query('rate') rate?: number,
-    @Query('pageSize') pageSize?: number,
-    @Query('pageNumber') pageNumber?: number,
+    @Query('rate', OptionalParseIntPipe) rate?: number,
+    @Query('pageSize', OptionalParseIntPipe) pageSize?: number,
+    @Query('pageNumber', OptionalParseIntPipe) pageNumber?: number,
   ) {
-    console.log(pageSize, pageNumber);
     return this.documentService.getDocuments(type, rate, pageSize, pageNumber);
   }
 
@@ -224,6 +229,7 @@ export class DocumentController {
     MongooseModule.forFeature([
       { name: Document.name, schema: DocumentSchema },
     ]),
+    MongooseModule.forFeature([{ name: Comment.name, schema: CommentSchema }]),
   ],
   controllers: [DocumentController],
   providers: [DocumentService],

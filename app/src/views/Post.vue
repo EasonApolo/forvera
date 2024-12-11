@@ -4,13 +4,16 @@ import Card from '../components/Card.vue'
 import List from '../components/layout/List.vue'
 import { usePostDetail } from '../store/postDetail'
 import { useCategories } from '../store/category'
-import { formatDate } from '../utils/common';
+import { formatDate } from '../utils/common'
 import Skeleton from '@/components/layout/Skeleton.vue'
 import { onBeforeRouteLeave } from 'vue-router'
 
 const [postDetailStore, categoryStore] = [usePostDetail(), useCategories()]
 const { post } = storeToRefs(postDetailStore)
-onBeforeRouteLeave(() => { postDetailStore.clear(); return true })
+onBeforeRouteLeave(() => {
+  postDetailStore.clear()
+  return true
+})
 </script>
 
 <template>
@@ -22,10 +25,16 @@ onBeforeRouteLeave(() => { postDetailStore.clear(); return true })
         <div class="meta" v-else>
           <div class="left">
             <div class="title">{{ post.title }}</div>
-            <div class="categories">{{ categoryStore.mapCategoryName(post.category || []).join(' / ') }}</div>
+            <div class="categories">
+              {{
+                categoryStore.mapCategoryName(post.category || []).join(' / ')
+              }}
+            </div>
           </div>
           <div class="right">
-            <div class="time" v-if="post.created_time !== post.updated_time">=> {{ formatDate(post.updated_time) }}</div>
+            <div class="time" v-if="post.created_time !== post.updated_time">
+              => {{ formatDate(post.updated_time) }}
+            </div>
             <div class="time">{{ formatDate(post.created_time) }}</div>
           </div>
         </div>
@@ -33,7 +42,9 @@ onBeforeRouteLeave(() => { postDetailStore.clear(); return true })
       <Card class="main">
         <Skeleton v-if="!post._id" />
         <div v-else>
-          <div class="description" v-if="post.description">{{ post.description }}</div>
+          <div class="description" v-if="post.description">
+            {{ post.description }}
+          </div>
           <div class="content" v-html="post.content"></div>
         </div>
       </Card>
@@ -42,7 +53,7 @@ onBeforeRouteLeave(() => { postDetailStore.clear(); return true })
   </List>
 </template>
 
-<style lang="scss" scoped>
+<style lang="less" scoped>
 .meta {
   display: flex;
   align-items: center;
@@ -83,7 +94,7 @@ onBeforeRouteLeave(() => { postDetailStore.clear(); return true })
   }
 
   .description {
-    padding: 1rem 0 .75rem;
+    padding: 1rem 0 0.75rem;
     font-size: 14px;
     color: #888;
     border-bottom: 1px solid #eee;
@@ -96,18 +107,21 @@ onBeforeRouteLeave(() => { postDetailStore.clear(); return true })
 }
 </style>
 
-<style lang="scss">
+<style lang="less">
 code {
   display: block;
   margin: 1em 0;
-  padding: .5rem 1rem;
+  padding: 0.5rem 1rem;
   line-height: 18px;
   background-color: #f3f3f3;
   white-space: pre-wrap;
-  font-family: Consolas, "Courier New", monospace;
+  font-family: Consolas, 'Courier New', monospace;
   font-size: 13px;
 }
-.h1, .h2, .h3, .h4 {
+.h1,
+.h2,
+.h3,
+.h4 {
   margin: 1em 0 0 0;
   font-weight: bold;
 }
@@ -143,7 +157,7 @@ p,
     content: '•';
     position: absolute;
     top: 0;
-    width: .5rem;
+    width: 0.5rem;
   }
 }
 
@@ -151,7 +165,7 @@ p,
   padding-left: 1rem;
 
   &::before {
-    left: .25rem;
+    left: 0.25rem;
   }
 }
 

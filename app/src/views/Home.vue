@@ -1,16 +1,16 @@
 <script setup lang="ts">
-import { Swiper, SwiperSlide } from 'swiper/vue';
-import 'swiper/css';
-import PostList from './PostList.vue';
+import { Swiper, SwiperSlide } from 'swiper/vue'
+import 'swiper/css'
+import PostList from './PostList.vue'
 import Message from './Message.vue'
 import PlayGround from './Playground.vue'
 import Profile from './Profile.vue'
-import { useMessageStore } from '@/store/message';
-import { useMainStore } from '@/store/main';
-import { computed, ref } from 'vue';
-import { usePostStore } from '@/store/post';
-import { useToastStore } from '@/store/toast';
-import Loading from '@/components/Loading.vue';
+import { useMessageStore } from '@/store/message'
+import { useMainStore } from '@/store/main'
+import { computed, ref } from 'vue'
+import { usePostStore } from '@/store/post'
+import { useToastStore } from '@/store/toast'
+import Loading from '@/components/Loading.vue'
 
 const messageStore = useMessageStore()
 const mainStore = useMainStore()
@@ -22,7 +22,7 @@ const tabs = [
   { name: '文字', component: PostList },
   { name: '发言', component: Message },
   { name: 'playground', component: PlayGround },
-  { name: '个人', component: Profile }
+  { name: '个人', component: Profile },
 ]
 const onSwiper = (swiper: any) => {
   swiperInstance = swiper
@@ -39,10 +39,12 @@ const clickTab = (index: number) => {
 }
 const onClickTab = async (index: number) => {
   if (index === 0 && activeIndex.value === 0) {
-    if (isLoadingPosts.value) { return }
+    if (isLoadingPosts.value) {
+      return
+    }
     isLoadingPosts.value = true
     await postStore.fetchPosts()
-    setTimeout(() => isLoadingPosts.value = false, 1000)
+    setTimeout(() => (isLoadingPosts.value = false), 1000)
     // toastStore.showToast({ content: '已刷新~', type: 'LOADING', timeout: 1000 })
   }
 }
@@ -51,19 +53,28 @@ const replyTo = () => {
   messageStore.reply()
   mainStore.router.push('addMessage')
 }
-
 </script>
 
 <template>
-  <swiper :slides-per-view="1" :space-between="50" @swiper="onSwiper" @slideChange="onSlideChange" :threshold="20">
+  <swiper
+    :slides-per-view="1"
+    :space-between="50"
+    @swiper="onSwiper"
+    @slideChange="onSlideChange"
+    :threshold="20"
+  >
     <swiper-slide v-for="tab in tabs">
       <component v-bind:is="tab.component"></component>
     </swiper-slide>
   </swiper>
 
   <div class="nav">
-    <div class="nav-item" v-for="(tab, index) in tabs" :class="{ 'active': activeIndex === index }"
-      @click="clickTab(index)">
+    <div
+      class="nav-item"
+      v-for="(tab, index) in tabs"
+      :class="{ active: activeIndex === index }"
+      @click="clickTab(index)"
+    >
       <template v-if="index === 0">
         <div v-if="!isLoadingPosts">文字</div>
         <Loading class="tab-loading" v-else />
@@ -87,7 +98,7 @@ const replyTo = () => {
   </div>
 </template>
 
-<style lang="scss" scoped>
+<style lang="less" scoped>
 .swiper-slide {
   min-height: 100vh;
 }
@@ -100,7 +111,7 @@ const replyTo = () => {
   display: flex;
   align-items: center;
   justify-content: space-around;
-  border-radius: .5rem;
+  border-radius: 0.5rem;
   background-color: white;
   box-shadow: 0px 2px 8px 0px #ccc;
   z-index: 2;
@@ -108,9 +119,9 @@ const replyTo = () => {
   .nav-item {
     position: relative;
     width: 2.5rem;
-    padding: .5rem 0;
+    padding: 0.5rem 0;
     line-height: 14px;
-    transition: color .2s ease;
+    transition: color 0.2s ease;
     cursor: pointer;
     user-select: none;
   }
@@ -131,15 +142,20 @@ const replyTo = () => {
   .message {
     position: absolute;
     width: 100%;
-    top: -.75rem;
+    top: -0.75rem;
     height: 2.5rem;
-    background-image: linear-gradient(rgba(255, 255, 255, 1), rgba(255, 255, 255, 0) 25%, rgba(255, 255, 255, 0) 75%, rgba(255, 255, 255, 1));
+    background-image: linear-gradient(
+      rgba(255, 255, 255, 1),
+      rgba(255, 255, 255, 0) 25%,
+      rgba(255, 255, 255, 0) 75%,
+      rgba(255, 255, 255, 1)
+    );
     isolation: isolate;
     overflow: hidden;
 
     & > div {
-      margin: .75rem auto 0;
-      transition: transform .3s ease-out;
+      margin: 0.75rem auto 0;
+      transition: transform 0.3s ease-out;
       mix-blend-mode: overlay;
     }
     .move-up {
@@ -151,18 +167,18 @@ const replyTo = () => {
     }
 
     .message-icon {
-      margin: .75rem auto 0;
-      $size: 1.25rem;
-      width: $size;
-      height: $size;
-      background: url(../assets/send.png) center/$size no-repeat;
+      margin: 0.75rem auto 0;
+      @size: 1.25rem;
+      width: @size;
+      height: @size;
+      background: url(../assets/send.png) center/ @size no-repeat;
       cursor: pointer;
     }
   }
 
   .fade-enter-active,
   .fade-leave-active {
-    transition: transform .3s ease-out, opacity .3s ease-out;
+    transition: transform 0.3s ease-out, opacity 0.3s ease-out;
   }
 
   .fade-enter-from {

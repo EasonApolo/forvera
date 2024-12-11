@@ -28,7 +28,12 @@ export const usePostStore = defineStore('post', {
       return res
     },
     async uploadSingleImage(postId: string, file: File) {
-      const fd = await request(`file/uploadSingle/${postId}`, 'POST', { file })
+      const fd = await request(
+        `file/uploadSingle/${postId}`,
+        'POST',
+        { file },
+        { contentType: 'formData' }
+      )
       return fd
     },
     async fetchImagesOfPost(postId: string) {
@@ -37,6 +42,6 @@ export const usePostStore = defineStore('post', {
     async deletePost(postId: string) {
       let res = await request(`post/${postId}`, 'DELETE')
       return res
-    }
-  }
+    },
+  },
 })

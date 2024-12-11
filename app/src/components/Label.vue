@@ -3,18 +3,18 @@ defineProps<{ active?: boolean }>()
 </script>
 
 <template>
-  <div class="label" :class="{active: active}">
+  <div class="label" :class="{ active: active }">
     <slot></slot>
   </div>
 </template>
 
-<style lang="scss" scoped>
+<style lang="less" scoped>
 .label {
-  padding: .375rem 1rem;
-  color: rgba(0, 0, 0, .6);
+  padding: 0.375rem 1rem;
+  color: rgba(0, 0, 0, 0.6);
   border-radius: 4px;
-  background-color: rgba(13,12,34,0.05);
-  transition: .2s ease;
+  background-color: rgba(13, 12, 34, 0.05);
+  transition: 0.2s ease;
   cursor: pointer;
 }
 .active {

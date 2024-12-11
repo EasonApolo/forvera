@@ -6,6 +6,7 @@ import { useToastStore } from '../store/toast'
 
 type RequestOptions = {
   withCredentials?: boolean
+  contentType?: 'json' | 'formData'
 }
 
 /**
@@ -58,12 +59,15 @@ export async function request(
         options.headers!['Content-Type'] = 'application/json'
       } else if (params instanceof FormData) {
         options.data = params
-      } else {
+      } else if (requestOptions?.contentType === 'formData') {
         let formData = new FormData()
         for (let key in params) {
           formData.append(key, params[key])
         }
         options.data = formData
+      } else {
+        options.data = JSON.stringify(params)
+        options.headers!['Content-Type'] = 'application/json'
       }
     }
   }

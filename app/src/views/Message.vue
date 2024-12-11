@@ -100,7 +100,7 @@ const replyTo = (message?: Message) => {
   </List>
 </template>
 
-<style lang="scss" scoped>
+<style lang="less" scoped>
 .message {
   padding: 0.5rem 1rem;
   text-align: left;

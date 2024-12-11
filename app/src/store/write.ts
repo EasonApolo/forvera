@@ -4,8 +4,14 @@ import { useCategories } from './category'
 import { usePostStore } from './post'
 
 export function getUrlFromFD(fd: FileDescriptor, thumb?: boolean): string
-export function getUrlFromFD(fd: Array<FileDescriptor>, thumb?: boolean): string[]
-export function getUrlFromFD(fd: FileDescriptor | Array<FileDescriptor>, thumb = false): string | string[] {
+export function getUrlFromFD(
+  fd: Array<FileDescriptor>,
+  thumb?: boolean
+): string[]
+export function getUrlFromFD(
+  fd: FileDescriptor | Array<FileDescriptor>,
+  thumb = false
+): string | string[] {
   const getProp = (fd: FileDescriptor) => `${ip}${thumb ? fd.thumb : fd.url}`
   return Array.isArray(fd) ? fd.map(getProp) : getProp(fd)
 }
@@ -15,13 +21,13 @@ export const useWriteStore = defineStore('write', {
     return {
       postId: '' as string,
       post: {} as Post,
-      files: [] as FileDescriptor[]
+      files: [] as FileDescriptor[],
     }
   },
   getters: {
-    images: (state) => {
+    images: state => {
       return getUrlFromFD(state.files)
-    }
+    },
   },
   actions: {
     async init(postId?: string) {
@@ -63,9 +69,13 @@ export const useWriteStore = defineStore('write', {
     },
     async initUploadedImages() {
       const postStore = usePostStore()
-      const files = await postStore.fetchImagesOfPost(this.postId) as FileDescriptor[]
-      files.map(f => { f.url = f.url.replaceAll('\\', '/') })
+      const files = (await postStore.fetchImagesOfPost(
+        this.postId
+      )) as FileDescriptor[]
+      files.map(f => {
+        f.url = f.url.replaceAll('\\', '/')
+      })
       this.files = files
-    }
-  }
+    },
+  },
 })

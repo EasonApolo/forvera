@@ -7,7 +7,7 @@
   </div>
 </template>
 
-<style lang="scss">
+<style lang="less">
 .component-list {
   height: 100vh;
   overflow-y: auto;

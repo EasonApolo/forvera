@@ -16,7 +16,7 @@ defineProps<{
   </div>
 </template>
 
-<style lang="scss" scoped>
+<style lang="less" scoped>
 .gallery {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(6rem, 1fr));
