@@ -1,12 +1,13 @@
 <script setup lang="ts">
-const { type, size, clickable } = withDefaults(
-  defineProps<{
-    type: string
-    size?: 'normal' | 'small' | 'large'
-    clickable?: boolean
-  }>(),
-  { size: 'normal', clickable: true }
-)
+const {
+  type,
+  size = 'normal',
+  clickable = true,
+} = defineProps<{
+  type: string
+  size?: 'normal' | 'small' | 'large'
+  clickable?: boolean
+}>()
 </script>
 
 <template>
