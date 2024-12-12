@@ -79,6 +79,11 @@ body {
   }
 }
 
+.link {
+  color: #42b983;
+  cursor: pointer;
+}
+
 .card-group {
   margin-top: 1rem;
 }
@@ -91,6 +96,12 @@ body {
   &:not(:first-child) {
     margin-top: 0.75rem;
   }
+}
+
+.ending {
+  margin-top: 1rem;
+  font-size: 12px;
+  color: #aaa;
 }
 
 textarea {

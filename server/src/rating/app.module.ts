@@ -10,6 +10,7 @@ import {
   Req,
   Query,
   UnauthorizedException,
+  BadRequestException,
 } from '@nestjs/common';
 import { Injectable } from '@nestjs/common';
 import { MongooseModule, Schema, Prop, SchemaFactory } from '@nestjs/mongoose';
@@ -20,12 +21,11 @@ import axios from 'axios';
 import { OptionalParseIntPipe } from 'src/shared/parse-int.pipe';
 
 // Document Schema
-@Schema()
+@Schema({ timestamps: true })
 export class Comment extends MongooseDocument {
-  @Prop() id: string;
   @Prop() date: Date;
-  @Prop() content: string;
-  @Prop() rate: number;
+  @Prop() content?: string;
+  @Prop() rate: number | null;
   @Prop() userId: string;
 
   constructor() {
@@ -36,7 +36,7 @@ export class Comment extends MongooseDocument {
 
 export const CommentSchema = SchemaFactory.createForClass(Comment);
 
-@Schema()
+@Schema({ timestamps: true })
 export class Document extends MongooseDocument {
   @Prop() id: string; // movie id
   @Prop() title: string;
@@ -45,7 +45,7 @@ export class Document extends MongooseDocument {
   @Prop() episode?: string; // '26' for movie
   @Prop() img?: string; //  for movie
   @Prop() url?: string; //  for movie
-  @Prop() year?: string; // '2011' for movie
+  @Prop() date?: string; // '2011' for movie
   @Prop() sub_title: string; //  for movie
   @Prop([CommentSchema]) comments: Comment[];
 }
@@ -62,9 +62,8 @@ export class CreateDocumentDto {
 
 export class CreateCommentDto {
   documentId: string; // Add documentId to the DTO
-  id: string;
-  content: string;
-  rate: number;
+  content?: string;
+  rate?: number;
 }
 
 export class EditCommentDto {
@@ -77,6 +76,9 @@ export class EditCommentDto {
 // Service
 @Injectable()
 export class DocumentService {
+  private lastSearchTime: number | null = null;
+  private readonly cooldownPeriod = 10000;
+
   constructor(
     @InjectModel(Document.name) private documentModel: Model<Document>,
     @InjectModel(Comment.name) private commentModel: Model<Comment>,
@@ -90,7 +92,7 @@ export class DocumentService {
   async createComment(createCommentDto: CreateCommentDto): Promise<Document> {
     const { documentId, ...commentData } = createCommentDto;
     const document: Document = await this.documentModel
-      .findOne({ id: documentId })
+      .findById(documentId)
       .exec();
     const comment = new this.commentModel(commentData);
     document.comments.push(comment);
@@ -152,7 +154,12 @@ export class DocumentService {
     const skip = pageSize && pageNumber ? (pageNumber - 1) * pageSize : 0;
     const limit = pageSize ? pageSize : 10;
 
-    return this.documentModel.find(query).skip(skip).limit(limit).exec();
+    return this.documentModel
+      .find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .exec();
   }
 
   async getTypes(): Promise<any[]> {
@@ -163,6 +170,18 @@ export class DocumentService {
   }
 
   async searchMovies(query: string): Promise<any> {
+    const currentTime = Date.now();
+
+    if (
+      this.lastSearchTime &&
+      currentTime - this.lastSearchTime < this.cooldownPeriod
+    ) {
+      throw new BadRequestException(
+        'Requests are too frequent. Please wait a moment.',
+      );
+    }
+
+    this.lastSearchTime = currentTime;
     const url = `https://movie.douban.com/j/subject_suggest?q=${encodeURIComponent(
       query,
     )}`;

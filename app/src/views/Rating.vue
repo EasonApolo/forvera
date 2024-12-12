@@ -4,6 +4,8 @@ import Card from '@/components/Card.vue'
 import List from '@/components/layout/List.vue'
 import { request } from '@/utils/request'
 import { onMounted, ref, computed } from 'vue'
+import RatingComponent from '@/components/RatingComponent.vue'
+import Icon from '@/components/Icon.vue'
 
 interface TreeNode {
   key?: string
@@ -11,15 +13,16 @@ interface TreeNode {
   children: TreeNode[]
 }
 interface RatingDocument {
-  id: number
+  _id: string
+  id: string
   title: string
-  date: string
+  date?: string
   type: string
-  comments: {
-    id: number
-    content: string
-    rate: number
-  }[]
+  episode?: string // '26'
+  img?: string
+  url?: string
+  sub_title?: string
+  comments: Comment[]
 }
 
 const types = ref<TreeNode[]>([])
@@ -32,6 +35,7 @@ const loading = ref({
   search: false,
   create: false,
   fetch: false,
+  comment: false,
 })
 
 onMounted(() => {
@@ -42,12 +46,15 @@ const fetchTypes = async () => {
 }
 const selectPath = (index: number) => {
   path.value = path.value.slice(0, index)
+  onPathChange()
 }
 const selectNode = (index: number) => {
   path.value.push(index)
-  pageNumber.value = 1
-  documents.value = []
-  fetchDocuments() // Fetch documents based on the selected type
+  onPathChange()
+}
+const onPathChange = () => {
+  clearSearch()
+  fetchDocuments({ refresh: true })
 }
 const pathSegs = computed(() => {
   const tmp: string[] = []
@@ -81,9 +88,12 @@ const fetchDocuments = async ({ refresh }: { refresh?: boolean } = {}) => {
     }
     if (refresh) {
       documents.value = [...data]
+    } else {
+      documents.value = [...documents.value, ...data]
     }
-    documents.value = [...documents.value, ...data]
     pageNumber.value++
+  } else if (refresh) {
+    documents.value = []
   }
   loading.value.fetch = false
 }
@@ -116,14 +126,22 @@ const search = ref({
 })
 const searchMovie = async () => {
   loading.value.search = true
+  search.value.selected = null
+  try {
+    search.value.result = await request('documents/search', 'GET', {
+      query: search.value.query,
+    })
+  } catch (error) {
+  } finally {
+    search.value.done = true
+    loading.value.search = false
+  }
+}
+const clearSearch = () => {
+  search.value.query = ''
   search.value.done = false
   search.value.result = []
   search.value.selected = null
-  search.value.result = await request('documents/search', 'GET', {
-    query: search.value.query,
-  })
-  search.value.done = true
-  loading.value.search = false
 }
 const openUrlInNewPage = (url: string) => {
   window.open(url, '_blank', 'noopener noreferrer')
@@ -139,9 +157,97 @@ const createDocument = async () => {
     title: search.value.selected.title,
     date: search.value.selected.year,
     type: node.value.key,
+    episode: search.value.selected.episode,
+    img: search.value.selected.img,
+    sub_title: search.value.selected.sub_title,
+    url: search.value.selected.url,
   })
+  clearSearch()
   loading.value.create = false
   await fetchDocuments({ refresh: true })
+}
+
+interface Comment {
+  _id: string
+  rating: number | null
+  content: string
+}
+const commenting = ref({
+  text: '',
+  rating: null as number | null,
+  documentId: undefined as string | undefined,
+  commentId: undefined as string | undefined,
+  isEdit: false,
+})
+const writeComment = (documentId: string) => {
+  commenting.value.documentId = documentId
+}
+const editComment = (documentId: string, comment: Comment) => {
+  commenting.value.commentId = comment._id
+  commenting.value.rating = comment.rating
+  commenting.value.text = comment.content
+  commenting.value.isEdit = true
+  commenting.value.documentId = documentId
+}
+const deleteComment = async (documentId: string, commentId: string) => {
+  if (confirm('确定要删除吗？')) {
+    await request('documents/comment', 'DELETE')
+    documents.value = documents.value.map(item => {
+      if (item._id === documentId) {
+        item.comments = item.comments.filter(
+          comment => comment._id !== commentId
+        )
+      }
+      return item
+    })
+  }
+}
+const submitComment = async () => {
+  if (
+    !commenting.value.documentId ||
+    (commenting.value.isEdit && !commenting.value.commentId)
+  ) {
+    return
+  }
+  loading.value.comment = true
+  try {
+    let newDoc: RatingDocument
+    if (commenting.value.isEdit) {
+      newDoc = await request('documents/comment', 'PUT', {
+        documentId: commenting.value.documentId,
+        commentId: commenting.value.commentId,
+        content: commenting.value.text,
+        rate: commenting.value.rating,
+      })
+    } else {
+      newDoc = await request('documents/comment', 'POST', {
+        documentId: commenting.value.documentId,
+        content: commenting.value.text,
+        rate: commenting.value.rating,
+      })
+    }
+    documents.value = documents.value.map(item => {
+      if (item._id === commenting.value.documentId) {
+        return newDoc
+      } else {
+        return item
+      }
+    })
+    initCommenting()
+  } catch (err) {
+  } finally {
+    loading.value.comment = false
+  }
+}
+const initCommenting = () => {
+  commenting.value.text = ''
+  commenting.value.rating = null
+  commenting.value.documentId = undefined
+  commenting.value.commentId = undefined
+  commenting.value.isEdit = false
+}
+const cancelComment = () => {
+  initCommenting()
 }
 </script>
 
@@ -176,12 +282,16 @@ const createDocument = async () => {
                 class="text-input login-input"
                 v-model="search.query"
                 placeholder="title"
+                @keypress.enter="searchMovie"
               />
               <Btn type="primary" @click="searchMovie" :loading="loading.search"
                 >搜索</Btn
               >
             </div>
             <div v-if="search.done" class="search-result">
+              <div v-if="search.result.length === 0" class="no-result">
+                没搜到
+              </div>
               <div
                 v-for="res in search.result"
                 :key="res.id"
@@ -189,11 +299,13 @@ const createDocument = async () => {
                 :class="{ selected: search.selected === res }"
                 @click="search.selected = res"
               >
-                <div @click.stop="openUrlInNewPage(res.url)">
+                <div class="link" @click.stop="openUrlInNewPage(res.url)">
                   {{ res.title }}
                 </div>
                 <div>sub: {{ res.sub_title }}</div>
-                <div @click.stop="openUrlInNewPage(res.img)">img</div>
+                <div class="link" @click.stop="openUrlInNewPage(res.img)">
+                  img
+                </div>
                 <div>year: {{ res.year }}</div>
                 <div>id: {{ res.id }}</div>
                 <div>type: {{ res.type }}</div>
@@ -211,15 +323,83 @@ const createDocument = async () => {
           </Card>
         </template>
         <div class="card-group-name">记录</div>
-        <Card v-for="document in documents" :key="document.id">
-          <h4>{{ document.title }}</h4>
-          <p>{{ document.date }}</p>
-          <p>{{ document.type }}</p>
-          <p v-for="comment in document.comments" :key="comment.id">
-            {{ comment.content }} - {{ comment.rate }}
-          </p>
+        <Card
+          v-for="document in documents"
+          :key="document.id"
+          class="document-card"
+        >
+          <div class="content">
+            <div class="left">
+              <div class="title">{{ document.title }}</div>
+              <div v-if="document.date" class="meta">{{ document.date }}</div>
+              <div
+                v-if="document.episode && parseInt(document.episode) > 1"
+                class="meta"
+              >
+                {{ document.episode }}集
+              </div>
+              <div
+                v-if="document.url"
+                class="meta link"
+                @click="openUrlInNewPage(document.url)"
+              >
+                url
+              </div>
+              <div
+                v-if="document.img"
+                class="meta link"
+                @click="openUrlInNewPage(document.img)"
+              >
+                img
+              </div>
+            </div>
+            <div class="right">
+              <Btn @click="writeComment(document._id)">标记</Btn>
+              <Btn>删除</Btn>
+            </div>
+          </div>
+          <div
+            v-if="document._id === commenting.documentId"
+            class="comment-area"
+          >
+            <textarea v-model="commenting.text" class="text-input"></textarea>
+            <div class="controls">
+              <RatingComponent
+                :value="commenting.rating"
+                @update:value="commenting.rating = $event"
+                class="rating"
+              ></RatingComponent>
+              <Btn class="submit-button" type="primary" @click="submitComment"
+                >评论</Btn
+              >
+              <Btn @click="cancelComment">取消</Btn>
+            </div>
+          </div>
+          <div class="comments">
+            <div
+              v-for="comment in document.comments"
+              :key="comment._id"
+              class="comment-card"
+            >
+              <div class="controls">
+                <RatingComponent
+                  class="rating"
+                  :value="comment.rating"
+                  :readonly="true"
+                ></RatingComponent>
+                <Icon type="✏️" @click="editComment(document._id, comment)" />
+                <Icon
+                  type="🗑️"
+                  @click="deleteComment(document._id, comment._id)"
+                />
+              </div>
+              <div class="content">
+                {{ comment.content }}
+              </div>
+            </div>
+          </div>
         </Card>
-        <div v-if="!hasMore">--没有更多了哦--</div>
+        <div v-if="!hasMore" class="ending">——— 没有更多了哦 ———</div>
       </template>
     </List>
   </div>
@@ -237,14 +417,14 @@ const createDocument = async () => {
     margin: 0 8px;
   }
   .path-segment {
-    color: rgb(31, 189, 31);
+    color: #42b983;
     cursor: pointer;
   }
   .divider {
     margin: 0 8px;
   }
   .file {
-    color: rgb(221, 96, 96);
+    color: #42b983;
     margin: 0 8px;
     cursor: pointer;
   }
@@ -274,10 +454,89 @@ const createDocument = async () => {
     .selected {
       border: 1px solid blue;
     }
+    .no-result {
+      font-size: 0.875rem;
+      color: #888;
+    }
   }
   .submit-button {
     margin-top: 16px;
     flex: 0 0 auto;
+  }
+}
+.document-card {
+  .content {
+    display: flex;
+    .left {
+      flex: 1 1 auto;
+      display: flex;
+      flex-wrap: wrap;
+      .title {
+        flex: 0 0 100%;
+        text-align: left;
+        font-weight: bold;
+        margin-bottom: 8px;
+      }
+      .meta {
+        font-size: 0.875rem;
+        margin-right: 8px;
+      }
+      .meta:not(.link) {
+        font-size: 0.875rem;
+        color: #888;
+      }
+    }
+    .right {
+      flex: 0 0 auto;
+      display: flex;
+      flex-wrap: nowrap;
+      height: 32px;
+      column-gap: 16px;
+    }
+  }
+  .comment-area {
+    .text-input {
+      margin-top: 16px;
+    }
+    .controls {
+      margin-top: 16px;
+      display: flex;
+      align-items: center;
+      .rating {
+        margin-right: 16px;
+      }
+      .submit-button {
+        margin-right: 16px;
+      }
+    }
+  }
+  .comments {
+    margin-top: 16px;
+    display: flex;
+    row-gap: 16px;
+    column-gap: 16px;
+    .comment-card {
+      background: #f8f8f8;
+      border-radius: 4px;
+      padding: 8px;
+      max-width: 100%;
+      min-width: 100px;
+      .controls {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        div {
+          margin-left: 8px;
+          flex: 0 0 auto;
+        }
+      }
+      .rating {
+      }
+      .content {
+        margin-top: 8px;
+        text-align: left;
+      }
+    }
   }
 }
 </style>

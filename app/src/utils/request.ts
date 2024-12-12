@@ -83,19 +83,25 @@ export async function request(
         type: '!',
         timeout: 3000,
       })
-      return { ERRNO: 500 }
-    }
-    const errCode = err.response.status
-    if (errCode === 401) {
-      if (userStore.isLogin) {
+    } else {
+      const errCode = err.response.status
+      if (errCode === 401) {
+        if (userStore.isLogin) {
+          toastStore.showToast({
+            content: '登录凭证已过期，请保存后点击个人重新登录。',
+            type: '!',
+            timeout: 3000,
+          })
+        }
+        userStore.logout()
+      } else {
         toastStore.showToast({
-          content: '登录凭证已过期，请保存后点击个人重新登录。',
+          content: err.response.data.message || errCode,
           type: '!',
           timeout: 3000,
         })
       }
-      userStore.logout()
     }
-    return { ERRNO: errCode }
+    throw err
   }
 }

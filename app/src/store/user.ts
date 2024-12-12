@@ -6,15 +6,15 @@ export const useUserStore = defineStore('user', {
   state: () => ({
     loginData: {
       username: '',
-      password: ''
+      password: '',
     },
     userInfo: {
       username: undefined,
-      token: undefined
+      token: undefined,
     },
   }),
   getters: {
-    isLogin: state => !!state.userInfo.token
+    isLogin: state => !!state.userInfo.token,
   },
   actions: {
     // 如果有token则尝试获取userInfo，如果成功则可以免登
@@ -24,18 +24,10 @@ export const useUserStore = defineStore('user', {
         token = `Bearer ${token}`
         Object.assign(this.userInfo, { token })
         const res = await request('user/info', 'POST')
-        if (res && !res?.ERRNO) {
-          const { username } = res
-          if (username) {
-            localStorage.username = username
-            Object.assign(this.userInfo, { username })
-          }
-        } else {
-          Object.assign(this.userInfo, { token: undefined })
-          if (res.ERRNO == 401) {
-            const toastStore = useToastStore()
-            toastStore.showToast({ content: '登录信息已失效，可以重新登录～', type: '?' })
-          }
+        const { username } = res
+        if (username) {
+          localStorage.username = username
+          Object.assign(this.userInfo, { username })
         }
       }
     },
@@ -65,15 +57,22 @@ export const useUserStore = defineStore('user', {
       Object.assign(this.userInfo, { token: undefined, username: undefined })
     },
     validateLoginForm() {
-      if (this.loginData.username?.length < 3 || this.loginData.password.length < 3) return false
+      if (
+        this.loginData.username?.length < 3 ||
+        this.loginData.password.length < 3
+      )
+        return false
       return true
     },
     async register() {
       if (!this.validateLoginForm()) return false
       let payload = this.loginData
-      const { token, ERRNO } = await request('auth/register', 'POST', JSON.stringify(payload))
-      if (ERRNO) return
+      const { token } = await request(
+        'auth/register',
+        'POST',
+        JSON.stringify(payload)
+      )
       Object.assign(this.userInfo, { token, username: this.loginData.username })
-    }
-  }
+    },
+  },
 })
