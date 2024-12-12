@@ -1,13 +1,10 @@
 <script setup lang="ts">
-import { defineProps, defineEmits, ref, watch } from 'vue'
+import { ref, watch } from 'vue'
 
-const { value, readonly } = withDefaults(
-  defineProps<{
-    value: number | null
-    readonly?: boolean
-  }>(),
-  { readonly: false }
-)
+const { value, readonly = false } = defineProps<{
+  value: number | null
+  readonly?: boolean
+}>()
 
 const emit = defineEmits(['update:value'])
 
@@ -40,7 +37,10 @@ const clearRating = () => {
     <span
       v-for="n in 5"
       :key="n"
-      :class="{ filled: !(rating === null || n > rating) }"
+      :class="{
+        filled: rating !== null && n <= rating,
+        empty: rating === null,
+      }"
       @click="setRating(n)"
       @dblclick="clearRating"
     >
@@ -65,5 +65,9 @@ const clearRating = () => {
 
 .rating span.filled {
   color: gold;
+}
+
+.rating span.empty {
+  color: #aaa;
 }
 </style>

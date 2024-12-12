@@ -6,6 +6,7 @@ import { request } from '@/utils/request'
 import { onMounted, ref, computed } from 'vue'
 import RatingComponent from '@/components/RatingComponent.vue'
 import Icon from '@/components/Icon.vue'
+import { formatDate } from '@/utils/common'
 
 interface TreeNode {
   key?: string
@@ -108,6 +109,9 @@ const onScroll = (e: any) => {
   }
 }
 
+/**
+ * search
+ */
 interface Movie {
   episode: string // '26'
   img: string
@@ -166,11 +170,24 @@ const createDocument = async () => {
   loading.value.create = false
   await fetchDocuments({ refresh: true })
 }
+const deleteDocument = async (documentId: string) => {
+  if (confirm('确定要删除吗？')) {
+    await request('documents', 'DELETE', {
+      documentId,
+    })
+    await fetchDocuments({ refresh: true })
+  }
+}
 
+/**
+ * Comment
+ */
 interface Comment {
   _id: string
-  rating: number | null
+  rate: number | null
   content: string
+  createdAt: string
+  updatedAt: string
 }
 const commenting = ref({
   text: '',
@@ -179,26 +196,28 @@ const commenting = ref({
   commentId: undefined as string | undefined,
   isEdit: false,
 })
-const writeComment = (documentId: string) => {
+const addComment = (documentId: string) => {
   commenting.value.documentId = documentId
 }
 const editComment = (documentId: string, comment: Comment) => {
   commenting.value.commentId = comment._id
-  commenting.value.rating = comment.rating
+  commenting.value.rating = comment.rate
   commenting.value.text = comment.content
   commenting.value.isEdit = true
   commenting.value.documentId = documentId
 }
 const deleteComment = async (documentId: string, commentId: string) => {
   if (confirm('确定要删除吗？')) {
-    await request('documents/comment', 'DELETE')
+    const newDoc = await request('documents/comment', 'DELETE', {
+      documentId,
+      commentId,
+    })
     documents.value = documents.value.map(item => {
       if (item._id === documentId) {
-        item.comments = item.comments.filter(
-          comment => comment._id !== commentId
-        )
+        return newDoc
+      } else {
+        return item
       }
-      return item
     })
   }
 }
@@ -274,6 +293,7 @@ const cancelComment = () => {
             {{ child.title }}
           </div>
         </Card>
+
         <template v-if="node.key === 'movie'">
           <div class="card-group-name">创建</div>
           <Card class="create">
@@ -322,6 +342,7 @@ const cancelComment = () => {
             </div>
           </Card>
         </template>
+
         <div class="card-group-name">记录</div>
         <Card
           v-for="document in documents"
@@ -354,8 +375,8 @@ const cancelComment = () => {
               </div>
             </div>
             <div class="right">
-              <Btn @click="writeComment(document._id)">标记</Btn>
-              <Btn>删除</Btn>
+              <Icon type="✏️" @click="addComment(document._id)" />
+              <Icon type="🗑️" @click="deleteDocument(document._id)" />
             </div>
           </div>
           <div
@@ -375,7 +396,8 @@ const cancelComment = () => {
               <Btn @click="cancelComment">取消</Btn>
             </div>
           </div>
-          <div class="comments">
+
+          <div v-if="document.comments.length > 0" class="comments">
             <div
               v-for="comment in document.comments"
               :key="comment._id"
@@ -384,16 +406,22 @@ const cancelComment = () => {
               <div class="controls">
                 <RatingComponent
                   class="rating"
-                  :value="comment.rating"
+                  :value="comment.rate"
                   :readonly="true"
                 ></RatingComponent>
-                <Icon type="✏️" @click="editComment(document._id, comment)" />
                 <Icon
+                  class="btn"
+                  type="✏️"
+                  @click="editComment(document._id, comment)"
+                />
+                <Icon
+                  class="btn"
                   type="🗑️"
                   @click="deleteComment(document._id, comment._id)"
                 />
               </div>
-              <div class="content">
+              <div class="date-str">{{ formatDate(comment.createdAt) }}</div>
+              <div v-if="comment.content" class="content">
                 {{ comment.content }}
               </div>
             </div>
@@ -491,7 +519,7 @@ const cancelComment = () => {
       display: flex;
       flex-wrap: nowrap;
       height: 32px;
-      column-gap: 16px;
+      column-gap: 8px;
     }
   }
   .comment-area {
@@ -515,22 +543,25 @@ const cancelComment = () => {
     display: flex;
     row-gap: 16px;
     column-gap: 16px;
+    flex-wrap: wrap;
     .comment-card {
       background: #f8f8f8;
       border-radius: 4px;
       padding: 8px;
       max-width: 100%;
-      min-width: 100px;
+      min-width: 160px;
       .controls {
         display: flex;
         justify-content: flex-end;
         align-items: center;
-        div {
-          margin-left: 8px;
-          flex: 0 0 auto;
+        .rating {
+          margin-right: auto;
         }
       }
-      .rating {
+      .date-str {
+        font-size: 0.75rem;
+        color: #888;
+        text-align: left;
       }
       .content {
         margin-top: 8px;

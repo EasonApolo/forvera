@@ -23,14 +23,12 @@ import { OptionalParseIntPipe } from 'src/shared/parse-int.pipe';
 // Document Schema
 @Schema({ timestamps: true })
 export class Comment extends MongooseDocument {
-  @Prop() date: Date;
   @Prop() content?: string;
   @Prop() rate: number | null;
   @Prop() userId: string;
 
   constructor() {
     super();
-    this.date = new Date(); // Initialize date with current timestamp
   }
 }
 
@@ -73,6 +71,11 @@ export class EditCommentDto {
   rate: number;
 }
 
+export class DeleteCommentDto {
+  documentId: string;
+  commentId: string;
+}
+
 // Service
 @Injectable()
 export class DocumentService {
@@ -87,6 +90,10 @@ export class DocumentService {
   async addDocument(createDocumentDto: CreateDocumentDto): Promise<Document> {
     const createdDocument = new this.documentModel(createDocumentDto);
     return createdDocument.save();
+  }
+
+  async deleteDocument(documentId: string): Promise<Document> {
+    return this.documentModel.findByIdAndDelete(documentId).exec();
   }
 
   async createComment(createCommentDto: CreateCommentDto): Promise<Document> {
@@ -105,7 +112,7 @@ export class DocumentService {
 
     return this.documentModel
       .findOneAndUpdate(
-        { id: documentId, 'comments.id': commentId },
+        { _id: documentId, 'comments._id': commentId },
         {
           $set: {
             'comments.$.content': editCommentDto.content,
@@ -117,28 +124,14 @@ export class DocumentService {
       .exec();
   }
 
-  async deleteComment(
-    documentId: string,
-    commentId: string,
-    userId: string,
-  ): Promise<Document> {
-    const document = await this.documentModel
-      .findOne({ id: documentId, 'comments.id': commentId })
-      .exec();
-    const comment = document.comments.find(
-      (comment) => comment.id === commentId,
-    );
-
-    if (comment.userId !== userId) {
-      throw new UnauthorizedException(
-        'You are not authorized to delete this comment',
-      );
-    }
-
+  async deleteComment({
+    documentId,
+    commentId,
+  }: DeleteCommentDto): Promise<Document> {
     return this.documentModel
       .findOneAndUpdate(
-        { id: documentId },
-        { $pull: { comments: { id: commentId } } },
+        { _id: documentId },
+        { $pull: { comments: { _id: commentId } } },
         { new: true },
       )
       .exec();
@@ -201,6 +194,11 @@ export class DocumentController {
     return this.documentService.addDocument(createDocumentDto);
   }
 
+  @Delete('')
+  async deleteDocument(@Body() { documentId }: { documentId: string }) {
+    return this.documentService.deleteDocument(documentId);
+  }
+
   @Post('comment')
   async createComment(@Body() createCommentDto: CreateCommentDto) {
     return this.documentService.createComment({ ...createCommentDto });
@@ -212,13 +210,8 @@ export class DocumentController {
   }
 
   @Delete('comment')
-  async deleteComment(
-    @Body() deleteCommentDto: { documentId: string; commentId: string },
-    @Req() req,
-  ) {
-    const { documentId, commentId } = deleteCommentDto;
-    const userId = req.user.userId;
-    return this.documentService.deleteComment(documentId, commentId, userId);
+  async deleteComment(@Body() deleteCommentDto: DeleteCommentDto) {
+    return this.documentService.deleteComment(deleteCommentDto);
   }
 
   @Get()
