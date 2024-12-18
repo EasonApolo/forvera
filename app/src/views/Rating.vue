@@ -7,6 +7,8 @@ import { onMounted, ref, computed } from 'vue'
 import RatingComponent from '@/components/RatingComponent.vue'
 import Icon from '@/components/Icon.vue'
 import { formatDate } from '@/utils/common'
+import { useUserStore } from '@/store/user'
+import { storeToRefs } from 'pinia'
 
 interface TreeNode {
   key?: string
@@ -25,10 +27,13 @@ interface RatingDocument {
   sub_title?: string
   comments: Comment[]
 }
+const userStore = useUserStore()
+const { userInfo } = storeToRefs(userStore)
 
 const types = ref<TreeNode[]>([])
 const path = ref<number[]>([])
 const documents = ref<RatingDocument[]>([])
+const editable = computed(() => userInfo.value.role === 3)
 const pageSize = ref(10)
 const pageNumber = ref(1)
 const hasMore = ref(true)
@@ -294,7 +299,7 @@ const cancelComment = () => {
           </div>
         </Card>
 
-        <template v-if="node.key === 'movie'">
+        <template v-if="editable && node.key === 'movie'">
           <div class="card-group-name">创建</div>
           <Card class="create">
             <div class="search-input">
@@ -357,7 +362,7 @@ const cancelComment = () => {
                 v-if="document.episode && parseInt(document.episode) > 1"
                 class="meta"
               >
-                {{ document.episode }}集
+                {{ document.episode }}eps
               </div>
               <div
                 v-if="document.url"
@@ -374,7 +379,7 @@ const cancelComment = () => {
                 img
               </div>
             </div>
-            <div class="right">
+            <div v-if="editable" class="right">
               <Icon type="✏️" @click="addComment(document._id)" />
               <Icon type="🗑️" @click="deleteDocument(document._id)" />
             </div>
@@ -410,11 +415,13 @@ const cancelComment = () => {
                   :readonly="true"
                 ></RatingComponent>
                 <Icon
+                  v-if="editable"
                   class="btn"
                   type="✏️"
                   @click="editComment(document._id, comment)"
                 />
                 <Icon
+                  v-if="editable"
                   class="btn"
                   type="🗑️"
                   @click="deleteComment(document._id, comment._id)"
@@ -471,6 +478,7 @@ const cancelComment = () => {
     margin-top: 16px;
     row-gap: 16px;
     column-gap: 16px;
+    flex-wrap: wrap;
     .result-card {
       padding: 12px;
       border: 1px solid #ccc;
@@ -520,6 +528,10 @@ const cancelComment = () => {
       flex-wrap: nowrap;
       height: 32px;
       column-gap: 8px;
+      display: none;
+    }
+    &:hover .right {
+      display: flex;
     }
   }
   .comment-area {
@@ -557,8 +569,18 @@ const cancelComment = () => {
         .rating {
           margin-right: auto;
         }
+        .btn {
+          display: none;
+          &:not(:last-child) {
+            margin-right: 8px;
+          }
+        }
+      }
+      &:hover .controls .btn {
+        display: flex;
       }
       .date-str {
+        margin-top: 4px;
         font-size: 0.75rem;
         color: #888;
         text-align: left;

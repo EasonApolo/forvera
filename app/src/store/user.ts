@@ -11,6 +11,7 @@ export const useUserStore = defineStore('user', {
     userInfo: {
       username: undefined,
       token: undefined,
+      role: 0,
     },
   }),
   getters: {
@@ -24,37 +25,36 @@ export const useUserStore = defineStore('user', {
         token = `Bearer ${token}`
         Object.assign(this.userInfo, { token })
         const res = await request('user/info', 'POST')
-        const { username } = res
+        const { username, role } = res
         if (username) {
           localStorage.username = username
-          Object.assign(this.userInfo, { username })
+          localStorage.role = role
+          Object.assign(this.userInfo, { username, role })
         }
       }
     },
     async login() {
-      let token, username
-      if (localStorage.token && localStorage.username) {
-        token = localStorage.token
-        username = localStorage.username
-      }
-      if (!(token && username)) {
-        const payload = this.loginData
-        if (!(payload.username && payload.password)) return
-        const res = await request('auth/login', 'POST', JSON.stringify(payload))
-        token = res.token
-        username = this.loginData.username
-      }
-      if (token && username) {
+      let token
+      const payload = this.loginData
+      if (!(payload.username && payload.password)) return
+      const res = await request('auth/login', 'POST', JSON.stringify(payload))
+      token = res.token
+      if (token) {
         localStorage.token = token
-        localStorage.username = username
         token = `Bearer ${token}`
-        Object.assign(this.userInfo, { token, username })
+        Object.assign(this.userInfo, { token })
       }
+      await this.getUserInfo()
     },
     async logout() {
       delete localStorage.token
       delete localStorage.username
-      Object.assign(this.userInfo, { token: undefined, username: undefined })
+      delete localStorage.role
+      Object.assign(this.userInfo, {
+        token: undefined,
+        username: undefined,
+        role: undefined,
+      })
     },
     validateLoginForm() {
       if (

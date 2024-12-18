@@ -1,19 +1,18 @@
-import { Module, SetMetadata } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { MongooseModule } from '@nestjs/mongoose';
-import { PostModule } from './post/post.module';
 import { AuthModule } from './auth/auth.module';
-import { UsersModule } from './user/user.module';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
-import { CategoryModule } from './category/category.module';
-import { FileModule } from './file/file.module';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { staticPath } from './shared/staticPath';
-import { TwitModule } from './twit/twit.module';
-import { BalanceModule } from './balance/balance.module';
-import { RatingModule } from './rating/app.module';
+import { UsersModule } from './modules/user.module';
+import { RatingModule } from './modules/rating.module';
+import { TwitModule } from './modules/twit.module';
+import { PostModule } from './modules/post.module';
+import { CategoryModule } from './modules/category.module';
+import { FileModule } from './modules/file.module';
 
 @Module({
   imports: [
@@ -29,7 +28,6 @@ import { RatingModule } from './rating/app.module';
       rootPath: staticPath,
     }),
     TwitModule,
-    BalanceModule,
     RatingModule,
   ],
   controllers: [AppController],

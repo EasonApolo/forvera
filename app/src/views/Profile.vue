@@ -25,6 +25,7 @@ const { myPosts } = storeToRefs(postStore)
 // 登录相关
 userStore.login()
 if (userStore.isLogin) {
+  userStore.getUserInfo()
   postStore.fetchMyPosts()
 }
 const login = async () => {

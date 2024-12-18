@@ -12,7 +12,7 @@ const toastStore = useToastStore()
 const { isLogin } = storeToRefs(userStore)
 
 const goto = (routeName: string) => {
-  if (isLogin.value) {
+  if (isLogin.value || routeName === 'rating') {
     router.push(routeName)
   } else {
     toastStore.showToast({ content: '需要登录~~', type: '!', timeout: 3000 })
@@ -30,7 +30,7 @@ const goto = (routeName: string) => {
         <span :class="{ disabled: !isLogin }">记账本</span>
       </Card>
       <Card class="entry" @click="goto('rating')">
-        <span :class="{ disabled: !isLogin }">Rating</span>
+        <span>Rating</span>
       </Card>
     </template>
   </List>
