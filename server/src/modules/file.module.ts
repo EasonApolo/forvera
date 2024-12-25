@@ -16,7 +16,6 @@ import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { promises as fs } from 'fs';
 import { join, extname } from 'path';
 import * as ThumbNail from 'image-thumbnail';
-import { Public } from 'src/shared/public.decorator';
 import { staticPath } from 'src/shared/staticPath';
 
 // Interface

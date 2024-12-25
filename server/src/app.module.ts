@@ -2,9 +2,8 @@ import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { MongooseModule } from '@nestjs/mongoose';
-import { AuthModule } from './auth/auth.module';
 import { APP_GUARD } from '@nestjs/core';
-import { JwtAuthGuard } from './auth/jwt-auth.guard';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { staticPath } from './shared/staticPath';
 import { UsersModule } from './modules/user.module';
@@ -13,6 +12,7 @@ import { TwitModule } from './modules/twit.module';
 import { PostModule } from './modules/post.module';
 import { CategoryModule } from './modules/category.module';
 import { FileModule } from './modules/file.module';
+import { AuthModule } from './modules/auth.module';
 
 @Module({
   imports: [

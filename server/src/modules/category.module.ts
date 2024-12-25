@@ -12,7 +12,7 @@ import {
 } from '@nestjs/common';
 import { MongooseModule, InjectModel } from '@nestjs/mongoose';
 import { Schema, Model, Document } from 'mongoose';
-import { Public } from 'src/shared/public.decorator';
+import { Public } from 'src/guards/jwt-auth.guard';
 import { ValidateObjectId } from 'src/shared/validate-object-id.pipes';
 
 // DTO

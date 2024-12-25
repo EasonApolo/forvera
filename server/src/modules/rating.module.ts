@@ -5,11 +5,8 @@ import {
   Body,
   Put,
   Delete,
-  Param,
   Get,
-  Req,
   Query,
-  UnauthorizedException,
   BadRequestException,
 } from '@nestjs/common';
 import { Injectable } from '@nestjs/common';
@@ -19,9 +16,8 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import axios from 'axios';
 import { OptionalParseIntPipe } from 'src/shared/parse-int.pipe';
-import { Public, Role } from 'src/shared/public.decorator';
+import { Public, Roles } from 'src/guards/jwt-auth.guard';
 import { APP_GUARD } from '@nestjs/core';
-import { RolesGuard } from 'src/shared/roles.guard';
 
 // Document Schema
 @Schema({ timestamps: true })
@@ -191,32 +187,32 @@ export class DocumentService {
 export class DocumentController {
   constructor(private readonly documentService: DocumentService) {}
 
-  @Role(3)
+  @Roles(3)
   @Post('add')
   async addDocument(@Body() createDocumentDto: CreateDocumentDto) {
     console.log(createDocumentDto);
     return this.documentService.addDocument(createDocumentDto);
   }
 
-  @Role(3)
+  @Roles(3)
   @Delete('')
   async deleteDocument(@Body() { documentId }: { documentId: string }) {
     return this.documentService.deleteDocument(documentId);
   }
 
-  @Role(3)
+  @Roles(3)
   @Post('comment')
   async createComment(@Body() createCommentDto: CreateCommentDto) {
     return this.documentService.createComment({ ...createCommentDto });
   }
 
-  @Role(3)
+  @Roles(3)
   @Put('comment')
   async editComment(@Body() editCommentDto: EditCommentDto) {
     return this.documentService.editComment(editCommentDto);
   }
 
-  @Role(3)
+  @Roles(3)
   @Delete('comment')
   async deleteComment(@Body() deleteCommentDto: DeleteCommentDto) {
     return this.documentService.deleteComment(deleteCommentDto);
@@ -239,7 +235,7 @@ export class DocumentController {
     return this.documentService.getTypes();
   }
 
-  @Role(3)
+  @Roles(3)
   @Get('search')
   async searchMovies(@Query('query') query: string) {
     return this.documentService.searchMovies(query);
@@ -255,12 +251,6 @@ export class DocumentController {
     MongooseModule.forFeature([{ name: Comment.name, schema: CommentSchema }]),
   ],
   controllers: [DocumentController],
-  providers: [
-    DocumentService,
-    {
-      provide: APP_GUARD,
-      useClass: RolesGuard,
-    },
-  ],
+  providers: [DocumentService],
 })
 export class RatingModule {}

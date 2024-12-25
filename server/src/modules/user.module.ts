@@ -5,11 +5,12 @@ import {
   Request,
   Injectable,
   OnModuleInit,
+  Module,
 } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
+import { InjectModel, MongooseModule } from '@nestjs/mongoose';
 import { Model, Document } from 'mongoose';
-import { Public } from 'src/shared/public.decorator';
 import { anonymousNameList } from 'src/config';
+import { Public } from 'src/guards/jwt-auth.guard';
 
 // DTO
 export class CreateUserDTO {
@@ -26,6 +27,7 @@ export interface User extends Document {
 
 // Schema
 import { Schema } from 'mongoose';
+import { JwtStrategy } from 'src/guards/jwt.strategy';
 
 export const UserSchema = new Schema({
   username: { type: String, required: true, unique: true },
@@ -56,6 +58,7 @@ export class UserService implements OnModuleInit {
 
   async getUserByName(username: string): Promise<User> {
     const user = await this.userModel.findOne({ username: username }).exec();
+    console.log('getUserByName', user);
     return user;
   }
 
@@ -82,7 +85,7 @@ export class UserController {
   constructor(private userService: UserService) {}
 
   @Post('info')
-  async checkStatus(@Request() req) {
+  async getUserInfo(@Request() req) {
     return await this.userService.getUserInfo(req.user);
   }
 
@@ -94,9 +97,6 @@ export class UserController {
 }
 
 // Module
-import { Module } from '@nestjs/common';
-import { MongooseModule } from '@nestjs/mongoose';
-
 @Module({
   imports: [MongooseModule.forFeature([{ name: 'User', schema: UserSchema }])],
   providers: [UserService],

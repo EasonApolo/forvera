@@ -14,11 +14,10 @@ import {
 import { MongooseModule, InjectModel } from '@nestjs/mongoose';
 import { Schema, Model, Document } from 'mongoose';
 import { FilesInterceptor } from '@nestjs/platform-express';
-import { FileModule } from 'src/file/file.module';
+import { FileModule, FileService } from './file.module';
 import { UsersModule, UserService } from 'src/modules/user.module';
-import { FileService } from 'src/file/file.service';
-import { Public } from 'src/shared/public.decorator';
 import { twitPerPage } from 'src/config';
+import { Public } from 'src/guards/jwt-auth.guard';
 
 // DTO
 export class AddTwitDTO {
