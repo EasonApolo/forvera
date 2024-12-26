@@ -3,6 +3,7 @@ import {
   Injectable,
   SetMetadata,
   ForbiddenException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
@@ -27,22 +28,25 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     if (isPublic) {
       return true;
     }
+    return super.canActivate(context);
+  }
 
-    const requiredRoles = this.reflector.getAllAndOverride<string[]>(
+  handleRequest(err, user, info, context: ExecutionContext) {
+    console.log('JwtAuthGuard handleRequest', { err, user, info });
+    if (err || !user) {
+      throw err || new UnauthorizedException();
+    }
+
+    const requiredRoles = this.reflector.getAllAndOverride<number[]>(
       ROLES_KEY,
       [context.getHandler(), context.getClass()],
     );
-    const request = context.switchToHttp().getRequest();
-    const user = request.user;
 
-    if (!user) {
-      throw new ForbiddenException('User not found');
-    }
-
+    console.log('role check !!!!!', requiredRoles, user.role);
     if (requiredRoles && !requiredRoles.includes(user.role)) {
       throw new ForbiddenException('User does not have the required role');
     }
 
-    return super.canActivate(context);
+    return user;
   }
 }
