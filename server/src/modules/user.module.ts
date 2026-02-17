@@ -6,6 +6,7 @@ import {
   Injectable,
   OnModuleInit,
   Module,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { InjectModel, MongooseModule } from '@nestjs/mongoose';
 import { Model, Document } from 'mongoose';
@@ -53,6 +54,9 @@ export class UserService implements OnModuleInit {
       .findById(user.userId)
       .select('-password')
       .exec();
+    if (!userInfo) {
+      throw new UnauthorizedException('User not found');
+    }
     return userInfo;
   }
 

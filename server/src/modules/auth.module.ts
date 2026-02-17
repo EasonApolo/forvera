@@ -30,11 +30,10 @@ export class AuthService {
 
   async validateUser(username: string, pass: string): Promise<any> {
     const user = await this.userService.getUserByName(username);
-    console.log('validateUser', user);
     if (user && user.password === pass) {
       const result = {
         username: user.username,
-        userId: user._id,
+        _id: user._id,
         role: user.role,
       };
       return result;
@@ -45,19 +44,20 @@ export class AuthService {
   async getToken(user: any) {
     const payload = {
       username: user.username,
-      sub: user.userId,
+      sub: user._id, // 如果是登录会给userId，如果是注册从会给_id
       role: user.role,
     };
-    console.log('signing token', payload);
+    const token = this.jwtService.sign(payload)
+    console.log('signing token', payload, token);
     return {
-      token: this.jwtService.sign(payload),
+      token,
     };
   }
 
   async register(user: CreateUserDTO) {
     let res = await this.userService.addUser(user);
     if (!res) return null;
-    return await this.getToken(user);
+    return await this.getToken(res);
   }
 }
 
@@ -82,7 +82,7 @@ export class AuthController {
   async register(@Request() req) {
     const newUser = await this.authService.register(req.body);
     if (!newUser) throw new ConflictException();
-    else return;
+    else return { token: newUser.token};
   }
 
   @Post('status')

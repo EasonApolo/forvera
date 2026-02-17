@@ -16,6 +16,7 @@ export const useUserStore = defineStore('user', {
   }),
   getters: {
     isLogin: state => !!state.userInfo.token,
+    isAdmin: state => state.userInfo.role === 3,
   },
   actions: {
     // 如果有token则尝试获取userInfo，如果成功则可以免登

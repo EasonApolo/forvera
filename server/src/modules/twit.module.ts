@@ -10,6 +10,8 @@ import {
   UseInterceptors,
   Injectable,
   Inject,
+  Request,
+  Delete,
 } from '@nestjs/common';
 import { MongooseModule, InjectModel } from '@nestjs/mongoose';
 import { Schema, Model, Document } from 'mongoose';
@@ -17,7 +19,7 @@ import { FilesInterceptor } from '@nestjs/platform-express';
 import { FileModule, FileService } from './file.module';
 import { UsersModule, UserService } from 'src/modules/user.module';
 import { twitPerPage } from 'src/config';
-import { Public } from 'src/guards/jwt-auth.guard';
+import { Public, Roles } from 'src/guards/jwt-auth.guard';
 
 // DTO
 export class AddTwitDTO {
@@ -137,6 +139,16 @@ export class TwitService {
     return this.populateTwit(query).exec();
   }
 
+  getTwitByPageByCount(count?: number): Promise<Twit[]> {
+    let query = this.twitModel
+      .find({ ancestor: { $exists: false } })
+      .sort({ created_time: -1 })
+    if (count !== undefined) {
+      query = query.limit(count);
+    }
+    return this.populateTwit(query).exec();
+  }
+
   populateTwit(query) {
     return query
       .populate('user', 'username')
@@ -156,6 +168,18 @@ export class TwitService {
       })
       .select('children');
     return replies.descendants;
+  }
+
+  async deleteTwit(twitId: string) {
+    const twit = await this.twitModel.findById(twitId);
+    if (!twit) return null;
+    await this.twitModel.deleteMany({ ancestor: twitId }).exec();
+    await this.twitModel.deleteMany({ parent: twitId }).exec();
+    await this.twitModel.deleteOne({ _id: twitId }).exec();
+    if (twit.ancestor) {
+      return this.getTwitById(twit.ancestor);
+    }
+    return null;
   }
 }
 
@@ -197,10 +221,31 @@ export class TwitController {
     return this.twitService.getTwitByPage(parseInt(page));
   }
 
+  @Post('/list')
+  async getTwitLoggedUser(@Request() req) {
+    if (req.user.role >= 3) {
+      return await this.twitService.getTwitByPageByCount();
+    }
+    return await this.twitService.getTwitByPageByCount(100);
+  }
+
+  @Public()
+  @Get('/list/anonymous')
+  async getTwitAnonymous(
+  ) {
+    return await this.twitService.getTwitByPageByCount(100);
+  }
+
   @Public()
   @Get('replies/:twitId')
   async getReplies(@Param('twitId') twitId) {
     return this.twitService.getReplies(twitId);
+  }
+
+  @Roles(3)
+  @Delete('/:twitId')
+  async deleteTwit(@Param('twitId') twitId) {
+    return await this.twitService.deleteTwit(twitId);
   }
 }
 

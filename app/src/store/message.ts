@@ -17,8 +17,6 @@ export const useMessageStore = defineStore('message', {
         replyToUsername: '',
         anonymous: true,
       },
-      page: 0,
-      pageSize: 10,
       loading: false,
       anonymousNameList: [],
     }
@@ -43,22 +41,16 @@ export const useMessageStore = defineStore('message', {
       }
       this.messageWrapper.replyToUsername = ''
     },
-    async fetchMessages(init = false) {
-      if (init) {
-        this.page = 0
-        this.messages = []
-      }
+    async fetchMessages(isLogin: boolean) {
+      this.messages = []
       if (this.loading) return
       this.loading = true
-      let messages: Array<Message> = await request(`twit/${this.page}`) //, 'post', null, { upload: true, progress: this.twit.progress })
+      const url = isLogin ? `twit/list` : `twit/list/anonymous`
+      const method = isLogin ? 'POST' : 'GET'
+      let messages: Array<Message> = await request(`${url}`, method) //, 'post', null, { upload: true, progress: this.twit.progress })
       messages = this.processMessages(messages)
       if (messages.length > 0) {
-        const offset = this.messages.length - this.page * this.pageSize
-        if (offset > 0) {
-          messages.splice(0, offset)
-        }
-        this.messages.push(...messages)
-        this.page++
+        this.messages.splice(0, this.messages.length, ...messages)
       }
       this.loading = false
       return messages
@@ -105,5 +97,17 @@ export const useMessageStore = defineStore('message', {
       await new Promise(resolve => setTimeout(resolve, 1000))
       return newMessage
     },
+    async deleteMessage(messageId: string) {
+      const res: Message = await request(`twit/${messageId}`, 'DELETE')
+      if (res) {
+        // 删除reply，返回更新后的祖先message
+        const updatedIndex = this.messages.findIndex(m => m._id !== res._id)
+        this.messages.splice(updatedIndex, 1, res)
+      } else {
+        // 删除祖先message，返回null
+        this.messages = this.messages.filter(m => m._id !== messageId)
+      }
+      return res
+    }
   },
 })

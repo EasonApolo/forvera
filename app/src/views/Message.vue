@@ -9,6 +9,7 @@ import { useUserStore } from '../store/user'
 import Gallery from '../components/Gallery.vue'
 import { useToastStore } from '../store/toast'
 import { useImageStore } from '../store/image'
+import { onMounted, ref, watch } from 'vue'
 
 const [messageStore, userStore, mainStore, toastStore, imageStore] = [
   useMessageStore(),
@@ -18,25 +19,15 @@ const [messageStore, userStore, mainStore, toastStore, imageStore] = [
   useImageStore(),
 ]
 const { messages, messageInput, messageWrapper } = storeToRefs(messageStore)
-const { isLogin } = storeToRefs(userStore)
+const { isLogin, isAdmin } = storeToRefs(userStore)
 
 // dataing
-messageStore.fetchMessages(true)
 const doFetch = throttle(async () => {
-  let res = await messageStore.fetchMessages()
-  if (res && res.length <= 0)
+  let res = await messageStore.fetchMessages(isLogin.value)
+  if (res && res.length <= 0) {
     toastStore.showToast({ content: '没有更多啦', type: '!' })
-})
-const onScroll = (e: any) => {
-  let parentHeight = e.target.clientHeight
-  let scrollHeight = e.target.scrollTop
-  let childHeight =
-    e.target.getElementsByClassName('layout-list')[0].clientHeight
-  let atBottom = scrollHeight + parentHeight >= childHeight - 10 * 16
-  if (atBottom) {
-    doFetch()
   }
-}
+})
 
 // computed
 const getReplyToUsername = (message: Message, reply: Message) => {
@@ -58,10 +49,30 @@ const replyTo = (message?: Message) => {
   messageStore.reply(message)
   mainStore.router.push('addMessage')
 }
+
+const deleteMessage = async (message: Message) => {
+  if (confirm('确定要删除吗？')) {
+    const res = await messageStore.deleteMessage(message._id)
+    if (res) {
+      toastStore.showToast({ content: '删除成功', type: '!' })
+      doFetch()
+    } else {
+      toastStore.showToast({ content: '删除失败', type: '!' })
+    }
+  }
+}
+
+watch(
+  () => isLogin.value,
+  () => {
+    doFetch()
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
-  <List @scroll="onScroll">
+  <List>
     <template v-slot:content>
       <Card
         class="message"
@@ -70,7 +81,7 @@ const replyTo = (message?: Message) => {
       >
         <div class="header">
           <div class="name">{{ message.user.username }}</div>
-          <div class="date">{{ formatDate(message.created_time) }}</div>
+          <div class="date"><span v-if="isAdmin" @click.stop="deleteMessage(message)">删除</span>{{ formatDate(message.created_time) }}</div>
         </div>
         <div class="content">{{ message.content }}</div>
         <Gallery
@@ -91,7 +102,7 @@ const replyTo = (message?: Message) => {
                 : {{ getReplyToUsername(message, reply) }}
               </div>
             </div>
-            <div class="date">{{ formatDate(reply.created_time) }}</div>
+            <div class="date"><span v-if="isAdmin" @click.stop="deleteMessage(reply)">删除</span>{{ formatDate(reply.created_time) }}</div>
             <div class="content">{{ reply.content }}</div>
           </div>
         </div>
