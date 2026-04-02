@@ -5,12 +5,14 @@ import {
   Get,
   Body,
   Param,
+  Put,
   Req,
   UploadedFiles,
   UseInterceptors,
   Injectable,
   Inject,
   Request,
+  Query,
   Delete,
 } from '@nestjs/common';
 import { MongooseModule, InjectModel } from '@nestjs/mongoose';
@@ -29,11 +31,16 @@ export class AddTwitDTO {
   ancestor: string;
 }
 
+export class UpdateTwitStatusDTO {
+  status: 0 | 1;
+}
+
 // Interface
 export interface Twit extends Document {
   user: string;
   content: string;
   created_time: Date;
+  status: 0 | 1;
   level: number;
   reactions: Array<number>;
   files: Array<string>;
@@ -49,6 +56,7 @@ export const TwitSchema = new Schema(
     user: { type: Schema.Types.ObjectId, ref: 'User' },
     content: String,
     created_time: Date,
+    status: { type: Number, default: 1 },
     level: Number,
     state: Number,
     reactions: [Number],
@@ -67,6 +75,7 @@ export class TwitService {
   @Inject() private readonly fileService: FileService;
   @Inject() private readonly userService: UserService;
   private readonly PER_PAGE: number = twitPerPage;
+  readonly RECENT_TWIT_COUNT: number = 30;
 
   constructor(@InjectModel('Twit') private readonly twitModel: Model<Twit>) {}
 
@@ -87,6 +96,7 @@ export class TwitService {
     const twit2Save: any = {
       user: userId,
       created_time,
+      status: 1,
       level,
       reactions,
       files,
@@ -130,23 +140,58 @@ export class TwitService {
     return this.populateTwit(query).exec();
   }
 
-  getTwitByPage(page: number): Promise<Twit[]> {
+  getTwitByPage(page: number, includeHidden = false): Promise<Twit[]> {
+    const filter: any = { ancestor: { $exists: false } };
+    if (!includeHidden) {
+      filter.status = { $ne: 0 };
+    }
     const query = this.twitModel
-      .find({ ancestor: { $exists: false } })
+      .find(filter)
       .sort({ created_time: -1 })
       .skip(this.PER_PAGE * page)
       .limit(this.PER_PAGE);
     return this.populateTwit(query).exec();
   }
 
-  getTwitByPageByCount(count?: number): Promise<Twit[]> {
-    let query = this.twitModel
-      .find({ ancestor: { $exists: false } })
-      .sort({ created_time: -1 })
-    if (count !== undefined) {
-      query = query.limit(count);
+  getTwitByPageByCount(
+    count?: number,
+    year?: number,
+    q?: string,
+    includeHidden = false,
+  ): Promise<Twit[]> {
+    const filter: any = { ancestor: { $exists: false } }
+    if (!includeHidden) {
+      filter.status = { $ne: 0 }
     }
-    return this.populateTwit(query).exec();
+    if (q) {
+      filter.content = { $regex: q, $options: 'i' }
+    } else if (year !== undefined && year !== null) {
+      const start = new Date(year, 0, 1)
+      const end = new Date(year + 1, 0, 1)
+      filter.created_time = { $gte: start, $lt: end }
+    }
+    let query = this.twitModel.find(filter).sort({ created_time: -1 })
+    if (count !== undefined) {
+      query = query.limit(count)
+    }
+    return this.populateTwit(query).exec()
+  }
+
+  async updateTwitStatus(twitId: string, status: 0 | 1) {
+    const twit = await this.twitModel.findById(twitId)
+    if (!twit) return null
+    if (twit.ancestor) {
+      return await this.getTwitById(twit.ancestor)
+    }
+    return await this.twitModel
+      .findByIdAndUpdate(twitId, { status }, { new: true })
+      .populate('user', 'username')
+      .populate('files', 'url thumb')
+      .populate({
+        path: 'descendants',
+        populate: { path: 'user', select: 'username' },
+      })
+      .exec()
   }
 
   populateTwit(query) {
@@ -222,18 +267,32 @@ export class TwitController {
   }
 
   @Post('/list')
-  async getTwitLoggedUser(@Request() req) {
+  async getTwitLoggedUser(@Request() req, @Body() body) {
+    const year = body?.year
+    const q = body?.q
     if (req.user.role >= 3) {
-      return await this.twitService.getTwitByPageByCount();
+      return await this.twitService.getTwitByPageByCount(
+        undefined,
+        year,
+        q,
+        true,
+      )
     }
-    return await this.twitService.getTwitByPageByCount(100);
+    return await this.twitService.getTwitByPageByCount(
+      this.twitService.RECENT_TWIT_COUNT,
+      undefined,
+      undefined,
+    )
   }
 
   @Public()
   @Get('/list/anonymous')
-  async getTwitAnonymous(
-  ) {
-    return await this.twitService.getTwitByPageByCount(100);
+  async getTwitAnonymous(@Query() query) {
+    return await this.twitService.getTwitByPageByCount(
+      this.twitService.RECENT_TWIT_COUNT,
+      undefined,
+      undefined,
+    )
   }
 
   @Public()
@@ -246,6 +305,15 @@ export class TwitController {
   @Delete('/:twitId')
   async deleteTwit(@Param('twitId') twitId) {
     return await this.twitService.deleteTwit(twitId);
+  }
+
+  @Roles(3)
+  @Put('/:twitId/status')
+  async updateTwitStatus(
+    @Param('twitId') twitId,
+    @Body() body: UpdateTwitStatusDTO,
+  ) {
+    return await this.twitService.updateTwitStatus(twitId, body.status)
   }
 }
 

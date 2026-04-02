@@ -10,9 +10,10 @@ import List from '../components/layout/List.vue'
 import Label from '../components/Label.vue'
 import FileInput from '../components/FileInput.vue'
 import { readFile } from '../utils/common'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import Gallery from '../components/DraggableGallery.vue'
 import { useToastStore } from '../store/toast'
+import { useRoute } from 'vue-router'
 
 const [writeStore, categoryStore, toastStore, mainStore] = [
   useWriteStore(),
@@ -22,7 +23,23 @@ const [writeStore, categoryStore, toastStore, mainStore] = [
 ]
 const { post, images, files } = storeToRefs(writeStore)
 const { categories } = storeToRefs(categoryStore)
-writeStore.initUploadedImages()
+const route = useRoute()
+
+const initByRoute = async (postId: string) => {
+  await writeStore.init(postId)
+  await writeStore.initUploadedImages()
+}
+
+watch(
+  () => route.params.postId,
+  postId => {
+    if (typeof postId === 'string' && postId) {
+      initByRoute(postId)
+    }
+  },
+  { immediate: true }
+)
+
 categoryStore.init()
 
 const hasCategory = (catId: string) => {
@@ -175,7 +192,7 @@ const copy = (e: any) => {
 .copy-container {
   margin-top: 1rem;
   border-radius: 4px;
-  background-color: #eee;
+  background-color: var(--btn-bg);
   word-break: break-all;
 }
 </style>

@@ -21,7 +21,9 @@ export const parse = (text: string) => {
   })
   let i = 0
   while (!context.finished && i < 2000) {
-    if (makeList(context)) { }
+    if (makeBlank(context)) { }
+    else if (makeList(context)) { }
+    else if (makeQuote(context)) { }
     else if (makeTitle(context)) { }
     else if (context.text.startsWith('```\n')) { makeCode(context) }
     else { makeParagraph(context) }
@@ -44,15 +46,37 @@ const parseParagraph = (context: ParseContext) => {
   const next = found ? end + 1 : end
 
   let content = text.slice(0, end)
-  content = content.replaceAll(/(?:<img\s.+?>)|(?:[.+](.+?))/g, (matched) => {
-    const matchDescription = matched.match(/description="(.+)"/)
+  content = appendImageDescription(content)
+  content = parseInlineMarkdown(content)
+  return { content, next }
+}
+
+const parseInlineMarkdown = (content: string) => {
+  return content
+    .replace(/\*\*([^\n]+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^\n*]+?)\*/g, '<em>$1</em>')
+}
+
+const appendImageDescription = (content: string) => {
+  return content.replace(/<img\b[^>]*>/g, matched => {
+    const matchDescription = matched.match(/description="([^"]+)"/)
     if (matchDescription) {
-      const res = `<span class="image-description">${matchDescription[1]}</span>`
-      return matched + res
+      return `${matched}<span class="image-description">${matchDescription[1]}</span>`
     }
     return matched
   })
-  return { content, next }
+}
+
+const getIndentLevel = (prefix: string) => {
+  const spaceCount = prefix.match(/^\s*/)?.[0].length || 0
+  return Math.min(3, Math.floor(spaceCount / 2) + 1)
+}
+
+const makeBlank = (context: ParseContext) => {
+  if (!context.text.startsWith('\n')) return false
+  context.text = context.text.slice(1)
+  context.index += 1
+  return true
 }
 
 // 生成普通段落
@@ -107,14 +131,33 @@ const makeTitle = (context: ParseContext) => {
 // 生成列表
 const makeList = (context: ParseContext) => {
   let text = context.text
-  let matched = text.match(/^\s*-\s/)
+  let matched = text.match(/^(\s*)[-+]\s/)
   if (matched?.length) {
     const nextP = matched[0].length
+    const level = getIndentLevel(matched[0])
     context.text = text.slice(nextP)
     context.index += nextP
     const { content, next } = parseParagraph(context)
-    const listContent = `<div class="ul${matched[0].length - 1}">${content}</div>`
+    const listContent = `<div class="ul${level}">${content}</div>`
     context.res.push(listContent)
+    context.text = text.slice(nextP + next)
+    context.index += next
+    return true
+  }
+  return false
+}
+
+const makeQuote = (context: ParseContext) => {
+  let text = context.text
+  let matched = text.match(/^(\s*)>\s?/)
+  if (matched?.length) {
+    const nextP = matched[0].length
+    const level = getIndentLevel(matched[0])
+    context.text = text.slice(nextP)
+    context.index += nextP
+    const { content, next } = parseParagraph(context)
+    const quoteContent = `<blockquote class="quote${level}">${content}</blockquote>`
+    context.res.push(quoteContent)
     context.text = text.slice(nextP + next)
     context.index += next
     return true

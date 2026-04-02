@@ -37,8 +37,9 @@ const { type, show, content, icon } = storeToRefs(toastStore)
     box-sizing: border-box;
     padding: 13px 16px;
     height: 50px;
-    box-shadow: 0 4px 6px 0 #ccc;
-    background-color: rgba(64, 64, 64, 1);
+    box-shadow: 0 4px 6px 0 rgba(0, 0, 0, 0.25);
+    background-color: var(--toast-bg);
+    border: 1px solid var(--toast-border);
     border-radius: 4px;
     display: flex;
     align-items: center;
@@ -52,7 +53,7 @@ const { type, show, content, icon } = storeToRefs(toastStore)
     .content {
       margin-left: 9px;
       font-size: 14px;
-      color: #ccc;
+      color: var(--toast-text);
     }
   }
 }

@@ -1,22 +1,12 @@
 <script setup lang="ts">
-import { useToastStore } from '@/store/toast'
-import { useUserStore } from '@/store/user'
-import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import Card from '../components/Card.vue'
 import List from '../components/layout/List.vue'
 
-const userStore = useUserStore()
 const router = useRouter()
-const toastStore = useToastStore()
-const { isLogin } = storeToRefs(userStore)
 
 const goto = (routeName: string) => {
-  if (isLogin.value || routeName === 'rating') {
-    router.push(routeName)
-  } else {
-    toastStore.showToast({ content: '需要登录~~', type: '!', timeout: 3000 })
-  }
+  router.push({ name: routeName })
 }
 </script>
 
@@ -26,8 +16,14 @@ const goto = (routeName: string) => {
       <router-link to="/siteinfo">
         <Card>最近更新</Card>
       </router-link>
-      <Card class="entry" @click="goto('balance')">
-        <span :class="{ disabled: !isLogin }">记账本</span>
+      <Card class="entry" @click="goto('taxonomy')">
+        <span>Taxonomy</span>
+      </Card>
+      <Card class="entry" @click="goto('expiry')">
+        <span>什么时候过期？</span>
+      </Card>
+      <Card class="entry" @click="goto('holdem')">
+        <span>德扑</span>
       </Card>
       <Card class="entry" @click="goto('rating')">
         <span>Rating</span>
@@ -45,7 +41,4 @@ a {
   cursor: pointer;
 }
 
-.disabled {
-  opacity: 0.7;
-}
 </style>

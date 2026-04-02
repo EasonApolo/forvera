@@ -15,7 +15,13 @@ import DraggableGallery from '../components/DraggableGallery.vue'
 import { getUrlFromFD } from '../store/write'
 import { useToastStore } from '../store/toast'
 
-defineProps<{ msg: string }>()
+const props = withDefaults(defineProps<{ msg?: string; floating?: boolean }>(), {
+  floating: false,
+})
+const emit = defineEmits<{
+  (e: 'close'): void
+  (e: 'sent'): void
+}>()
 
 const [messageStore, userStore, toastStore, mainStore] = [
   useMessageStore(),
@@ -48,22 +54,17 @@ const onRemove = (removeIndex: number) => {
   messageStore.messageInput.files = allSelectedImages.map(obj => obj.file)
 }
 
-const cancelReply = () => {
-  messageStore.$patch({
-    messageInput: {
-      parent: '',
-      ancestor: '',
-    },
-    messageWrapper: {
-      replyToUsername: '',
-    },
-  })
+const closePanel = () => {
+  messageStore.clearMessageInput()
+  if (props.floating) {
+    emit('close')
+    return
+  }
+  mainStore.router.go(-1)
 }
 
 // send message
-const sendBtnContent = messageWrapper.value.replyToUsername
-  ? `回复${messageWrapper.value.replyToUsername}`
-  : '发送'
+const sendBtnContent = '发送'
 const send = async () => {
   if (!messageInput.value.content.length) {
     toastStore.showToast({ content: '内容不能为空', type: 'ERR' })
@@ -90,7 +91,13 @@ const send = async () => {
     }
     toastStore.showToast({ content: errContent, type: 'ERR' })
   }
-  mainStore.router.go(-1)
+  messageStore.clearMessageInput()
+  if (props.floating) {
+    emit('sent')
+    emit('close')
+  } else {
+    mainStore.router.go(-1)
+  }
 }
 
 // anonymous
@@ -107,8 +114,62 @@ const loading = ref({ send: false })
 </script>
 
 <template>
-  <List>
-    <template v-slot:content>
+  <div v-if="props.floating" class="floating-content">
+    <Card class="input-wrapper">
+      <div class="content">
+        <div class="tips">
+          - {{ userStore.isLogin ? '' : '当前未登录，登录后' }}可以{{
+            messageWrapper.replyToUsername ? '' : '附带最多3张图片和'
+          }}切换身份。<br />
+          - 退出页面会清空，不要在这里打一堆字哦。<br />
+          - 正在以{{
+            messageWrapper.anonymous ? '随机' : userStore.userInfo.username
+          }}身份{{
+            messageWrapper.replyToUsername
+              ? `回复${messageWrapper.replyToUsername}`
+              : '发言'
+          }}。<br />
+        </div>
+        <textarea
+          class="input text-input"
+          v-model="messageInput.content"
+          rows="3"
+        />
+        <DraggableGallery
+          v-if="!messageWrapper.anonymous && displayImages?.length"
+          :images="displayImages"
+          class="gallery"
+          :is-draggable="true"
+          :onDrag="onDrag"
+          :onRemove="onRemove"
+        ></DraggableGallery>
+        <div class="actions">
+          <Btn class="action" @click="closePanel">取消</Btn>
+          <Btn class="action send" @click="send" :loading="loading.send">{{
+            sendBtnContent
+          }}</Btn>
+          <div class="right">
+            <FileInput
+              v-if="
+                !messageWrapper.anonymous && !messageWrapper.replyToUsername
+              "
+              :change="fileInputChange"
+              :multiple="true"
+            ></FileInput>
+            <Label
+              class="action"
+              @click="toggleAnonymous"
+              :active="messageWrapper.anonymous"
+              >{{ messageWrapper.anonymous ? '匿名中' : '启用匿名' }}</Label
+            >
+          </div>
+        </div>
+      </div>
+      <div class="icon"></div>
+    </Card>
+  </div>
+  <List v-else>
+    <template #content>
       <Card class="input-wrapper">
         <div class="content">
           <div class="tips">
@@ -171,6 +232,7 @@ const loading = ref({ send: false })
     margin: 1rem auto 0;
     align-items: center;
     justify-content: space-between;
+    column-gap: 0.5rem;
 
     .send {
       flex: 0 0 auto;
@@ -179,13 +241,15 @@ const loading = ref({ send: false })
       text-overflow: ellipsis;
     }
 
+    > .action + .action {
+      margin-left: 0.5rem;
+    }
+
     .right {
       margin-left: auto;
       display: flex;
-
-      .action {
-        margin-left: 1rem;
-      }
+      align-items: center;
+      column-gap: 0.75rem;
     }
   }
 

@@ -11,9 +11,9 @@ defineProps<{ active?: boolean }>()
 <style lang="less" scoped>
 .label {
   padding: 0.375rem 1rem;
-  color: rgba(0, 0, 0, 0.6);
+  color: var(--text);
   border-radius: 4px;
-  background-color: rgba(13, 12, 34, 0.05);
+  background-color: var(--btn-bg);
   transition: 0.2s ease;
   cursor: pointer;
 }

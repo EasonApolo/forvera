@@ -1,0 +1,550 @@
+<div class="grid-view">
+        
+
+        <div class="item comment-item" data-cid="4805661995">
+            <div class="pic">
+                <a title="Bugonia" href="https://movie.douban.com/subject/35064920/" class="nbg">
+                    <img alt="Bugonia" src="https://img1.doubanio.com/view/photo/s_ratio_poster/public/p2924712669.webp">
+                </a>
+            </div>
+            <div class="info">
+                <ul>
+                    <li class="title">
+                        <a href="https://movie.douban.com/subject/35064920/">
+                            <em>拯救地球 / Bugonia</em>
+                             / 拯救地球(美版) / 暴蜂尼亚(港/台)
+                        </a>
+                    </li>
+                        <li class="intro">2025-08-28(威尼斯电影节) / 2025-10-24(美国点映) / 2025-10-31(美国) / 艾玛·斯通 / 杰西·普莱蒙 / 艾丹·德尔比思 / 卡门·加林德斯·巴雷拉 / 马克·T·刘易斯 / 瓦妮莎·恩格 / 塞德里克·迪莫尔内 / 艾丽西亚·希尔维斯通 / 斯塔夫罗斯·哈尔基阿斯 / 莫玛·切瑞 / 爱尔兰 / 英国 / 加拿大 / 韩国 / 美国 / 欧格斯·兰斯莫斯 / 118分钟 / 拯救地球 / 喜剧 / 科幻 / 犯罪 / 威尔·崔西 / 张俊焕 Joon-Hwan Jang / 英语</li>
+                    <li>
+                                <span class="rating3-t"></span>
+                        <span class="date">2026-03-30</span>
+
+                            
+                    </li>
+                    <li>
+                        <span class="comment">感觉设定挺颠的一个电影，剧情挺简单的，可能我不会欣赏演技，个人感觉可以快进或者如果是短片就好了。</span>
+                        
+                    </li>
+                        <li class="clearfix opt-ln">
+                            <div class="opt-l gact">
+                                <a class="j a_collect_btn" rel="nofollow" name="pbtn-35064920" href="javascript:;">修改</a>&nbsp;&nbsp;
+                            <a class="d_link " rel="35064920:P" href="javascript:;">删除</a>
+                            </div>
+                        </li>
+                </ul>
+            </div>
+        </div>
+        
+
+        <div class="item comment-item" data-cid="4799301928">
+            <div class="pic">
+                <a title="Babylon" href="https://movie.douban.com/subject/34467461/" class="nbg">
+                    <img alt="Babylon" src="https://img9.doubanio.com/view/photo/s_ratio_poster/public/p2889092995.webp">
+                </a>
+            </div>
+            <div class="info">
+                <ul>
+                    <li class="title">
+                        <a href="https://movie.douban.com/subject/34467461/">
+                            <em>巴比伦 / Babylon</em>
+                             / 巴比伦：星声追梦荷里活(港)
+                        </a>
+                    </li>
+                        <li class="intro">2022-12-23(美国) / 布拉德·皮特 / 玛格特·罗比 / 迭戈·卡尔瓦 / 珍·斯玛特 / 约万·艾德坡 / 李丽君 / P·J·伯恩 / 卢卡斯·哈斯 / 奥莉维亚·汉密尔顿 / 麦克思·明格拉 / 美国 / 达米恩·查泽雷 / 188分钟 / 巴比伦 / 剧情 / 喜剧 / 历史 / 达米恩·查泽雷 Damien Chazelle / 英语 / 西班牙语 / 意大利语</li>
+                    <li>
+                                <span class="rating4-t"></span>
+                        <span class="date">2026-03-21</span>
+
+                            
+                    </li>
+                    <li>
+                        <span class="comment">ayu给四星 说还挺好看的 但我看睡着了 可能之前看过好莱坞往事吗 这个对我有点太黄暴了</span>
+                        
+                    </li>
+                        <li class="clearfix opt-ln">
+                            <div class="opt-l gact">
+                                <a class="j a_collect_btn" rel="nofollow" name="pbtn-34467461" href="javascript:;">修改</a>&nbsp;&nbsp;
+                            <a class="d_link " rel="34467461:P" href="javascript:;">删除</a>
+                            </div>
+                        </li>
+                </ul>
+            </div>
+        </div>
+        
+
+        <div class="item comment-item" data-cid="4795811536">
+            <div class="pic">
+                <a title="ฉลาดเกมส์โกง" href="https://movie.douban.com/subject/27024903/" class="nbg">
+                    <img alt="ฉลาดเกมส์โกง" src="https://img9.doubanio.com/view/photo/s_ratio_poster/public/p2930466925.webp">
+                </a>
+            </div>
+            <div class="info">
+                <ul>
+                    <li class="title">
+                        <a href="https://movie.douban.com/subject/27024903/">
+                            <em>天才枪手 / ฉลาดเกมส์โกง</em>
+                             / 出猫特攻队(港) / 模犯生(台)
+                        </a>
+                            <span class="playable">[可播放]</span>
+                    </li>
+                        <li class="intro">2017-05-03(泰国) / 2017-10-13(中国大陆) / 2026-03-20(中国大陆重映) / 茱蒂蒙·琼查容苏因 / 查侬·散顶腾古 / 依莎亚·贺苏汪 / 披纳若·苏潘平佑 / 塔内·瓦拉库努娄 / 莎琳拉·托马斯 / 伊戈·米基塔斯 / 帕辛·宽萨塔彭 / 萨哈贾克·波斯安吉特 / 坎嘉娜·维耐潘尼 / 泰国 / 纳塔吾·彭皮里亚 / 130分钟 / 天才枪手 / 剧情 / 犯罪 / 悬疑 / 塔妮达·汉塔维瓦塔娜 Tanida Hantaweewatana / 瓦苏红·皮娅罗姆娜 Vasudhorn Piyaromna / 纳塔吾·彭皮里亚 Nattawut Poonpiriya / 泰语 / 英语</li>
+                    <li>
+                                <span class="rating2-t"></span>
+                        <span class="date">2026-03-17</span>
+
+                            
+                    </li>
+                    <li>
+                        <span class="comment">降智的桥段太多了。然后结局也猜到了，毕竟都上映了。感觉演员的演技也很畏缩。</span>
+                        
+                    </li>
+                        <li class="clearfix opt-ln">
+                            <div class="opt-l gact">
+                                <a class="j a_collect_btn" rel="nofollow" name="pbtn-27024903" href="javascript:;">修改</a>&nbsp;&nbsp;
+                            <a class="d_link " rel="27024903:P" href="javascript:;">删除</a>
+                            </div>
+                        </li>
+                </ul>
+            </div>
+        </div>
+        
+
+        <div class="item comment-item" data-cid="4794507113">
+            <div class="pic">
+                <a title="Wuthering Heights" href="https://movie.douban.com/subject/36963690/" class="nbg">
+                    <img alt="Wuthering Heights" src="https://img2.doubanio.com/view/photo/s_ratio_poster/public/p2930238411.webp">
+                </a>
+            </div>
+            <div class="info">
+                <ul>
+                    <li class="title">
+                        <a href="https://movie.douban.com/subject/36963690/">
+                            <em>呼啸山庄 / Wuthering Heights</em>
+                             / 咆哮山庄(港/台)
+                        </a>
+                    </li>
+                        <li class="intro">2026-02-11(法国) / 2026-02-13(美国) / 2026-03-13(中国大陆) / 玛格特·罗比 / 雅各布·艾洛蒂 / 周洪 / 艾莉森·奥利弗 / 沙扎德·拉蒂夫 / 马丁·克鲁勒斯 / 伊万·米切尔 / 艾米·摩根 / 杰西卡·奈佩特 / 夏洛特·梅林顿 / 英国 / 美国 / 埃默拉尔德·芬内尔 / 137分钟 / 呼啸山庄 / 剧情 / 爱情 / 埃默拉尔德·芬内尔 Emerald Fennell / 英语</li>
+                    <li>
+                                <span class="rating2-t"></span>
+                        <span class="date">2026-03-15</span>
+
+                            
+                    </li>
+                    <li>
+                        <span class="comment">坏吕人 这剧情不适合这个时代了！但这个elise玩的是很前卫</span>
+                        
+                    </li>
+                        <li class="clearfix opt-ln">
+                            <div class="opt-l gact">
+                                <a class="j a_collect_btn" rel="nofollow" name="pbtn-36963690" href="javascript:;">修改</a>&nbsp;&nbsp;
+                            <a class="d_link " rel="36963690:P" href="javascript:;">删除</a>
+                            </div>
+                        </li>
+                </ul>
+            </div>
+        </div>
+        
+
+        <div class="item comment-item" data-cid="4788846221">
+            <div class="pic">
+                <a title="异人之下之决战！碧游村" href="https://movie.douban.com/subject/36575783/" class="nbg">
+                    <img alt="异人之下之决战！碧游村" src="https://img1.doubanio.com/view/photo/s_ratio_poster/public/p2917410188.webp">
+                </a>
+            </div>
+            <div class="info">
+                <ul>
+                    <li class="title">
+                        <a href="https://movie.douban.com/subject/36575783/">
+                            <em>异人之下之决战！碧游村</em>
+                             / 异人之下 第二季 / 异人之下：碧游村篇
+                        </a>
+                            <span class="playable">[可播放]</span>
+                    </li>
+                        <li class="intro">2025-01-18(中国大陆) / 彭昱畅 / 王影璐 / 侯明昊 / 文淇 / 尹昉 / 严屹宽 / 潘斌龙 / 邵兵 / 赵达 / 王传君 / 中国大陆 / 许宏宇 / 王瑞新 / 李嘉倩 / 异人之下 / 45分钟 / 剧情 / 奇幻 / 陈仕澍 Shishu Chen / 汉语普通话 / 四川方言</li>
+                    <li>
+                                <span class="rating2-t"></span>
+                        <span class="date">2026-03-08</span>
+
+                            
+                    </li>
+                    <li>
+                        <span class="comment">和 npy 一起看的，我看着感觉好离谱，角色都好油腻，每个人设都过于典了，陈朵感觉表情都没变过说话一直很虚，而且无限幻视杰克爱，还有好 low 的特效，乱七八糟的镜头，比如一个劲的眼睛特写或者抖来抖去。
+但 npy 很喜欢，说陈朵超漂亮，宝儿姐超漂亮，就只好一直在看。
+可能人与人的审美就是很不同吧😅</span>
+                        
+                    </li>
+                        <li class="clearfix opt-ln">
+                            <div class="opt-l gact">
+                                <a class="j a_collect_btn" rel="nofollow" name="pbtn-36575783" href="javascript:;">修改</a>&nbsp;&nbsp;
+                            <a class="d_link " rel="36575783:P" href="javascript:;">删除</a>
+                            </div>
+                        </li>
+                </ul>
+            </div>
+        </div>
+        
+
+        <div class="item comment-item" data-cid="4781288562">
+            <div class="pic">
+                <a title="成何体统" href="https://movie.douban.com/subject/36514978/" class="nbg">
+                    <img alt="成何体统" src="https://img9.doubanio.com/view/photo/s_ratio_poster/public/p2929508444.webp">
+                </a>
+            </div>
+            <div class="info">
+                <ul>
+                    <li class="title">
+                        <a href="https://movie.douban.com/subject/36514978/">
+                            <em>成何体统</em>
+                             / 成何体统(真人版) / 成何体统剧版
+                        </a>
+                            <span class="playable">[可播放]</span>
+                    </li>
+                        <li class="intro">2026-02-06(中国大陆) / 王楚然 / 丞磊 / 唐晓天 / 胡意旋 / 马苏 / 崔奕 / 樊少皇 / 尤靖茹 / 张瑞涵 / 李沐风 / 中国大陆 / 刘海波 / 王莉 / 45分钟 / 喜剧 / 爱情 / 古装 / 王欢 Huan Wang / 樊菁 Jing Fan / 蒋丽华 Lihua Jiang / 周莹蕾 / 刘芊粢 / 汉语普通话</li>
+                    <li>
+                                <span class="rating4-t"></span>
+                        <span class="date">2026-02-26</span>
+
+                            
+                    </li>
+                    <li>
+                        <span class="comment">和ayu一起看过的最好看的剧了🤦
+男女主和女二都很好看。
+智商比较在线，不是那种靠犯蠢推动剧情的。
+女主是真穿过来的，女二则是书中穿越来的，设定挺有意思的。
+整个剧情就挺爽的，坏人派系很多，主角也有战力有忠臣团，挺势均力敌。
+感觉布景、镜头也都挺不错的，画面很美。一些小动画也挺不错。
+有一些不错的笑点。
+不过还是有些剧情比较俗套。</span>
+                        
+                    </li>
+                        <li class="clearfix opt-ln">
+                            <div class="opt-l gact">
+                                <a class="j a_collect_btn" rel="nofollow" name="pbtn-36514978" href="javascript:;">修改</a>&nbsp;&nbsp;
+                            <a class="d_link " rel="36514978:P" href="javascript:;">删除</a>
+                            </div>
+                        </li>
+                </ul>
+            </div>
+        </div>
+        
+
+        <div class="item comment-item" data-cid="4780181684">
+            <div class="pic">
+                <a title="惊蛰无声" href="https://movie.douban.com/subject/37242440/" class="nbg">
+                    <img alt="惊蛰无声" src="https://img9.doubanio.com/view/photo/s_ratio_poster/public/p2929759786.webp">
+                </a>
+            </div>
+            <div class="info">
+                <ul>
+                    <li class="title">
+                        <a href="https://movie.douban.com/subject/37242440/">
+                            <em>惊蛰无声</em>
+                             / 惊蛰 / Scare Out
+                        </a>
+                    </li>
+                        <li class="intro">2026-02-17(中国大陆) / 易烊千玺 / 朱一龙 / 宋佳 / 雷佳音 / 杨幂 / 张译 / 刘诗诗 / 刘耀文 / 林博洋 / 潘斌龙 / 中国大陆 / 张艺谋 / 104分钟 / 剧情 / 犯罪 / 陈亮 Liang Chen / 汉语普通话</li>
+                    <li>
+                                <span class="rating3-t"></span>
+                        <span class="date">2026-02-25</span>
+
+                            
+                    </li>
+                        <li class="clearfix opt-ln">
+                            <div class="opt-l gact">
+                                <a class="j a_collect_btn" rel="nofollow" name="pbtn-37242440" href="javascript:;">修改</a>&nbsp;&nbsp;
+                            <a class="d_link " rel="37242440:P" href="javascript:;">删除</a>
+                            </div>
+                        </li>
+                </ul>
+            </div>
+        </div>
+        
+
+        <div class="item comment-item" data-cid="4767687434">
+            <div class="pic">
+                <a title="Stranger Things" href="https://movie.douban.com/subject/26359270/" class="nbg">
+                    <img alt="Stranger Things" src="https://img1.doubanio.com/view/photo/s_ratio_poster/public/p2364206200.webp">
+                </a>
+            </div>
+            <div class="info">
+                <ul>
+                    <li class="title">
+                        <a href="https://movie.douban.com/subject/26359270/">
+                            <em>怪奇物语 第一季 / Stranger Things Season 1</em>
+                             / Montauk
+                        </a>
+                    </li>
+                        <li class="intro">2016-07-15(美国) / 薇诺娜·瑞德 / 大卫·哈伯 / 米莉·波比·布朗 / 菲恩·伍法德 / 伽塔·马塔拉佐 / 凯莱布·麦克劳克林 / 诺亚·施纳普 / 娜塔莉·戴尔 / 查理·希顿 / 乔·基瑞 / 美国 / 肖恩·利维 / 马特·达菲 / 罗斯·达菲 / 怪奇物语 / 50分钟 / 怪奇物语 / 剧情 / 奇幻 / 恐怖 / 马特·达菲 Matt Duffer / 罗斯·达菲 Ross Duffer / 英语</li>
+                    <li>
+                                <span class="rating2-t"></span>
+                        <span class="date">2026-02-11</span>
+
+                            
+                    </li>
+                    <li>
+                        <span class="comment">放十年前可能是不错的剧吧，现在看感觉过于幼稚了，超慢的叙事。</span>
+                        
+                    </li>
+                        <li class="clearfix opt-ln">
+                            <div class="opt-l gact">
+                                <a class="j a_collect_btn" rel="nofollow" name="pbtn-26359270" href="javascript:;">修改</a>&nbsp;&nbsp;
+                            <a class="d_link " rel="26359270:P" href="javascript:;">删除</a>
+                            </div>
+                        </li>
+                </ul>
+            </div>
+        </div>
+        
+
+        <div class="item comment-item" data-cid="4764243909">
+            <div class="pic">
+                <a title="Maharaja" href="https://movie.douban.com/subject/36934908/" class="nbg">
+                    <img alt="Maharaja" src="https://img1.doubanio.com/view/photo/s_ratio_poster/public/p2915350868.webp">
+                </a>
+            </div>
+            <div class="info">
+                <ul>
+                    <li class="title">
+                        <a href="https://movie.douban.com/subject/36934908/">
+                            <em>因果报应 / Maharaja</em>
+                             / 谁偷了垃圾桶？(台) / 天道轮回
+                        </a>
+                            <span class="playable">[可播放]</span>
+                    </li>
+                        <li class="intro">2024-06-14(印度) / 2024-11-29(中国大陆) / 维杰·西图帕提 / 阿努拉格·卡施亚普 / 玛玛塔·莫汉达斯 / 那塔拉简·苏布拉马尼亚姆 / 阿比拉米 / 迪维亚·巴拉蒂 / 辛加姆普利 / 阿鲁多斯 / 穆尼什坎特 / 萨沙纳·纳米达斯 / 印度 / 尼蒂兰·萨米纳坦 / 141分钟 / 因果报应 / 动作 / 犯罪 / 悬疑 / Nithilan Saminathan / 泰米尔语</li>
+                    <li>
+                                <span class="rating3-t"></span>
+                        <span class="date">2026-02-07</span>
+
+                            
+                    </li>
+                    <li>
+                        <span class="comment">剧情总体没什么问题。过去现在来回剪辑搞得观众看的云里雾里。最后感觉也是很生硬的反转，啊这个其实是你的女儿，强行给坏人补刀。另外咖喱味实在太重，有很多那种和剧情没啥关系的刻意的搞笑或者刻画。总之感觉剧情还可以，但各种花哨的东西搞得太多了，可能有的人会觉得太精彩了有的人觉得太花哨了，观感容易两面。</span>
+                        
+                    </li>
+                        <li class="clearfix opt-ln">
+                            <div class="opt-l gact">
+                                <a class="j a_collect_btn" rel="nofollow" name="pbtn-36934908" href="javascript:;">修改</a>&nbsp;&nbsp;
+                            <a class="d_link " rel="36934908:P" href="javascript:;">删除</a>
+                            </div>
+                        </li>
+                </ul>
+            </div>
+        </div>
+        
+
+        <div class="item comment-item" data-cid="4753489630">
+            <div class="pic">
+                <a title="孤注一掷" href="https://movie.douban.com/subject/35267224/" class="nbg">
+                    <img alt="孤注一掷" src="https://img9.doubanio.com/view/photo/s_ratio_poster/public/p2911964046.webp">
+                </a>
+            </div>
+            <div class="info">
+                <ul>
+                    <li class="title">
+                        <a href="https://movie.douban.com/subject/35267224/">
+                            <em>孤注一掷</em>
+                             / 捕鱼行动 / 捕鱼之放手一搏
+                        </a>
+                            <span class="playable">[可播放]</span>
+                    </li>
+                        <li class="intro">2023-08-05(大规模点映) / 2023-08-08(中国大陆) / 2024-08-24(中国大陆重映) / 张艺兴 / 金晨 / 咏梅 / 王传君 / 王大陆 / 周也 / 孙阳 / 邓萃雯 / 林威 / 黄艺馨 / 中国大陆 / 申奥 / 2023-08-05 16:10 / 130分钟 / 剧情 / 犯罪 / 申奥 Ao Shen / 张艺凡 Emily Zhang / 许渌洋 Luyang Xu / 汉语普通话</li>
+                    <li>
+                                <span class="rating2-t"></span>
+                        <span class="date">2026-01-28</span>
+
+                            
+                    </li>
+                        <li class="clearfix opt-ln">
+                            <div class="opt-l gact">
+                                <a class="j a_collect_btn" rel="nofollow" name="pbtn-35267224" href="javascript:;">修改</a>&nbsp;&nbsp;
+                            <a class="d_link " rel="35267224:P" href="javascript:;">删除</a>
+                            </div>
+                        </li>
+                </ul>
+            </div>
+        </div>
+        
+
+        <div class="item comment-item" data-cid="4750928570">
+            <div class="pic">
+                <a title="隐入尘烟" href="https://movie.douban.com/subject/35131346/" class="nbg">
+                    <img alt="隐入尘烟" src="https://img9.doubanio.com/view/photo/s_ratio_poster/public/p2875299554.webp">
+                </a>
+            </div>
+            <div class="info">
+                <ul>
+                    <li class="title">
+                        <a href="https://movie.douban.com/subject/35131346/">
+                            <em>隐入尘烟</em>
+                             / Return to Dust
+                        </a>
+                    </li>
+                        <li class="intro">2022-02-13(柏林电影节) / 2022-07-08(中国大陆) / 武仁林 / 海清 / 杨光锐 / 赵登平 / 王彩兰 / 曾建贵 / 武赟志 / 马占红 / 王翠兰 / 续彩霞 / 中国大陆 / 李睿珺 / 133分钟 / 131分钟(柏林电影节) / 剧情 / 李睿珺 Ruijun Li / 甘肃方言 / 汉语普通话</li>
+                    <li>
+                                <span class="rating3-t"></span>
+                        <span class="date">2026-01-23</span>
+
+                            
+                    </li>
+                    <li>
+                        <span class="comment">1.5倍速看的，有些地方感觉有点刻意，给我一种我知道它想表达这个，比如男主献血这些事，但又感觉它没说清楚，比如他完全是为了替乡亲们要钱吗？或者是受到了压力？或者是他自己权衡了利弊？或者纯是他善？或者也许也给了钱？就只好往最坏处去揣测。
+也确实男主似乎有些过于完美了，让人甚至不敢相信，哎。</span>
+                        
+                    </li>
+                        <li class="clearfix opt-ln">
+                            <div class="opt-l gact">
+                                <a class="j a_collect_btn" rel="nofollow" name="pbtn-35131346" href="javascript:;">修改</a>&nbsp;&nbsp;
+                            <a class="d_link " rel="35131346:P" href="javascript:;">删除</a>
+                            </div>
+                        </li>
+                </ul>
+            </div>
+        </div>
+        
+
+        <div class="item comment-item" data-cid="4677330113">
+            <div class="pic">
+                <a title="One Battle After Another" href="https://movie.douban.com/subject/36176155/" class="nbg">
+                    <img alt="One Battle After Another" src="https://img3.doubanio.com/view/photo/s_ratio_poster/public/p2925146362.webp">
+                </a>
+            </div>
+            <div class="info">
+                <ul>
+                    <li class="title">
+                        <a href="https://movie.douban.com/subject/36176155/">
+                            <em>一战再战 / One Battle After Another</em>
+                             / 一场又一场的战斗 / 无尽之战
+                        </a>
+                            <span class="playable">[可播放]</span>
+                    </li>
+                        <li class="intro">2025-09-24(法国) / 2025-09-26(美国) / 2025-10-17(中国大陆) / 莱昂纳多·迪卡普里奥 / 西恩·潘 / 本尼西奥·德尔·托罗 / 蔡斯·英菲尼迪 / 缇雅娜·泰勒 / 雷吉娜·赫尔 / 伍德·哈里斯 / 阿拉娜·哈伊姆 /  保罗·格里姆斯塔德 / 莎娜·麦克黑尔 / 美国 / 保罗·托马斯·安德森 / 162分钟 / 一战再战 / 剧情 / 动作 / 犯罪 / 惊悚 / 保罗·托马斯·安德森 Paul Thomas Anderson / 托马斯·品钦 Thomas Pynchon / 英语 / 西班牙语</li>
+                    <li>
+                                <span class="rating3-t"></span>
+                        <span class="date">2026-01-23</span>
+
+                            
+                    </li>
+                    <li>
+                        <span class="comment">感觉是想讲大家帮助曾经的英雄逃脱的故事，但小李子似乎没成为过组织的核心，而且他们父女的操作也实在笨拙。还想讲孩儿妈的故事，又想讲反派的故事线，又有一堆无关的故事线，小剧场，总之就很乱，每个故事都感觉很简陋且套路。</span>
+                        
+                    </li>
+                        <li class="clearfix opt-ln">
+                            <div class="opt-l gact">
+                                <a class="j a_collect_btn" rel="nofollow" name="pbtn-36176155" href="javascript:;">修改</a>&nbsp;&nbsp;
+                            <a class="d_link " rel="36176155:P" href="javascript:;">删除</a>
+                            </div>
+                        </li>
+                </ul>
+            </div>
+        </div>
+        
+
+        <div class="item comment-item" data-cid="2383312060">
+            <div class="pic">
+                <a title="Jagten" href="https://movie.douban.com/subject/6985810/" class="nbg">
+                    <img alt="Jagten" src="https://img3.doubanio.com/view/photo/s_ratio_poster/public/p1546987967.webp">
+                </a>
+            </div>
+            <div class="info">
+                <ul>
+                    <li class="title">
+                        <a href="https://movie.douban.com/subject/6985810/">
+                            <em>狩猎 / Jagten</em>
+                             / 诬网(港) / 谎言的烙印(台)
+                        </a>
+                            <span class="playable">[可播放]</span>
+                    </li>
+                        <li class="intro">2012-05-20(戛纳电影节) / 2013-01-10(丹麦) / 麦斯·米科尔森 / 托玛斯·博·拉森 / 安妮卡·韦德科普 / 拉丝·弗格斯托姆 / 苏西·沃德 / 亚历山德拉·拉帕波特 / 布贾内·亨里克森 / 安妮·路易丝·哈辛 / 拉斯·兰特 / 塞巴斯蒂安·布尔 / 丹麦 / 瑞典 / 托马斯·温特伯格 / 115分钟 / 110分钟 / 狩猎 / 剧情 / 托马斯·温特伯格 Thomas Vinterberg / 托比亚斯·林道赫姆 Tobias Lindholm / 丹麦语 / 英语 / 波兰语</li>
+                    <li>
+                                <span class="rating4-t"></span>
+                        <span class="date">2025-12-28</span>
+
+                            
+                    </li>
+                        <li class="clearfix opt-ln">
+                            <div class="opt-l gact">
+                                <a class="j a_collect_btn" rel="nofollow" name="pbtn-6985810" href="javascript:;">修改</a>&nbsp;&nbsp;
+                            <a class="d_link " rel="6985810:P" href="javascript:;">删除</a>
+                            </div>
+                        </li>
+                </ul>
+            </div>
+        </div>
+        
+
+        <div class="item comment-item" data-cid="4727737186">
+            <div class="pic">
+                <a title="The Cabin in the Woods" href="https://movie.douban.com/subject/3143676/" class="nbg">
+                    <img alt="The Cabin in the Woods" src="https://img1.doubanio.com/view/photo/s_ratio_poster/public/p1323381020.webp">
+                </a>
+            </div>
+            <div class="info">
+                <ul>
+                    <li class="title">
+                        <a href="https://movie.douban.com/subject/3143676/">
+                            <em>林中小屋 / The Cabin in the Woods</em>
+                             / 尸营旅舍(港) / 诡屋(台)
+                        </a>
+                            <span class="playable">[可播放]</span>
+                    </li>
+                        <li class="intro">2011-12-11(BNAT) / 2012-03-09(西南偏南电影节) / 2012-04-13(美国) / 克里斯汀·康奈利 / 克里斯·海姆斯沃斯 / 安娜·哈彻森 / 弗兰·克朗茨 / 杰西·威廉姆斯 / 理查德·詹金斯 / 布莱德利·惠特福德 / 布莱恩·J·怀特 / 艾米·阿克 / 蒂姆·德·赞 / 加拿大 / 美国 / discoverthecabininthewoods.com / 德鲁·戈达德 / 95分钟 / 林中小屋 / 恐怖 / 德鲁·高达 Drew Goddard / 乔斯·韦登 Joss Whedon / 英语 / 日语</li>
+                    <li>
+                                <span class="rating4-t"></span>
+                        <span class="date">2025-12-27</span>
+
+                            
+                    </li>
+                    <li>
+                        <span class="comment">ayu带看的，后面的展开确实离谱</span>
+                        
+                    </li>
+                        <li class="clearfix opt-ln">
+                            <div class="opt-l gact">
+                                <a class="j a_collect_btn" rel="nofollow" name="pbtn-3143676" href="javascript:;">修改</a>&nbsp;&nbsp;
+                            <a class="d_link " rel="3143676:P" href="javascript:;">删除</a>
+                            </div>
+                        </li>
+                </ul>
+            </div>
+        </div>
+        
+
+        <div class="item comment-item" data-cid="4724155103">
+            <div class="pic">
+                <a title="双轨" href="https://movie.douban.com/subject/36553292/" class="nbg">
+                    <img alt="双轨" src="https://img9.doubanio.com/view/photo/s_ratio_poster/public/p2928022086.webp">
+                </a>
+            </div>
+            <div class="info">
+                <ul>
+                    <li class="title">
+                        <a href="https://movie.douban.com/subject/36553292/">
+                            <em>双轨</em>
+                             / Speed and Love
+                        </a>
+                            <span class="playable">[可播放]</span>
+                    </li>
+                        <li class="intro">2025-12-12(中国大陆) / 虞书欣 / 何与 / 费启鸣 / 吴翊歌 / 孙美林 / 李澳 / 栾元晖 / 卡斯柏 / 尹浩宇 / 管梓净 / 中国大陆 / 于中中 / 马鸣 / 45分钟 / 剧情 / 爱情 / 赵晓磊 Xiaolei Zhao / 汉语普通话</li>
+                    <li>
+                                <span class="rating1-t"></span>
+                        <span class="date">2025-12-23</span>
+
+                            
+                    </li>
+                    <li>
+                        <span class="comment">对比起来感觉枭起青壤还不错了😭</span>
+                        
+                            <span class="pl">(4 有用)</span>
+                    </li>
+                        <li class="clearfix opt-ln">
+                            <div class="opt-l gact">
+                                <a class="j a_collect_btn" rel="nofollow" name="pbtn-36553292" href="javascript:;">修改</a>&nbsp;&nbsp;
+                            <a class="d_link " rel="36553292:P" href="javascript:;">删除</a>
+                            </div>
+                        </li>
+                </ul>
+            </div>
+        </div>
+</div>

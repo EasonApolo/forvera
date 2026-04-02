@@ -19,6 +19,11 @@ watch(
 
 const setRating = (newRating: number) => {
   if (!readonly) {
+    if (rating.value === newRating) {
+      rating.value = null
+      emit('update:value', null)
+      return
+    }
     rating.value = newRating
     emit('update:value', newRating)
   }
@@ -42,7 +47,6 @@ const clearRating = () => {
         empty: rating === null,
       }"
       @click="setRating(n)"
-      @dblclick="clearRating"
     >
       {{ rating === null || n > rating ? '☆' : '★' }}
     </span>

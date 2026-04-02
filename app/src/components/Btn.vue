@@ -1,9 +1,9 @@
 <script setup lang="ts">
-defineProps<{ type?: string; loading?: boolean }>()
+defineProps<{ type?: string; loading?: boolean; small?: boolean; }>()
 </script>
 
 <template>
-  <div class="button" :class="{ primary: type == 'primary' }">
+  <div class="button" :class="{ primary: type == 'primary', danger: type == 'danger', small: small }">
     <div v-if="loading">
       <svg viewBox="0 0 50 50" class="loading-svg">
         <circle cx="25" cy="25" r="20" fill="none" class="path" />
@@ -17,14 +17,21 @@ defineProps<{ type?: string; loading?: boolean }>()
 
 <style lang="less" scoped>
 .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 5rem;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  white-space: nowrap;
   padding: 0.375rem 1rem;
-  color: rgba(0, 0, 0, 0.6);
+  color: var(--btn-text);
   border-radius: 4px;
-  background-color: #e0e1e2;
+  background-color: var(--btn-bg);
   transition: 0.2s ease;
   cursor: pointer;
   &:hover {
-    background-color: #cacbcd;
+    background-color: var(--btn-hover);
   }
   .loading-svg {
     display: block;
@@ -60,12 +67,25 @@ defineProps<{ type?: string; loading?: boolean }>()
       transform: rotate(1turn); // 旋转1圈
     }
   }
+  &.small {
+    padding: .125rem .25rem;
+    font-size: .75rem;
+    width: auto;
+  }
 }
 .primary {
   color: white;
   background-color: #2285d0;
   &:hover {
     background-color: #1578c3;
+  }
+}
+
+.danger {
+  color: white;
+  background-color: #ff4d4f;
+  &:hover {
+    background-color: #ff7875;
   }
 }
 </style>

@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import Toast from './components/Toast.vue'
 import { useUserStore } from './store/user'
-import ImagePreview from './components/ImagePreview.vue'
+import { useThemeStore } from './store/theme'
+import ImageViewer from './components/ImageViewer.vue'
 
 const userStore = useUserStore()
 userStore.getUserInfo()
+
+const themeStore = useThemeStore()
+themeStore.init()
 </script>
 
 <template>
@@ -17,13 +21,76 @@ userStore.getUserInfo()
   <transition name="toast-slide">
     <Toast class="toast" />
   </transition>
-  <ImagePreview></ImagePreview>
+  <ImageViewer></ImageViewer>
 </template>
 
 <style lang="less">
+/* ── Light mode variables (default) ── */
+:root {
+  --bg: #f6f6f6;
+  --card-bg: #ffffff;
+  --card-bg-rgb: 255, 255, 255;
+  --text: #2c3e50;
+  --text-secondary: #888888;
+  --text-muted: #aaaaaa;
+  --border: #cccccc;
+  --border-light: #eeeeee;
+  --btn-bg: #ebebec;
+  --btn-hover: #dddde0;
+  --btn-text: rgba(0, 0, 0, 0.6);
+  --scrollbar-track: #f6f6f6;
+  --scrollbar-thumb: #dddddd;
+  --nav-shadow: #cccccc;
+  --code-bg: #f3f3f3;
+  --quote-bg: #f8f8f8;
+  --quote-border: #dddddd;
+  --quote-text: #666666;
+  --toc-item-color: #666666;
+  --toc-toggle-bg: #f3f3f3;
+  --toc-toggle-color: #555555;
+  --hidden-post-bg: #eeeeee;
+  --accent-color: #42b983;
+  --toast-bg: #ffffff;
+  --toast-border: transparent;
+  --toast-text: var(--text);
+  --toc-shadow: 0 12px 36px rgba(0, 0, 0, 0.22);
+}
+
+/* ── Dark mode variables ── */
+:root.dark {
+  --bg: #181818;
+  --card-bg: #252525;
+  --card-bg-rgb: 37, 37, 37;
+  --text: #e4e4e4;
+  --text-secondary: #999999;
+  --text-muted: #777777;
+  --border: #444444;
+  --border-light: #333333;
+  --btn-bg: #3a3a3a;
+  --btn-hover: #4a4a4a;
+  --btn-text: rgba(255, 255, 255, 0.75);
+  --scrollbar-track: #181818;
+  --scrollbar-thumb: #444444;
+  --nav-shadow: rgba(0, 0, 0, 0.5);
+  --code-bg: #2d2d2d;
+  --quote-bg: #2a2a2a;
+  --quote-border: #555555;
+  --quote-text: #aaaaaa;
+  --toc-item-color: #aaaaaa;
+  --toc-toggle-bg: #333333;
+  --toc-toggle-color: #aaaaaa;
+  --hidden-post-bg: #333333;
+  --accent-color: #42b983;
+  --toast-bg: rgba(52, 52, 52, 1);
+  --toast-border: transparent;
+  --toast-text: #ccc;
+  --toc-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
+}
+
 body {
   margin: 0;
-  background-color: #f6f6f6;
+  background-color: var(--bg);
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 
 #app {
@@ -34,21 +101,21 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-align: center;
-  color: #2c3e50;
+  color: var(--text);
 }
 
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 16px;
+  width: 4px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background-color: #f6f6f6;
+  background-color: var(--scrollbar-track);
 }
 
 ::-webkit-scrollbar-thumb {
   border-radius: 16px;
-  background-color: #ddd;
+  background-color: var(--scrollbar-thumb);
 }
 
 .flex-center {
@@ -69,10 +136,12 @@ body {
   width: calc(100% - 1.8rem);
   padding: 0.6rem 0.9rem;
   border-radius: 4px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border);
   outline: none;
   font-size: 15px;
   transition: 0.125s ease;
+  background-color: var(--card-bg);
+  color: var(--text);
 
   &:focus {
     border: 1px solid #2285d0;
@@ -80,7 +149,7 @@ body {
 }
 
 .link {
-  color: #42b983;
+  color: var(--accent-color);
   cursor: pointer;
 }
 
@@ -91,7 +160,7 @@ body {
   margin: 0 0 0.5rem 3px;
   text-align: left;
   font-size: 14px;
-  color: #aaa;
+  color: var(--text-muted);
   font-family: Avenir, Helvetica, Arial, sans-serif;
   &:not(:first-child) {
     margin-top: 0.75rem;

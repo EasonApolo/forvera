@@ -9,8 +9,6 @@ import Loading from '@/components/Loading.vue'
 type Commit = {
   date: string
   title: string
-  content?: string[]
-  version?: string
 }
 const loading = ref(false)
 const commits = reactive([] as Commit[])
@@ -28,18 +26,10 @@ const fetchCommits = async () => {
       message,
     } = commit.commit
     date = formatDate(date)
-    let [title, content] = message.split('\n\n')
-    let version
-    title = title.replace(/(\d\.\d\.\d)\s*/, (match: string, p1: string) => {
-      version = p1
-      return ''
-    })
-    if (content) content = content.split('\n')
+    const [title] = message.split('\n\n')
     commits.push({
       date,
-      version,
       title,
-      content,
     })
   })
   loading.value = false
@@ -54,13 +44,7 @@ fetchCommits()
         <div class="title">Commits</div>
         <Loading v-if="loading" />
         <div v-for="commit in commits" class="commit">
-          <div class="version">{{ commit.version }}</div>
           <div class="title">{{ commit.title }}</div>
-          <div class="message">
-            <div>
-              <div v-for="c in commit.content">{{ c }}</div>
-            </div>
-          </div>
           <div class="date">{{ commit.date }}</div>
         </div>
       </Card>
@@ -88,42 +72,23 @@ fetchCommits()
 .commits {
   .commit {
     display: flex;
+    justify-content: space-between;
+    align-items: center;
     margin-top: 0.5rem;
     width: 100%;
-    align-items: flex-start;
-    line-height: 1rem;
+    line-height: 1.25rem;
     font-size: 14px;
 
-    & > div {
-      flex: 0 0 auto;
-    }
-
-    .version {
-      width: 2.5rem;
-      font-style: italic;
-    }
-
     .title {
-      width: 8rem;
-    }
-
-    .message {
-      flex: 1 0 auto;
-      width: calc(100% - 18rem);
-
-      & > div {
-        word-break: break-all;
-        overflow: auto;
-        div {
-          white-space: nowrap;
-        }
-      }
+      text-align: left;
+      margin-right: 0.75rem;
+      flex: 1 1 auto;
     }
 
     .date {
-      width: 6rem;
+      flex: 0 0 auto;
       font-size: 12px;
-      color: #aaa;
+      color: var(--text-muted);
     }
   }
 }

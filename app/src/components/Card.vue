@@ -18,7 +18,8 @@ const showTitle = slots.title
 .card {
   padding: 1rem;
   border-radius: 0.5rem;
-  background-color: white;
+  background-color: var(--card-bg);
+  transition: background-color 0.25s ease;
   & > .title {
     margin-bottom: 0.25rem;
     font-size: 18px;

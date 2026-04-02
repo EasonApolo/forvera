@@ -26,3 +26,15 @@ export const throttle = (func: Function) => {
     }
   }
 }
+
+export const debounce = (func: Function, delay = 300) => {
+  let timeout: ReturnType<typeof setTimeout> | null = null
+  return (...args: any) => {
+    if (timeout) {
+      clearTimeout(timeout)
+    }
+    timeout = setTimeout(() => {
+      func(...args)
+    }, delay)
+  }
+}

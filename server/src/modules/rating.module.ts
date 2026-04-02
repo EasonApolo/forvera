@@ -25,6 +25,8 @@ export class Comment extends MongooseDocument {
   @Prop() content?: string;
   @Prop() rate: number | null;
   @Prop() userId: string;
+  @Prop() createdAt?: Date;
+  @Prop() updatedAt?: Date;
 
   constructor() {
     super();
@@ -33,7 +35,7 @@ export class Comment extends MongooseDocument {
 
 export const CommentSchema = SchemaFactory.createForClass(Comment);
 
-@Schema({ timestamps: true })
+@Schema({ timestamps: true, collection: 'ratings' })
 export class Document extends MongooseDocument {
   @Prop() id: string; // movie id
   @Prop() title: string;
@@ -53,8 +55,12 @@ export const DocumentSchema = SchemaFactory.createForClass(Document);
 export class CreateDocumentDto {
   id: string;
   title: string;
-  date: Date;
+  date?: Date;
   type: string;
+  episode?: string;
+  img?: string;
+  url?: string;
+  sub_title?: string;
 }
 
 export class CreateCommentDto {
@@ -87,7 +93,19 @@ export class DocumentService {
   ) {}
 
   async addDocument(createDocumentDto: CreateDocumentDto): Promise<Document> {
-    const createdDocument = new this.documentModel(createDocumentDto);
+    const now = new Date();
+    const createdDocument = new this.documentModel({
+      ...createDocumentDto,
+      comments: [
+        {
+          content: '',
+          rate: null,
+          userId: '',
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+    });
     return createdDocument.save();
   }
 
@@ -100,9 +118,13 @@ export class DocumentService {
     const document: Document = await this.documentModel
       .findById(documentId)
       .exec();
-    const comment = new this.commentModel(commentData);
+    const now = new Date();
+    const comment = new this.commentModel({
+      ...commentData,
+      createdAt: now,
+      updatedAt: now,
+    });
     document.comments.push(comment);
-    document.rate = createCommentDto.rate; // Update document rate
     return document.save();
   }
 
@@ -116,6 +138,7 @@ export class DocumentService {
           $set: {
             'comments.$.content': editCommentDto.content,
             'comments.$.rate': editCommentDto.rate,
+            'comments.$.updatedAt': new Date(),
           },
         },
         { new: true },
@@ -127,6 +150,14 @@ export class DocumentService {
     documentId,
     commentId,
   }: DeleteCommentDto): Promise<Document> {
+    const document = await this.documentModel.findById(documentId).exec();
+    if (!document) {
+      return null;
+    }
+    if ((document.comments || []).length <= 1) {
+      throw new BadRequestException('不能删除最后一条评论');
+    }
+
     return this.documentModel
       .findOneAndUpdate(
         { _id: documentId },
@@ -139,18 +170,12 @@ export class DocumentService {
   async getDocuments(
     type: string,
     rate?: number,
-    pageSize?: number,
-    pageNumber?: number,
   ): Promise<Document[]> {
     const query = { type, ...(rate && { rate }) };
-    const skip = pageSize && pageNumber ? (pageNumber - 1) * pageSize : 0;
-    const limit = pageSize ? pageSize : 10;
 
     return this.documentModel
       .find(query)
       .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
       .exec();
   }
 
@@ -223,10 +248,8 @@ export class DocumentController {
   async getDocuments(
     @Query('type') type: string,
     @Query('rate', OptionalParseIntPipe) rate?: number,
-    @Query('pageSize', OptionalParseIntPipe) pageSize?: number,
-    @Query('pageNumber', OptionalParseIntPipe) pageNumber?: number,
   ) {
-    return this.documentService.getDocuments(type, rate, pageSize, pageNumber);
+    return this.documentService.getDocuments(type, rate);
   }
 
   @Public()

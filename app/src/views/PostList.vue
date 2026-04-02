@@ -4,8 +4,8 @@ import { useMainStore } from '../store/main'
 import { usePostStore } from '../store/post'
 import Card from '../components/Card.vue'
 import List from '../components/layout/List.vue'
+import HorizontalScroll from '../components/layout/HorizontalScroll.vue'
 import Label from '../components/Label.vue'
-import { usePostDetail } from '../store/postDetail'
 import { formatDate } from '../utils/common'
 import { useCategories } from '@/store/category'
 import { computed, ref } from 'vue'
@@ -21,28 +21,50 @@ categoryStore.init()
 const { categories } = storeToRefs(categoryStore)
 
 const groupedPosts = computed(() => {
+  // 检查是否已经拿到 category 接口数据
+  if (!categories.value.length) {
+    return []
+  }
+
   const now = Date.now()
-  const month = 3600 * 24 * 30 * 1000
+  const threeMonthsAgo = now - (3600 * 24 * 30 * 3 * 1000) // 最近3个月
   type PostGroup = { name: string; posts: Post[] }
-  let group = {} as PostGroup
+  
+  // 初始化分组
   const groups: PostGroup[] = []
-  filteredPosts.value.map(post => {
+  const recentGroup: PostGroup = { name: '最近', posts: [] }
+  const yearGroups: Record<string, PostGroup> = {}
+
+  // 遍历过滤后的文章
+  filteredPosts.value.forEach(post => {
     const updatedDate = new Date(post.updated_time)
-    if (now - updatedDate.getTime() < month) {
-      if (!group.name) {
-        group = { name: 'Recent', posts: [post] }
-        groups.push(group)
-      } else group.posts.push(post)
+    const updatedTime = updatedDate.getTime()
+
+    if (updatedTime >= threeMonthsAgo) {
+      // 最近3个月的文章
+      recentGroup.posts.push(post)
     } else {
+      // 按年份分组
       const year = `${updatedDate.getFullYear()}`
-      if (group.name !== year) {
-        group = { name: year, posts: [post] }
-        groups.push(group)
-      } else {
-        group.posts.push(post)
+      if (!yearGroups[year]) {
+        yearGroups[year] = { name: year, posts: [] }
       }
+      yearGroups[year].posts.push(post)
     }
   })
+
+  // 添加最近分组（如果有文章）
+  if (recentGroup.posts.length > 0) {
+    groups.push(recentGroup)
+  }
+
+  // 添加年份分组（按年份降序）
+  Object.values(yearGroups)
+    .sort((a, b) => parseInt(b.name) - parseInt(a.name))
+    .forEach(group => {
+      groups.push(group)
+    })
+
   return groups
 })
 
@@ -58,9 +80,7 @@ const filteredPosts = computed(() => {
 })
 
 const read = (postId: string) => {
-  const postDetailStore = usePostDetail()
-  postDetailStore.init(postId)
-  mainStore.go('post')
+  mainStore.router.push({ name: 'post', params: { postId } })
 }
 </script>
 
@@ -68,15 +88,15 @@ const read = (postId: string) => {
   <List>
     <template v-slot:content>
       <Card class="categories-wrapper" @mousedown.stop>
-        <span style="color: #888">分类</span>
-        <div class="categories">
+        <span style="color: var(--text-secondary)">分类</span>
+        <HorizontalScroll class="categories">
           <Label
             :active="activeCatId === cat._id"
             v-for="cat in categories"
             @click="filterByCategory(cat)"
             >{{ cat.title }}</Label
           >
-        </div>
+        </HorizontalScroll>
       </Card>
       <div v-for="group in groupedPosts" :key="group.name" class="post-group">
         <div class="group-name">{{ group.name }}</div>
@@ -107,10 +127,8 @@ const read = (postId: string) => {
   }
 
   .categories {
-    display: flex;
-    align-items: center;
     margin-left: 1rem;
-    overflow: auto;
+    flex: 1;
 
     * {
       flex: 0 0 auto;
@@ -125,7 +143,7 @@ const read = (postId: string) => {
     margin: 0 0 0.5rem 3px;
     text-align: left;
     font-size: 14px;
-    color: #aaa;
+    color: var(--text-muted);
     font-family: Avenir, Helvetica, Arial, sans-serif;
   }
   .post {
@@ -147,7 +165,7 @@ const read = (postId: string) => {
       .post-cat {
         display: flex;
         font-size: 12px;
-        color: #aaa;
+        color: var(--text-muted);
 
         div:not(:last-child) {
           margin-right: 0.25rem;
@@ -160,7 +178,7 @@ const read = (postId: string) => {
 
       .date {
         font-size: 12px;
-        color: #888;
+        color: var(--text-secondary);
       }
     }
   }
@@ -176,9 +194,9 @@ label {
 }
 
 code {
-  background-color: #eee;
+  background-color: var(--code-bg);
   padding: 2px 4px;
   border-radius: 4px;
-  color: #304455;
+  color: var(--text);
 }
 </style>

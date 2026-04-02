@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
+import { onMounted, ref } from 'vue'
 import List from '../components/layout/List.vue'
 import Card from '../components/Card.vue'
 import { useUserStore } from '../store/user'
@@ -8,9 +9,8 @@ import { useMainStore } from '../store/main'
 import { usePostStore } from '../store/post'
 import { formatDate } from '../utils/common'
 import { useWriteStore } from '../store/write'
-import Label from '../components/Label.vue'
-import { ref } from 'vue'
 import { useToastStore } from '../store/toast'
+import { useThemeStore } from '../store/theme'
 
 const [userStore, mainStore, postStore, writeStore, toastStore] = [
   useUserStore(),
@@ -19,123 +19,82 @@ const [userStore, mainStore, postStore, writeStore, toastStore] = [
   useWriteStore(),
   useToastStore(),
 ]
-const { loginData, isLogin, userInfo } = storeToRefs(userStore)
+const themeStore = useThemeStore()
+const { isDark } = storeToRefs(themeStore)
+const { userInfo } = storeToRefs(userStore)
 const { myPosts } = storeToRefs(postStore)
 
-// 登录相关
-userStore.login()
-if (userStore.isLogin) {
-  userStore.getUserInfo()
+onMounted(async () => {
+  await userStore.getUserInfo()
   postStore.fetchMyPosts()
-}
-const login = async () => {
-  await userStore.login()
-  if (userStore.isLogin) {
-    toastStore.showToast({ content: '登录成功～', type: 'OK' })
-    postStore.fetchMyPosts()
-  } else {
-    toastStore.showToast({
-      content: '登录失败，请检查用户名密码～',
-      type: 'ERR',
-    })
-  }
-}
-const register = async () => {
-  const res = await userStore.register()
-  if (!res) {
-    console.log('fail')
-    return
-  }
-  postStore.fetchMyPosts()
-}
+})
+
 const logout = async () => {
   userStore.logout()
   toastStore.showToast({ content: '已登出～', type: 'OK' })
+  mainStore.router.push({ name: 'login', query: { redirect: '/profile' } })
 }
-const loading = ref({ write: false, login: false, register: false })
+const loading = ref({ write: false })
 
 // 前往各个路由
-const goWrite = () => {
-  mainStore.router.push('write')
+const goWrite = (postId: string) => {
+  mainStore.router.push({ name: 'write', params: { postId } })
 }
 const create = async () => {
   loading.value.write = true
   await writeStore.init()
   loading.value.write = false
-  goWrite()
+  goWrite(writeStore.postId)
 }
 const edit = async (postId: string) => {
-  await writeStore.init(postId)
-  goWrite()
+  goWrite(postId)
 }
 const goCategory = () => {
-  mainStore.router.push('category')
+  mainStore.router.push({ name: 'category' })
 }
 </script>
 
 <template>
   <List>
     <template v-slot:content>
-      <Card v-if="!isLogin" class="login-wrapper" @keyup.enter="login">
-        <input
-          class="text-input login-input"
-          v-model="loginData.username"
-          placeholder="username"
-        />
-        <input
-          class="text-input login-input"
-          v-model="loginData.password"
-          placeholder="password"
-          type="password"
-        />
-        <div class="flex-center">
-          <Btn type="primary" @click="login" :loading="loading.login">登录</Btn>
-          <Btn @click="register" :loading="loading.register">注册</Btn>
+      <Card class="item user-info-bar">
+        <div>{{ userInfo.username }}</div>
+        <div class="user-actions">
+          <Btn @click="themeStore.toggle()">{{ isDark ? '☀️' : '🌙' }}</Btn>
+          <Btn @click="logout">登出</Btn>
         </div>
       </Card>
-      <template v-else>
-        <Card class="item user-info-bar">
-          <div>{{ userInfo.username }}</div>
-          <Btn @click="logout">登出</Btn>
+      <div class="card-group">
+        <div class="card-group-name">导航</div>
+        <Card class="item card-group">
+          <div class="actions">
+            <Btn @click="create" :loading="loading.write">写文章</Btn>
+            <Btn @click="goCategory">编辑分类</Btn>
+          </div>
         </Card>
-        <div class="card-group">
-          <div class="card-group-name">导航</div>
-          <Card class="item card-group">
-            <div class="actions">
-              <Btn @click="create" :loading="loading.write">写文章</Btn>
-              <Btn @click="goCategory">编辑分类</Btn>
-            </div>
-          </Card>
-        </div>
-        <div class="my-posts card-group">
-          <div class="card-group-name">文章列表</div>
-          <Card
-            class="item post"
-            v-for="post in myPosts"
-            :class="{ hidden: post.status !== 1 }"
-          >
-            <div class="post-info">
-              <span class="title">{{ post.title }}</span>
-              <span class="desc">{{ formatDate(post.updated_time) }}</span>
-              <div v-if="post.status !== 1" class="status">隐藏</div>
-            </div>
-            <div class="post-actions">
-              <Btn @click="edit(post._id)">修改</Btn>
-            </div>
-          </Card>
-        </div>
-      </template>
+      </div>
+      <div class="my-posts card-group">
+        <div class="card-group-name">文章列表</div>
+        <Card
+          class="item post"
+          v-for="post in myPosts"
+          :class="{ hidden: post.status !== 1 }"
+        >
+          <div class="post-info">
+            <span class="title">{{ post.title }}</span>
+            <span class="desc">{{ formatDate(post.updated_time) }}</span>
+            <div v-if="post.status !== 1" class="status">隐藏</div>
+          </div>
+          <div class="post-actions">
+            <Btn @click="edit(post._id)">修改</Btn>
+          </div>
+        </Card>
+      </div>
     </template>
   </List>
 </template>
 
 <style lang="less" scoped>
-.login-wrapper {
-  & > * {
-    margin-bottom: 0.75rem;
-  }
-}
-
 .item {
   &:not(:first-child) {
     margin-top: 0.5rem;
@@ -146,6 +105,12 @@ const goCategory = () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+
+  .user-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
 }
 
 .actions {
@@ -176,7 +141,7 @@ const goCategory = () => {
       .desc {
         margin-left: 0.5rem;
         font-size: 14px;
-        color: #888;
+        color: var(--text-secondary);
       }
 
       .status {
@@ -188,7 +153,7 @@ const goCategory = () => {
   }
 
   .hidden {
-    background-color: #eee;
+    background-color: var(--hidden-post-bg);
   }
 }
 </style>

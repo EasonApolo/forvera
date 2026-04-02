@@ -41,13 +41,16 @@ export const useMessageStore = defineStore('message', {
       }
       this.messageWrapper.replyToUsername = ''
     },
-    async fetchMessages(isLogin: boolean) {
+    async fetchMessages(isLogin: boolean, year?: number, keyword?: string) {
       this.messages = []
       if (this.loading) return
       this.loading = true
       const url = isLogin ? `twit/list` : `twit/list/anonymous`
       const method = isLogin ? 'POST' : 'GET'
-      let messages: Array<Message> = await request(`${url}`, method) //, 'post', null, { upload: true, progress: this.twit.progress })
+      const params: any = {}
+      if (year) params.year = year
+      if (keyword) params.q = keyword
+      let messages: Array<Message> = await request(`${url}`, method, params) //, 'post', null, { upload: true, progress: this.twit.progress })
       messages = this.processMessages(messages)
       if (messages.length > 0) {
         this.messages.splice(0, this.messages.length, ...messages)
@@ -61,9 +64,17 @@ export const useMessageStore = defineStore('message', {
       }
       messages = messages.filter(message => message.user !== null)
       messages.forEach(message => {
+        if (message.status === undefined) {
+          message.status = 1
+        }
         message.files.forEach(f => {
           f.url = `${ip}${f.url}`
           f.thumb = `${ip}${f.thumb}`
+        })
+        message.descendants?.forEach(reply => {
+          if (reply.status === undefined) {
+            reply.status = 1
+          }
         })
       })
       return messages
@@ -98,14 +109,29 @@ export const useMessageStore = defineStore('message', {
       return newMessage
     },
     async deleteMessage(messageId: string) {
-      const res: Message = await request(`twit/${messageId}`, 'DELETE')
+      const res: Message | null = await request(`twit/${messageId}`, 'DELETE')
       if (res) {
         // 删除reply，返回更新后的祖先message
-        const updatedIndex = this.messages.findIndex(m => m._id !== res._id)
-        this.messages.splice(updatedIndex, 1, res)
+        const updatedIndex = this.messages.findIndex(m => m._id === res._id)
+        if (updatedIndex !== -1) {
+          this.messages.splice(updatedIndex, 1, res)
+        }
       } else {
         // 删除祖先message，返回null
         this.messages = this.messages.filter(m => m._id !== messageId)
+      }
+      // 返回布尔值表示操作成功，避免前端误判null为失败
+      return true
+    },
+    async updateMessageStatus(messageId: string, status: 0 | 1) {
+      const res: Message = await request(`twit/${messageId}/status`, 'PUT', {
+        status,
+      })
+      if (res) {
+        const updatedIndex = this.messages.findIndex(m => m._id === res._id)
+        if (updatedIndex !== -1) {
+          this.messages.splice(updatedIndex, 1, res)
+        }
       }
       return res
     }

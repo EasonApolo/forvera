@@ -73,7 +73,7 @@ const submit = async ({ remove = false }) => {
   .description {
     margin-left: 0.5rem;
     font-size: 14px;
-    color: #888;
+    color: var(--text-secondary);
   }
   .right {
     margin-left: auto;

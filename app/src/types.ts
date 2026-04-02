@@ -3,6 +3,7 @@ interface Message {
   created_time: string
   files: Array<File>
   level: number
+  status: 0 | 1
   reactions: Array<number>
   user: UserInfo
   descendants: Array<Message>

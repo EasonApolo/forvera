@@ -1,7 +1,6 @@
 import { ip as baseURL } from '../config'
 import axios, { AxiosRequestConfig, Method } from 'axios'
 import { useUserStore } from '../store/user'
-import { useMainStore } from '../store/main'
 import { useToastStore } from '../store/toast'
 
 type RequestOptions = {
@@ -88,12 +87,16 @@ export async function request(
       if (errCode === 401) {
         if (userStore.isLogin) {
           toastStore.showToast({
-            content: '登录凭证已过期，请保存后点击个人重新登录。',
+            content: '登录凭证已过期，请重新登录。',
             type: '!',
             timeout: 3000,
           })
         }
         userStore.logout()
+        if (!location.pathname.startsWith('/login')) {
+          const redirect = `${location.pathname}${location.search}`
+          location.href = `/login?redirect=${encodeURIComponent(redirect)}`
+        }
       } else {
         toastStore.showToast({
           content: err.response.data.message || errCode,

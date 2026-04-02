@@ -2,13 +2,16 @@
 import Btn from '@/components/Btn.vue'
 import Card from '@/components/Card.vue'
 import List from '@/components/layout/List.vue'
+import BottomNavBar from '@/components/layout/BottomNavBar.vue'
 import { request } from '@/utils/request'
 import { onMounted, ref, computed } from 'vue'
 import RatingComponent from '@/components/RatingComponent.vue'
-import Icon from '@/components/Icon.vue'
+import StepperFilter from '@/components/StepperFilter.vue'
 import { formatDate } from '@/utils/common'
 import { useUserStore } from '@/store/user'
 import { storeToRefs } from 'pinia'
+import { useRouter } from 'vue-router'
+import { useToastStore } from '@/store/toast'
 
 interface TreeNode {
   key?: string
@@ -29,20 +32,27 @@ interface RatingDocument {
 }
 const userStore = useUserStore()
 const { userInfo } = storeToRefs(userStore)
+const router = useRouter()
+const toastStore = useToastStore()
 
 const types = ref<TreeNode[]>([])
 const path = ref<number[]>([])
 const documents = ref<RatingDocument[]>([])
 const editable = computed(() => userInfo.value.role === 3)
-const pageSize = ref(10)
-const pageNumber = ref(1)
-const hasMore = ref(true)
 const loading = ref({
   search: false,
   create: false,
   fetch: false,
   comment: false,
 })
+
+const navItems = [{ key: 'back', label: '‹ 返回' }]
+
+const handleNavSelect = (key: string) => {
+  if (key === 'back') {
+    router.push({ name: 'playground' })
+  }
+}
 
 onMounted(() => {
   fetchTypes()
@@ -60,6 +70,7 @@ const selectNode = (index: number) => {
 }
 const onPathChange = () => {
   clearSearch()
+  resetMovieFilters()
   fetchDocuments({ refresh: true })
 }
 const pathSegs = computed(() => {
@@ -81,37 +92,14 @@ const node = computed(() => {
 const fetchDocuments = async ({ refresh }: { refresh?: boolean } = {}) => {
   loading.value.fetch = true
   if (node.value?.key) {
-    if (refresh) {
-      pageNumber.value = 1
-    }
     const data = await request('documents', 'GET', {
       type: node.value.key,
-      pageSize: pageSize.value,
-      pageNumber: pageNumber.value,
     })
-    if (data.length < pageSize.value) {
-      hasMore.value = false
-    }
-    if (refresh) {
-      documents.value = [...data]
-    } else {
-      documents.value = [...documents.value, ...data]
-    }
-    pageNumber.value++
+    documents.value = [...data]
   } else if (refresh) {
     documents.value = []
   }
   loading.value.fetch = false
-}
-const onScroll = (e: any) => {
-  let parentHeight = e.target.clientHeight
-  let scrollHeight = e.target.scrollTop
-  let childHeight =
-    e.target.getElementsByClassName('layout-list')[0].clientHeight
-  let atBottom = scrollHeight + parentHeight >= childHeight - 10 * 16
-  if (atBottom && hasMore.value) {
-    fetchDocuments()
-  }
 }
 
 /**
@@ -154,6 +142,25 @@ const clearSearch = () => {
 }
 const openUrlInNewPage = (url: string) => {
   window.open(url, '_blank', 'noopener noreferrer')
+}
+
+const getLastCommentTime = (document: RatingDocument) => {
+  const comments = Array.isArray(document.comments) ? document.comments : []
+  const timestamps = comments
+    .map(comment => new Date(comment.createdAt).getTime())
+    .filter(time => Number.isFinite(time))
+  if (!timestamps.length) return 0
+  return Math.max(...timestamps)
+}
+
+const getDisplayDate = (document: RatingDocument) => {
+  return typeof document.date === 'string' ? document.date.trim() : ''
+}
+
+const getDisplayYear = (document: RatingDocument) => {
+  const displayDate = getDisplayDate(document)
+  const matched = displayDate.match(/\d{4}/)
+  return matched?.[0] || ''
 }
 
 const createDocument = async () => {
@@ -213,6 +220,11 @@ const editComment = (documentId: string, comment: Comment) => {
 }
 const deleteComment = async (documentId: string, commentId: string) => {
   if (confirm('确定要删除吗？')) {
+    const target = documents.value.find(item => item._id === documentId)
+    if (target && target.comments.length <= 1) {
+      toastStore.showToast({ content: '不能删除最后一条评论', type: '!' })
+      return
+    }
     const newDoc = await request('documents/comment', 'DELETE', {
       documentId,
       commentId,
@@ -273,11 +285,76 @@ const initCommenting = () => {
 const cancelComment = () => {
   initCommenting()
 }
+
+/**
+ * Movie filters
+ */
+const currentYear = new Date().getFullYear()
+const movieFilters = ref({
+  rating: null as number | null,
+  query: '',
+  year: null as number | null,
+  watchCount: null as number | null,
+})
+
+const resetMovieFilters = () => {
+  movieFilters.value.rating = null
+  movieFilters.value.query = ''
+  movieFilters.value.year = null
+  movieFilters.value.watchCount = null
+}
+
+const clearMovieQuery = () => {
+  movieFilters.value.query = ''
+}
+
+const filteredDocuments = computed(() => {
+  if (node.value.key !== 'movie') {
+    return documents.value
+  }
+
+  let list = [...documents.value]
+  const query = movieFilters.value.query.trim().toLowerCase()
+
+  if (movieFilters.value.rating !== null) {
+    list = list.filter(doc => {
+      const rates = doc.comments
+        .map(comment => comment.rate)
+        .filter((rate): rate is number => rate !== null)
+      if (rates.length === 0) {
+        return false
+      }
+      const avgRate = rates.reduce((sum, rate) => sum + rate, 0) / rates.length
+      return Math.round(avgRate) === movieFilters.value.rating
+    })
+  }
+
+  if (query) {
+    list = list.filter(doc => {
+      const title = (doc.title || '').toLowerCase()
+      const subTitle = (doc.sub_title || '').toLowerCase()
+      return title.includes(query) || subTitle.includes(query)
+    })
+  }
+
+  if (movieFilters.value.year !== null) {
+    list = list.filter(doc => {
+      const year = Number(getDisplayYear(doc))
+      return year === movieFilters.value.year
+    })
+  }
+
+  if (movieFilters.value.watchCount !== null) {
+    list = list.filter(doc => doc.comments.length === movieFilters.value.watchCount)
+  }
+
+  return list.sort((a, b) => getLastCommentTime(b) - getLastCommentTime(a))
+})
 </script>
 
 <template>
   <div>
-    <List @scroll="onScroll">
+    <List>
       <template #content>
         <div class="card-group-name">分类</div>
         <Card class="path-chooser">
@@ -348,40 +425,76 @@ const cancelComment = () => {
           </Card>
         </template>
 
-        <div class="card-group-name">记录</div>
+        <template v-if="node.key === 'movie'">
+          <div class="card-group-name">筛选</div>
+          <Card class="movie-filter">
+            <div class="filter-item">
+              <div class="filter-label">评分</div>
+              <RatingComponent
+                :value="movieFilters.rating"
+                @update:value="movieFilters.rating = $event"
+              ></RatingComponent>
+            </div>
+            <div class="filter-item">
+              <div class="filter-label">搜索</div>
+              <div class="search-row">
+                <input
+                  class="text-input login-input"
+                  v-model="movieFilters.query"
+                  placeholder="输入关键词"
+                />
+                <Btn v-if="movieFilters.query" @click="clearMovieQuery"
+                  >取消</Btn
+                >
+              </div>
+            </div>
+            <div class="filter-item">
+              <div class="filter-label">首次观看年份</div>
+              <StepperFilter
+                :value="movieFilters.year"
+                :max="currentYear"
+                nullable-position="max"
+                @update:value="movieFilters.year = typeof $event === 'number' || $event === null ? $event : null"
+              />
+            </div>
+            <div class="filter-item">
+              <div class="filter-label">观看次数</div>
+              <StepperFilter
+                :value="movieFilters.watchCount"
+                :min="1"
+                nullable-position="min"
+                @update:value="movieFilters.watchCount = typeof $event === 'number' || $event === null ? $event : null"
+              />
+            </div>
+          </Card>
+        </template>
+
+        <div class="card-group-name">记录
+        <span v-if="node.key === 'movie'" class="movie-total">
+          ({{ filteredDocuments.length }}项)
+        </span></div>
         <Card
-          v-for="document in documents"
+          v-for="document in filteredDocuments"
           :key="document.id"
           class="document-card"
         >
           <div class="content">
             <div class="left">
-              <div class="title">{{ document.title }}</div>
-              <div v-if="document.date" class="meta">{{ document.date }}</div>
-              <div
-                v-if="document.episode && parseInt(document.episode) > 1"
-                class="meta"
-              >
-                {{ document.episode }}eps
-              </div>
-              <div
-                v-if="document.url"
-                class="meta link"
-                @click="openUrlInNewPage(document.url)"
-              >
-                url
-              </div>
-              <div
-                v-if="document.img"
-                class="meta link"
-                @click="openUrlInNewPage(document.img)"
-              >
-                img
+              <div class="title-row">
+                <div
+                  class="title link"
+                  @click="document.url && openUrlInNewPage(document.url)"
+                >
+                  {{ document.title }}
+                </div>
+                <span v-if="getDisplayDate(document)" class="title-year">
+                  ({{ getDisplayDate(document) }})
+                </span>
               </div>
             </div>
             <div v-if="editable" class="right">
-              <Icon type="✏️" @click="addComment(document._id)" />
-              <Icon type="🗑️" @click="deleteDocument(document._id)" />
+              <span class="action" @click="addComment(document._id)">新增评论</span>
+              <span class="action" @click="deleteDocument(document._id)">删除</span>
             </div>
           </div>
           <div
@@ -414,18 +527,16 @@ const cancelComment = () => {
                   :value="comment.rate"
                   :readonly="true"
                 ></RatingComponent>
-                <Icon
+                <div
                   v-if="editable"
-                  class="btn"
-                  type="✏️"
+                  class="action"
                   @click="editComment(document._id, comment)"
-                />
-                <Icon
+                >编辑</div>
+                <div
                   v-if="editable"
-                  class="btn"
-                  type="🗑️"
+                  class="action"
                   @click="deleteComment(document._id, comment._id)"
-                />
+                >删除</div>
               </div>
               <div class="date-str">{{ formatDate(comment.createdAt) }}</div>
               <div v-if="comment.content" class="content">
@@ -434,7 +545,9 @@ const cancelComment = () => {
             </div>
           </div>
         </Card>
-        <div v-if="!hasMore" class="ending">——— 没有更多了哦 ———</div>
+        <div v-if="!node.key" class="ending">——— 选择分类 ———</div>
+
+        <BottomNavBar :items="navItems" @select="handleNavSelect" />
       </template>
     </List>
   </div>
@@ -481,7 +594,7 @@ const cancelComment = () => {
     flex-wrap: wrap;
     .result-card {
       padding: 12px;
-      border: 1px solid #ccc;
+      border: 1px solid var(--border);
       border-radius: 8px;
       max-width: 156px;
       cursor: pointer;
@@ -492,7 +605,7 @@ const cancelComment = () => {
     }
     .no-result {
       font-size: 0.875rem;
-      color: #888;
+      color: var(--text-secondary);
     }
   }
   .submit-button {
@@ -500,6 +613,50 @@ const cancelComment = () => {
     flex: 0 0 auto;
   }
 }
+
+.movie-filter {
+
+  .filter-item {
+    flex: 0 0 auto;
+    min-width: 280px;
+    display: flex;
+    align-items: center;
+    column-gap: 12px;
+    &:not(:last-child) {
+      margin-bottom: 16px;
+    }
+  }
+
+  .filter-label {
+    margin-bottom: 0;
+    flex: 0 0 auto;
+    text-align: left;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+
+  .search-row {
+    display: flex;
+    align-items: center;
+    column-gap: 8px;
+
+    input {
+      width: 160px;
+    }
+  }
+}
+
+.movie-total {
+  margin-top: 8px;
+  text-align: left;
+  font-size: 0.875rem;
+}
+
+:deep(.list-content) {
+  margin-bottom: 4.5rem;
+}
+
 .document-card {
   .content {
     display: flex;
@@ -507,11 +664,22 @@ const cancelComment = () => {
       flex: 1 1 auto;
       display: flex;
       flex-wrap: wrap;
-      .title {
+      .title-row {
         flex: 0 0 100%;
-        text-align: left;
-        font-weight: bold;
+        display: flex;
+        align-items: baseline;
+        gap: 0.35rem;
         margin-bottom: 8px;
+
+        .title {
+          text-align: left;
+          font-weight: bold;
+        }
+
+        .title-year {
+          font-size: 0.875rem;
+          color: var(--text-secondary);
+        }
       }
       .meta {
         font-size: 0.875rem;
@@ -519,16 +687,23 @@ const cancelComment = () => {
       }
       .meta:not(.link) {
         font-size: 0.875rem;
-        color: #888;
+        color: var(--text-secondary);
       }
     }
     .right {
       flex: 0 0 auto;
       display: flex;
       flex-wrap: nowrap;
-      height: 32px;
+      height: 24px;
+      line-height: 24px;
       column-gap: 8px;
       display: none;
+
+      .action {
+        font-size: 12px;
+        color: var(--text-muted);
+        cursor: pointer;
+      }
     }
     &:hover .right {
       display: flex;
@@ -557,7 +732,7 @@ const cancelComment = () => {
     column-gap: 16px;
     flex-wrap: wrap;
     .comment-card {
-      background: #f8f8f8;
+      background: var(--quote-bg);
       border-radius: 4px;
       padding: 8px;
       max-width: 100%;
@@ -569,20 +744,25 @@ const cancelComment = () => {
         .rating {
           margin-right: auto;
         }
-        .btn {
+        .action {
           display: none;
+          font-size: 12px;
+          color: var(--text-muted);
+          cursor: pointer;
+          height: 12px;
+          line-height: 12px;
           &:not(:last-child) {
             margin-right: 8px;
           }
         }
       }
-      &:hover .controls .btn {
+      &:hover .controls .action {
         display: flex;
       }
       .date-str {
         margin-top: 4px;
         font-size: 0.75rem;
-        color: #888;
+        color: var(--text-secondary);
         text-align: left;
       }
       .content {

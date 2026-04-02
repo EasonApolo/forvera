@@ -1,6 +1,7 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import { createRouter, createWebHashHistory } from 'vue-router'
+import { createRouter, createWebHistory } from 'vue-router'
+import { useUserStore } from './store/user'
 import App from './App.vue'
 import Profile from './views/Profile.vue'
 import MessageVue from './views/Message.vue'
@@ -10,30 +11,97 @@ import PostVue from './views/Post.vue'
 import PostListVue from './views/PostList.vue'
 import CategoryVue from './views/Category.vue'
 import Playground from './views/Playground.vue'
-import BalanceVue from './views/Playground/Balance.vue'
 import SiteInfoVue from './views/Playground/SiteInfo.vue'
+import TaxonomyVue from './views/Taxonomy.vue'
 import HomeVue from './views/Home.vue'
 import RatingVue from './views/Rating.vue'
+import HoldemVue from './views/Holdem.vue'
+import HoldemRoomVue from './views/HoldemRoom.vue'
+import LoginVue from './views/Login.vue'
+import ExpiryCheckerVue from './views/Playground/ExpiryChecker.vue'
 
-const router = {
-  history: createWebHashHistory(),
+const routerOptions = {
+  history: createWebHistory(),
   routes: [
-    { path: '/', component: HomeVue, name: 'home' },
-    { path: '/message', component: MessageVue },
-    { path: '/profile', component: Profile },
-    { path: '/addMessage', component: AddMessageVue },
-    { path: '/write', component: WriteVue },
-    { path: '/post', component: PostVue },
-    { path: '/category', component: CategoryVue },
-    { path: '/playground', component: Playground },
-    { path: '/balance', component: BalanceVue },
-    { path: '/siteinfo', component: SiteInfoVue },
-    { path: '/rating', component: RatingVue },
+    {
+      path: '/',
+      component: HomeVue,
+      children: [
+        { path: '', redirect: { name: 'postList' } },
+        { path: 'postList', component: PostListVue, name: 'postList' },
+        { path: 'twit', component: MessageVue, name: 'twit' },
+        { path: 'playground', component: Playground, name: 'playground' },
+        {
+          path: 'profile',
+          component: Profile,
+          name: 'profile',
+          meta: { requiresAuth: true },
+        },
+      ],
+    },
+    { path: '/message', redirect: { name: 'twit' } },
+    { path: '/login', component: LoginVue, name: 'login' },
+    { path: '/addMessage', component: AddMessageVue, name: 'addMessage' },
+    {
+      path: '/write/:postId',
+      component: WriteVue,
+      name: 'write',
+      meta: { requiresAuth: true },
+    },
+    { path: '/post/:postId', component: PostVue, name: 'post' },
+    {
+      path: '/category',
+      component: CategoryVue,
+      name: 'category',
+      meta: { requiresAuth: true },
+    },
+    { path: '/siteinfo', component: SiteInfoVue, name: 'siteinfo' },
+    {
+      path: '/taxonomy',
+      component: TaxonomyVue,
+      name: 'taxonomy',
+    },
+    {
+      path: '/expiry',
+      component: ExpiryCheckerVue,
+      name: 'expiry',
+      meta: { requiresAuth: true },
+    },
+    { path: '/rating', component: RatingVue, name: 'rating' },
+    { path: '/holdem', component: HoldemVue, name: 'holdem' },
+    { path: '/holdem/:id', component: HoldemRoomVue, name: 'holdemRoom' },
+    { path: '/holdem/:id/:userId', component: HoldemRoomVue, name: 'holdemRoomWithUser' },
   ],
 }
 
+const pinia = createPinia()
+export const router = createRouter(routerOptions)
+
+router.beforeEach(async (to, from) => {
+  const userStore = useUserStore(pinia)
+
+  if (!userStore.userInfo.token && localStorage.token) {
+    await userStore.getUserInfo()
+  }
+
+  if (to.meta.requiresAuth && !userStore.isLogin) {
+    const source = from?.matched?.length ? from.fullPath : ''
+    return {
+      name: 'login',
+      query: { redirect: to.fullPath, source },
+    }
+  }
+
+  if (to.name === 'login' && userStore.isLogin) {
+    const redirect = typeof to.query.redirect === 'string' ? to.query.redirect : '/profile'
+    return redirect
+  }
+
+  return true
+})
+
 const app = createApp(App)
-app.use(createRouter(router))
-app.use(createPinia())
+app.use(router)
+app.use(pinia)
 
 app.mount('#app')
