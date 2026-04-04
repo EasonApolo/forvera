@@ -23,3 +23,7 @@ yarn-error.log*
 server/src/scripts/data
 app/package-lock.json
 server/package-lock.json
+.runtime/logs/app.log
+.runtime/logs/server.log
+.runtime/pids/app.pid
+.runtime/pids/server.pid

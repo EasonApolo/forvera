@@ -11,6 +11,28 @@ PID_DIR="$RUNTIME_DIR/pids"
 APP_PORT="${APP_PORT:-10000}"
 SERVER_PORT="${SERVER_PORT:-3000}"
 
+# npm/sharp mirrors (can be overridden by environment variables)
+NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmmirror.com}"
+SHARP_BINARY_HOST="${SHARP_BINARY_HOST:-https://npmmirror.com/mirrors/sharp}"
+SHARP_LIBVIPS_HOST="${SHARP_LIBVIPS_HOST:-https://npmmirror.com/mirrors/sharp-libvips}"
+
+NODE_MAJOR="$(node -p "process.versions.node.split('.')[0]")"
+NODE_MINOR="$(node -p "process.versions.node.split('.')[1]")"
+
+if (( NODE_MAJOR < 18 )) || { (( NODE_MAJOR == 18 )) && (( NODE_MINOR < 17 )); }; then
+  echo "Error: Node.js $(node -v) is too old. Please use Node.js >= 18.17, recommended: 20 LTS."
+  exit 1
+fi
+
+echo "[0/4] Configuring npm mirrors..."
+npm config set registry "$NPM_REGISTRY"
+
+export npm_config_registry="$NPM_REGISTRY"
+export npm_config_sharp_binary_host="$SHARP_BINARY_HOST"
+export npm_config_sharp_libvips_binary_host="$SHARP_LIBVIPS_HOST"
+export npm_config_sharp_dist_base_url="$SHARP_LIBVIPS_HOST"
+export SHARP_DIST_BASE_URL="$SHARP_LIBVIPS_HOST"
+
 mkdir -p "$LOG_DIR" "$PID_DIR"
 mkdir -p "$ROOT_DIR/../assets"
 
@@ -31,6 +53,29 @@ stop_if_running() {
     fi
     rm -f "$pid_file"
   fi
+}
+
+wait_for_http() {
+  local name="$1"
+  local url="$2"
+  local log_file="$3"
+  local retries="${4:-20}"
+
+  for ((i=1; i<=retries; i++)); do
+    if curl -fsS "$url" >/dev/null 2>&1; then
+      echo "[$name] health check passed: $url"
+      return 0
+    fi
+    sleep 1
+  done
+
+  echo "[$name] health check failed: $url"
+  if [[ -f "$log_file" ]]; then
+    echo "----- $name log tail -----"
+    tail -n 80 "$log_file" || true
+    echo "---------------------------"
+  fi
+  return 1
 }
 
 echo "[1/4] Installing dependencies..."
@@ -58,6 +103,9 @@ echo $! > "$PID_DIR/server.pid"
 cd "$APP_DIR"
 nohup npm run serve -- --host 0.0.0.0 --port "$APP_PORT" > "$LOG_DIR/app.log" 2>&1 &
 echo $! > "$PID_DIR/app.pid"
+
+wait_for_http "server" "http://127.0.0.1:$SERVER_PORT/" "$LOG_DIR/server.log"
+wait_for_http "app" "http://127.0.0.1:$APP_PORT/" "$LOG_DIR/app.log"
 
 echo
 printf "Server started (pid=%s, port=%s)\n" "$(cat "$PID_DIR/server.pid")" "$SERVER_PORT"

@@ -16,6 +16,7 @@ import { AuthModule } from './modules/auth.module';
 import { HoldemModule } from './modules/holdem.module';
 import { TaxonomyModule } from './modules/taxonomy.module';
 import { ExpiryModule } from './modules/expiry.module';
+import { BackupModule } from './modules/backup.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { ExpiryModule } from './modules/expiry.module';
     HoldemModule,
     TaxonomyModule,
     ExpiryModule,
+    BackupModule,
     ServeStaticModule.forRoot({
       rootPath: staticPath,
     }),
