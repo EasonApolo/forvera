@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import CircleBtn from './CircleBtn.vue'
+
 const props = withDefaults(
   defineProps<{
     value: number | string | null
@@ -7,10 +9,20 @@ const props = withDefaults(
     options?: string[]
     placeholder?: string
     nullablePosition?: 'min' | 'max'
+    nullable?: boolean
+    btnSize?: number
+    btnFontSize?: number
+    btnMobileSize?: number
+    btnMobileFontSize?: number
   }>(),
   {
     placeholder: '-',
     nullablePosition: 'min',
+    nullable: true,
+    btnSize: 32,
+    btnFontSize: 18,
+    btnMobileSize: 36,
+    btnMobileFontSize: 20,
   }
 )
 
@@ -55,7 +67,7 @@ const prev = () => {
     }
 
     const currentIndex = props.options!.indexOf(current)
-    if (props.nullablePosition === 'min' && currentIndex <= 0) {
+    if (props.nullable && props.nullablePosition === 'min' && currentIndex <= 0) {
       emit('update:value', null)
       return
     }
@@ -70,7 +82,7 @@ const prev = () => {
     return
   }
 
-  if (props.nullablePosition === 'min' && props.min !== undefined && props.value <= props.min) {
+  if (props.nullable && props.nullablePosition === 'min' && props.min !== undefined && props.value <= props.min) {
     emit('update:value', null)
     return
   }
@@ -89,7 +101,7 @@ const next = () => {
 
     const lastIndex = props.options!.length - 1
     const currentIndex = props.options!.indexOf(current)
-    if (props.nullablePosition === 'max' && currentIndex >= lastIndex) {
+    if (props.nullable && props.nullablePosition === 'max' && currentIndex >= lastIndex) {
       emit('update:value', null)
       return
     }
@@ -104,7 +116,7 @@ const next = () => {
     return
   }
 
-  if (props.nullablePosition === 'max' && props.max !== undefined && props.value >= props.max) {
+  if (props.nullable && props.nullablePosition === 'max' && props.max !== undefined && props.value >= props.max) {
     emit('update:value', null)
     return
   }
@@ -116,9 +128,9 @@ const next = () => {
 
 <template>
   <div class="stepper-filter">
-    <button class="step-btn" @click="prev">‹</button>
+    <CircleBtn class="step-btn" icon="chevron-left" aria-label="previous" :size="btnSize" :font-size="btnFontSize" :mobile-size="btnMobileSize" :mobile-font-size="btnMobileFontSize" @click="prev" />
     <div class="step-value">{{ value === null ? placeholder : value }}</div>
-    <button class="step-btn" @click="next">›</button>
+    <CircleBtn class="step-btn" icon="chevron-right" aria-label="next" :size="btnSize" :font-size="btnFontSize" :mobile-size="btnMobileSize" :mobile-font-size="btnMobileFontSize" @click="next" />
   </div>
 </template>
 
@@ -128,22 +140,29 @@ const next = () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  column-gap: 0.5rem;
 }
 
 .step-btn {
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: 999px;
-  cursor: pointer;
-  background: #f1f1f1;
-  color: #666;
-  font-size: 16px;
+  // 大小通过props控制
 }
 
 .step-value {
   min-width: 64px;
   text-align: center;
   font-size: 14px;
+}
+
+@media (max-width: 768px) {
+  .stepper-filter {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .step-value {
+    flex: 1;
+    min-width: 0;
+    font-size: 15px;
+  }
 }
 </style>

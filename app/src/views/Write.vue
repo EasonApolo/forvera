@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
-import Card from '../components/Card.vue'
 import { useUserStore } from '../store/user'
 import Btn from '../components/Btn.vue'
+import Input from '../components/Input.vue'
+import GreyText from '../components/GreyText.vue'
 import { useMainStore } from '../store/main'
 import { getUrlFromFD, useWriteStore } from '../store/write'
 import { useCategories } from '../store/category'
 import List from '../components/layout/List.vue'
-import Label from '../components/Label.vue'
 import FileInput from '../components/FileInput.vue'
+import Textarea from '../components/Textarea.vue'
 import { readFile } from '../utils/common'
 import { ref, watch } from 'vue'
 import Gallery from '../components/DraggableGallery.vue'
@@ -91,71 +92,72 @@ const copy = (e: any) => {
 </script>
 
 <template>
-  <List>
+  <List class="write-layout-list">
     <template v-slot:content>
-      <Card>
-        <template v-slot:title>标题</template>
-        <input class="text-input" v-model="post.title" />
-      </Card>
-      <Card>
-        <template v-slot:title>描述</template>
-        <input class="text-input" v-model="post.description" />
-      </Card>
-      <Card>
-        <textarea
-          class="text-input textarea"
-          v-model="post.content"
-          rows="15"
-        ></textarea>
-      </Card>
-      <Card>
-        <template v-slot:title>选择标签</template>
-        <div class="categories">
-          <Label
-            :active="hasCategory(cat._id)"
-            v-for="cat in categories"
-            @click="toggleCat(cat._id)"
-            >{{ cat.title }}</Label
-          >
-        </div>
-      </Card>
-      <Card>
-        <template v-slot:title>图片</template>
+      <div class="write-block">
+        <GreyText>标题</GreyText>
+        <Input v-model="post.title" />
+      </div>
+      <div class="write-block">
+        <GreyText>描述</GreyText>
+        <Input v-model="post.description" />
+      </div>
+      <div class="write-block">
+        <Textarea v-model="post.content" :rows="15" />
+      </div>
+      <div class="write-block">
+        <GreyText>图片</GreyText>
         <div class="image-input">
           <FileInput :change="onSelectImage" :multiple="false"></FileInput>
           <Btn class="upload-btn" @click="upload">上传</Btn>
           <img class="preview" :src="selected.blob" />
         </div>
-        <textarea
+        <Textarea
           class="copy-container text-input"
           v-if="linkForCopy"
           v-model="linkForCopy"
           readonly
           @click="copy"
-          rows="3"
-        ></textarea>
+          :rows="3"
+        ></Textarea>
         <Gallery
           :images="images"
           :onClick="onClickImg"
           class="gallery"
           v-if="images.length > 0"
         ></Gallery>
-      </Card>
-      <Card class="actions">
+      </div>
+      <div class="write-block">
+        <GreyText>选择标签</GreyText>
+        <div class="categories">
+          <Btn
+            :type="hasCategory(cat._id) ? 'primary' : undefined"
+            v-for="cat in categories"
+            @click="toggleCat(cat._id)"
+            >{{ cat.title }}</Btn
+          >
+        </div>
+      </div>
+      <div class="write-block actions">
         <Btn @click="publish">提交</Btn>
-        <Label @click="changeStatus" :active="post.status === 1">{{
+        <Btn @click="changeStatus" :type="post.status === 1 ? 'primary' : undefined">{{
           post.status === 1 ? '已公开' : '已隐藏'
-        }}</Label>
+        }}</Btn>
         <Btn @click="deletePost">删除</Btn>
-      </Card>
+      </div>
     </template>
   </List>
 </template>
 
 <style lang="less" scoped>
-.item {
+.write-layout-list {
+  background-color: #fafafa;
+}
+.write-block {
+  transition: background-color 0.25s ease;
+
   &:not(:first-child) {
-    margin-top: 0.5rem;
+    margin-top: 1rem;
   }
 }
 .actions {

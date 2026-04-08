@@ -4,6 +4,8 @@ import { computed, onMounted, ref } from 'vue'
 import List from '../components/layout/List.vue'
 import HorizontalScroll from '../components/layout/HorizontalScroll.vue'
 import Card from '../components/Card.vue'
+import CircleBtn from '../components/CircleBtn.vue'
+import GreyText from '../components/GreyText.vue'
 import { useUserStore } from '../store/user'
 import Btn from '../components/Btn.vue'
 import { useMainStore } from '../store/main'
@@ -156,12 +158,21 @@ const goCategory = () => {
       <Card class="item user-info-bar">
         <div>{{ userInfo.username }}</div>
         <div class="user-actions">
-          <Btn @click="themeStore.toggle()">{{ isDark ? '☀️' : '🌙' }}</Btn>
+          <CircleBtn
+            :size="24"
+            :font-size="12"
+            :mobile-size="28"
+            :mobile-font-size="14"
+            aria-label="toggle theme"
+            @click="themeStore.toggle()"
+          >
+            {{ isDark ? '☀️' : '🌙' }}
+          </CircleBtn>
           <Btn @click="logout">登出</Btn>
         </div>
       </Card>
       <div class="card-group">
-        <div class="card-group-name">导航</div>
+        <GreyText>导航</GreyText>
         <Card class="item card-group">
           <HorizontalScroll class="actions">
             <Btn @click="create" :loading="loading.write">写文章</Btn>
@@ -191,7 +202,7 @@ const goCategory = () => {
         </Card>
       </div>
       <div class="my-posts card-group">
-        <div class="card-group-name">文章列表</div>
+        <GreyText>文章列表</GreyText>
         <Card
           class="item post"
           v-for="post in myPosts"

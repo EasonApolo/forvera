@@ -2,8 +2,8 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import List from '@/components/layout/List.vue'
 import Btn from '@/components/Btn.vue'
+import Input from '@/components/Input.vue'
 import BottomNavBar from '@/components/layout/BottomNavBar.vue'
-import Label from '@/components/Label.vue'
 import StepperFilter from '@/components/StepperFilter.vue'
 import { useRouter } from 'vue-router'
 import { useToastStore } from '@/store/toast'
@@ -501,8 +501,7 @@ const handleNavSelect = (key: string) => {
           <div class="field">
             <div class="label">名称</div>
             <div class="name-suggest">
-              <input
-                class="text-input"
+              <Input
                 v-model="modal.name"
                 placeholder="例如：牛奶"
                 @input="onNameInput"
@@ -531,22 +530,22 @@ const handleNavSelect = (key: string) => {
           <div class="field">
             <div class="label">过期时间</div>
             <div class="mode-radio">
-              <Label
+              <Btn
                 v-for="option in modeOptions"
                 :key="option.key"
-                :active="modal.mode === option.key"
+                :type="modal.mode === option.key ? 'primary' : undefined"
                 @click="modal.mode = option.key as 'shelf' | 'date'"
               >
                 {{ option.label }}
-              </Label>
+              </Btn>
             </div>
           </div>
 
           <div class="field" v-if="modal.mode === 'shelf'">
             <div class="label">保质时长</div>
             <div class="shelf-row">
-              <input
-                class="text-input number"
+              <Input
+                class="number"
                 v-model="modal.shelfValue"
                 type="number"
                 min="0"
@@ -565,8 +564,7 @@ const handleNavSelect = (key: string) => {
 
           <div class="field" v-else>
             <div class="label">过期日期</div>
-            <input
-              class="text-input"
+            <Input
               v-model="modal.dateInput"
               placeholder="260324 / 0324 / 3.24 / 2026.03.24"
             />

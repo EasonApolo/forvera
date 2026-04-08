@@ -5,6 +5,7 @@ import io from 'socket.io-client'
 import { ip } from '../config'
 import Card from '../components/Card.vue'
 import Btn from '../components/Btn.vue'
+import Input from '../components/Input.vue'
 import { useToastStore } from '../store/toast'
 import PokerCard from './Playground/holdem/PokerCard.vue'
 
@@ -428,7 +429,7 @@ const getActionText = (action: string, amount?: number) => {
               >
                 {{ user.name }}
               </span>
-              <input
+              <Input
                 v-else
                 v-model="editingName"
                 class="user-name-input"
@@ -738,7 +739,7 @@ const getActionText = (action: string, amount?: number) => {
           </div>
 
           <div class="chat-input-area">
-            <input
+            <Input
               v-model="chatInput"
               class="chat-input"
               placeholder="输入消息..."
@@ -909,9 +910,14 @@ h2 {
   font-weight: bold;
   font-size: 16px;
   padding: 2px 4px;
-  border: 1px solid #1890ff;
+  border: 1px solid var(--border);
   border-radius: 2px;
   outline: none;
+
+  &:hover,
+  &:focus {
+    border-color: var(--accent-color);
+  }
 }
 
 .user-status {
@@ -1289,9 +1295,13 @@ h2 {
     font-size: 14px;
     outline: none;
 
+    &:hover {
+      border-color: var(--accent-color);
+    }
+
     &:focus {
-      border-color: #1890ff;
-      box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+      border-color: var(--accent-color);
+      box-shadow: none;
     }
   }
 

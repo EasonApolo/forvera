@@ -2,6 +2,8 @@
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import List from '@/components/layout/List.vue'
 import Btn from '@/components/Btn.vue'
+import Input from '@/components/Input.vue'
+import Textarea from '@/components/Textarea.vue'
 import FileInput from '@/components/FileInput.vue'
 import { useTaxonomyStore, type TaxonomyNode } from '@/store/taxonomy'
 import { useUserStore } from '@/store/user'
@@ -153,9 +155,25 @@ const getFull = (url: string) => `${ip}${url}`
 const refresh = async () => {
   loading.value = true
   try {
+    // 保存当前的展开/关闭状态
+    const prevCollapsedState = new Set(collapsedNodeIds.value)
+    
     await taxonomyStore.fetchAll()
-    syncCollapsedState(!hasLoadedCollapseState.value)
-    hasLoadedCollapseState.value = true
+    
+    if (!hasLoadedCollapseState.value) {
+      // 第一次加载，全部关闭
+      syncCollapsedState(true)
+      hasLoadedCollapseState.value = true
+    } else {
+      // 后续加载，保留之前的展开状态，只清理那些不再有子节点的节点
+      const next = new Set<string>()
+      prevCollapsedState.forEach(id => {
+        if (nodesWithChildren.value.has(id)) {
+          next.add(id)
+        }
+      })
+      collapsedNodeIds.value = next
+    }
   } finally {
     loading.value = false
   }
@@ -167,9 +185,7 @@ const formatCreatedTime = (value: string) => {
   const year = date.getFullYear()
   const month = `${date.getMonth() + 1}`.padStart(2, '0')
   const day = `${date.getDate()}`.padStart(2, '0')
-  const hour = `${date.getHours()}`.padStart(2, '0')
-  const minute = `${date.getMinutes()}`.padStart(2, '0')
-  return `${year}.${month}.${day} ${hour}:${minute}`
+  return `${year}.${month}.${day}`
 }
 
 const expandChainOnly = async (nodeId: string) => {
@@ -406,8 +422,8 @@ onMounted(() => {
         <div class="left">Taxonomy</div>
         <div class="toolbar-right">
           <div class="search-wrapper">
-            <input
-              class="text-input search-input"
+            <Input
+              class="search-input"
               placeholder="搜索节点"
               v-model="searchKeyword"
               @focus="onSearchFocus"
@@ -503,8 +519,8 @@ onMounted(() => {
             添加时间：{{ formatCreatedTime(modal.createdTime) }}
           </div>
           <div class="form-fields">
-            <input class="text-input" placeholder="名称" v-model="modal.title" />
-            <textarea class="text-input" placeholder="描述" rows="10" v-model="modal.description"></textarea>
+            <Input placeholder="名称" v-model="modal.title" />
+            <Textarea placeholder="描述" :rows="10" v-model="modal.description"></Textarea>
           </div>
 
           <div class="upload-row">
@@ -532,8 +548,9 @@ onMounted(() => {
       <div v-if="preview.show" class="modal-mask" @click.self="closePreview">
         <div class="modal preview-modal">
           <div class="preview-title">{{ preview.title }}</div>
-          <div class="created-time" v-if="preview.createdTime">
-            添加时间：{{ formatCreatedTime(preview.createdTime) }}
+          <div class="created-time" v-if="preview.createdTime || preview.position">
+            <span v-if="preview.createdTime">添加时间：{{ formatCreatedTime(preview.createdTime) }}</span>
+            <span v-if="preview.position"> 首次发现于：{{ preview.position }}</span>
           </div>
           <div class="preview-description">{{ preview.description || '无描述' }}</div>
           <div class="thumbs" v-if="preview.images.length">

@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import Btn from '@/components/Btn.vue'
 import Card from '@/components/Card.vue'
+import GreyText from '@/components/GreyText.vue'
+import Input from '@/components/Input.vue'
+import Textarea from '@/components/Textarea.vue'
 import List from '@/components/layout/List.vue'
 import BottomNavBar from '@/components/layout/BottomNavBar.vue'
 import { request } from '@/utils/request'
@@ -356,7 +359,7 @@ const filteredDocuments = computed(() => {
   <div>
     <List>
       <template #content>
-        <div class="card-group-name">分类</div>
+        <GreyText>分类</GreyText>
         <Card class="path-chooser">
           <div class="dash">/</div>
           <template v-for="(seg, index) in pathSegs" :key="index">
@@ -377,11 +380,11 @@ const filteredDocuments = computed(() => {
         </Card>
 
         <template v-if="editable && node.key === 'movie'">
-          <div class="card-group-name">创建</div>
+          <GreyText>创建</GreyText>
           <Card class="create">
             <div class="search-input">
-              <input
-                class="text-input login-input"
+              <Input
+                class="login-input"
                 v-model="search.query"
                 placeholder="title"
                 @keypress.enter="searchMovie"
@@ -426,7 +429,7 @@ const filteredDocuments = computed(() => {
         </template>
 
         <template v-if="node.key === 'movie'">
-          <div class="card-group-name">筛选</div>
+          <GreyText>筛选</GreyText>
           <Card class="movie-filter">
             <div class="filter-item">
               <div class="filter-label">评分</div>
@@ -438,8 +441,8 @@ const filteredDocuments = computed(() => {
             <div class="filter-item">
               <div class="filter-label">搜索</div>
               <div class="search-row">
-                <input
-                  class="text-input login-input"
+                <Input
+                  class="login-input"
                   v-model="movieFilters.query"
                   placeholder="输入关键词"
                 />
@@ -469,10 +472,12 @@ const filteredDocuments = computed(() => {
           </Card>
         </template>
 
-        <div class="card-group-name">记录
-        <span v-if="node.key === 'movie'" class="movie-total">
-          ({{ filteredDocuments.length }}项)
-        </span></div>
+        <GreyText>
+          记录
+          <span v-if="node.key === 'movie'" class="movie-total">
+            ({{ filteredDocuments.length }}项)
+          </span>
+        </GreyText>
         <Card
           v-for="document in filteredDocuments"
           :key="document.id"
@@ -501,7 +506,7 @@ const filteredDocuments = computed(() => {
             v-if="document._id === commenting.documentId"
             class="comment-area"
           >
-            <textarea v-model="commenting.text" class="text-input"></textarea>
+            <Textarea v-model="commenting.text" />
             <div class="controls">
               <RatingComponent
                 :value="commenting.rating"

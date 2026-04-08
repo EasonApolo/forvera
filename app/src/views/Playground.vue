@@ -17,17 +17,25 @@ const goto = (routeName: string) => {
         <Card>最近更新</Card>
       </router-link>
       <Card class="entry" @click="goto('taxonomy')">
-        <span>Taxonomy</span>
+        <span>🌳Taxonomy</span>
       </Card>
       <Card class="entry" @click="goto('expiry')">
-        <span>什么时候过期？</span>
+        <span>🥛什么时候过期？</span>
       </Card>
       <Card class="entry" @click="goto('holdem')">
-        <span>德扑</span>
+        <span>🃏德扑</span>
       </Card>
       <Card class="entry" @click="goto('rating')">
-        <span>Rating</span>
+        <span>⭐Rating</span>
       </Card>
+      <div class="card-row">
+        <a href="https://ys.mihoyo.com/cloud/#/" target="_blank" class="card-link">
+          <Card class="entry">原神启动</Card>
+        </a>
+        <a href="https://sr.mihoyo.com/cloud/#/" target="_blank" class="card-link">
+          <Card class="entry">崩铁启动</Card>
+        </a>
+      </div>
     </template>
   </List>
 </template>
@@ -39,6 +47,15 @@ a {
 }
 .entry {
   cursor: pointer;
+}
+.card-row {
+  margin-top: 0.5rem;
+  display: flex;
+  gap: 0.5rem;
+  .card-link {
+    flex: 1;
+    display: block;
+  }
 }
 
 </style>

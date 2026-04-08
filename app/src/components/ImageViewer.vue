@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useImageStore } from '../store/image'
+import CircleBtn from './CircleBtn.vue'
 
 const imageStore = useImageStore()
 
@@ -96,14 +97,6 @@ const onPointerUp = () => {
   dragging.value = false
 }
 
-const rotateLeft = () => {
-  rotation.value -= 90
-}
-
-const rotateRight = () => {
-  rotation.value += 90
-}
-
 onMounted(() => {
   window.addEventListener('resize', updateLayout)
 })
@@ -136,11 +129,7 @@ watch(
   <transition name="fade">
     <div v-if="imageStore.show" class="image-viewer" @wheel="onWheel" @pointermove="onPointerMove" @pointerup="onPointerUp" @pointercancel="onPointerUp">
       <div class="viewer-bg" @click="closeViewer"></div>
-      <div class="toolbox">
-        <button class="tool-btn" @click="rotateLeft">↺</button>
-        <button class="tool-btn" @click="rotateRight">↻</button>
-      </div>
-      <button class="close-btn" @click="closeViewer">×</button>
+      <CircleBtn class="close-btn" variant="overlay" icon="close" aria-label="close" :size="36" :mobile-size="40" @click="closeViewer" />
       <div class="stage" ref="stageRef">
         <div
           class="media-frame"
@@ -196,36 +185,14 @@ watch(
   position: absolute;
   top: 1rem;
   right: 1rem;
-  width: 2rem;
-  height: 2rem;
-  border: none;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.9);
-  color: #333;
-  font-size: 1.5rem;
-  line-height: 1;
-  cursor: pointer;
   z-index: 3;
 }
 
-.toolbox {
-  position: absolute;
-  top: 1rem;
-  right: 3.5rem;
-  display: flex;
-  column-gap: 0.5rem;
-  z-index: 3;
-}
-
-.tool-btn {
-  width: 2rem;
-  height: 2rem;
-  border: none;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.9);
-  color: #333;
-  font-size: 1rem;
-  cursor: pointer;
+@media (max-width: 768px) {
+  .close-btn {
+    top: 0.75rem;
+    right: 0.75rem;
+  }
 }
 
 .stage {

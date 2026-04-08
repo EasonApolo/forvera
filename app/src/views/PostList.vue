@@ -3,9 +3,9 @@ import { storeToRefs } from 'pinia'
 import { useMainStore } from '../store/main'
 import { usePostStore } from '../store/post'
 import Card from '../components/Card.vue'
+import Btn from '../components/Btn.vue'
 import List from '../components/layout/List.vue'
 import HorizontalScroll from '../components/layout/HorizontalScroll.vue'
-import Label from '../components/Label.vue'
 import { formatDate } from '../utils/common'
 import { useCategories } from '@/store/category'
 import { computed, ref } from 'vue'
@@ -90,11 +90,11 @@ const read = (postId: string) => {
       <Card class="categories-wrapper" @mousedown.stop>
         <span style="color: var(--text-secondary)">分类</span>
         <HorizontalScroll class="categories">
-          <Label
-            :active="activeCatId === cat._id"
+          <Btn
+            :type="activeCatId === cat._id ? 'primary' : undefined"
             v-for="cat in categories"
             @click="filterByCategory(cat)"
-            >{{ cat.title }}</Label
+            >{{ cat.title }}</Btn
           >
         </HorizontalScroll>
       </Card>
@@ -130,9 +130,9 @@ const read = (postId: string) => {
     margin-left: 1rem;
     flex: 1;
 
-    * {
+    .button {
       flex: 0 0 auto;
-      margin-right: 1rem;
+      margin-right: .5rem;
     }
   }
 }

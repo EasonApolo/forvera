@@ -7,7 +7,8 @@ import { usePostDetail } from '../store/postDetail'
 import { useCategories } from '../store/category'
 import { formatDate } from '../utils/common'
 import Skeleton from '@/components/layout/Skeleton.vue'
-import { computed, nextTick, ref, watch } from 'vue'
+import GreyText from '../components/GreyText.vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { useImageStore } from '@/store/image'
 
@@ -18,8 +19,30 @@ const router = useRouter()
 const { post } = storeToRefs(postDetailStore)
 categoryStore.init()
 const contentRef = ref<HTMLElement | null>(null)
-const tocExpanded = ref(true)
+const tocExpanded = ref(false)
 const tocList = ref<{ id: string; title: string; level: number }[]>([])
+const activeTocId = ref('')
+let headingEls: HTMLElement[] = []
+let scrollTicking = false
+let scrollContainerEl: HTMLElement | null = null
+
+const bindScrollListener = () => {
+  if (scrollContainerEl) {
+    scrollContainerEl.removeEventListener('scroll', onContainerScroll)
+    scrollContainerEl = null
+  }
+  window.removeEventListener('scroll', onContainerScroll)
+
+  const fromContent = contentRef.value?.closest('.component-list') as HTMLElement | null
+  const byQuery = document.querySelector('.component-list') as HTMLElement | null
+  scrollContainerEl = fromContent || byQuery
+
+  if (scrollContainerEl) {
+    scrollContainerEl.addEventListener('scroll', onContainerScroll, { passive: true })
+  } else {
+    window.addEventListener('scroll', onContainerScroll, { passive: true })
+  }
+}
 const navItems = computed(() => {
   const items = [{ key: 'back', label: '‹ 返回' }]
   if (tocList.value.length > 0) {
@@ -33,12 +56,17 @@ const buildPostEnhancements = async () => {
   const container = contentRef.value
   if (!container) {
     tocList.value = []
+    headingEls = []
+    activeTocId.value = ''
     return
   }
+
+  bindScrollListener()
 
   const headings = Array.from(
     container.querySelectorAll('.h1, .h2, .h3, .h4')
   ) as HTMLElement[]
+  headingEls = headings
   tocList.value = headings.map((heading, index) => {
     const id = `post-toc-${index}`
     heading.id = id
@@ -49,6 +77,8 @@ const buildPostEnhancements = async () => {
     }
   })
 
+  activeTocId.value = tocList.value[0]?.id || ''
+
   const images = Array.from(container.querySelectorAll('img')) as HTMLImageElement[]
   images.forEach(image => {
     image.style.cursor = 'zoom-in'
@@ -56,6 +86,54 @@ const buildPostEnhancements = async () => {
       event.stopPropagation()
       imageStore.preview(image.src)
     }
+  })
+
+  syncActiveTocByScroll()
+}
+
+const scrollActiveTocIntoView = () => {
+  if (!activeTocId.value) return
+  const selector = `.toc-item[data-toc-id="${activeTocId.value}"]`
+  const items = document.querySelectorAll(selector)
+  items.forEach((item) => {
+    const el = item as HTMLElement
+    const list = el.closest('.toc-list') as HTMLElement | null
+    if (!list) return
+    const itemTop = el.offsetTop
+    const itemBottom = itemTop + el.offsetHeight
+    const viewTop = list.scrollTop
+    const viewBottom = viewTop + list.clientHeight
+    if (itemTop < viewTop + 8) {
+      list.scrollTo({ top: Math.max(0, itemTop - 8), behavior: 'smooth' })
+    } else if (itemBottom > viewBottom - 8) {
+      list.scrollTo({ top: itemBottom - list.clientHeight + 8, behavior: 'smooth' })
+    }
+  })
+}
+
+const syncActiveTocByScroll = () => {
+  if (!headingEls.length) return
+  const threshold = 120
+  let currentId = headingEls[0].id
+  for (const heading of headingEls) {
+    if (heading.getBoundingClientRect().top <= threshold) {
+      currentId = heading.id
+    } else {
+      break
+    }
+  }
+  if (currentId !== activeTocId.value) {
+    activeTocId.value = currentId
+    scrollActiveTocIntoView()
+  }
+}
+
+const onContainerScroll = () => {
+  if (scrollTicking) return
+  scrollTicking = true
+  requestAnimationFrame(() => {
+    syncActiveTocByScroll()
+    scrollTicking = false
   })
 }
 
@@ -79,6 +157,8 @@ const tocListWithDepth = computed(() => {
 const scrollToHeading = (id: string) => {
   const target = document.getElementById(id)
   if (!target) return
+  activeTocId.value = id
+  scrollActiveTocIntoView()
   target.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
@@ -115,6 +195,19 @@ watch(
   { immediate: true }
 )
 
+onMounted(() => {
+  nextTick(() => {
+    bindScrollListener()
+  })
+})
+
+onUnmounted(() => {
+  if (scrollContainerEl) {
+    scrollContainerEl.removeEventListener('scroll', onContainerScroll)
+  }
+  window.removeEventListener('scroll', onContainerScroll)
+})
+
 onBeforeRouteLeave(() => {
   postDetailStore.clear()
   return true
@@ -124,7 +217,7 @@ onBeforeRouteLeave(() => {
 <template>
   <List>
     <template v-slot:content>
-      <div class="card-group-name">by {{ post.author?.username || '' }}</div>
+      <GreyText>by {{ post.author?.username || '' }}</GreyText>
       <Card>
         <Skeleton v-if="!post._id" />
         <div class="meta" v-else>
@@ -159,6 +252,8 @@ onBeforeRouteLeave(() => {
         <div class="toc-list">
           <div
             class="toc-item"
+            :class="{ active: activeTocId === item.id }"
+            :data-toc-id="item.id"
             v-for="item in tocListWithDepth"
             :key="item.id"
             :style="{ paddingLeft: item.depth * 1.25 + 'rem' }"
@@ -179,6 +274,8 @@ onBeforeRouteLeave(() => {
         <div class="toc-list">
           <div
             class="toc-item"
+            :class="{ active: activeTocId === item.id }"
+            :data-toc-id="item.id"
             v-for="item in tocListWithDepth"
             :key="`${item.id}-m`"
             :style="{ paddingLeft: item.depth * 1.25 + 'rem' }"
@@ -196,7 +293,7 @@ onBeforeRouteLeave(() => {
   </List>
 </template>
 
-<style lang="less" scoped>
+<style scoped lang="less">
 .meta {
   display: flex;
   align-items: center;
@@ -228,16 +325,26 @@ onBeforeRouteLeave(() => {
 }
 
 .main {
-  padding: 0 1rem;
   overflow: hidden;
   text-align: left;
 
   .content {
+    display: flow-root;
     font-size: 15px;
+
+    &::before {
+      content: '';
+      display: table;
+    }
+
+    > :first-child {
+      margin-top: 0 !important;
+    }
   }
 
   .description {
-    padding: 1rem 0 0.75rem;
+    padding: 0 0 0.5rem;
+    margin-bottom: .5rem;
     font-size: 14px;
     color: var(--text-secondary);
     border-bottom: 1px solid var(--border-light);
@@ -280,6 +387,11 @@ onBeforeRouteLeave(() => {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+
+    &.active {
+      font-weight: 700;
+      color: var(--text);
+    }
   }
 
   .toc-item + .toc-item {

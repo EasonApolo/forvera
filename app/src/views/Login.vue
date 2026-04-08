@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import List from '../components/layout/List.vue'
 import Card from '../components/Card.vue'
 import Btn from '../components/Btn.vue'
+import Input from '../components/Input.vue'
 import BottomNavBar from '@/components/layout/BottomNavBar.vue'
 import { useUserStore } from '../store/user'
 import { useToastStore } from '../store/toast'
@@ -78,17 +79,8 @@ const handleNavSelect = (key: string) => {
     <template #content>
       <Card class="login-wrapper" @keyup.enter="login">
         <template #title>登录</template>
-        <input
-          class="text-input login-input"
-          v-model="loginData.username"
-          placeholder="username"
-        />
-        <input
-          class="text-input login-input"
-          v-model="loginData.password"
-          placeholder="password"
-          type="password"
-        />
+        <Input class="login-input" v-model="loginData.username" placeholder="username" />
+        <Input class="login-input" v-model="loginData.password" placeholder="password" password />
         <div class="flex-center actions">
           <Btn type="primary" @click="login" :loading="loading.login">登录</Btn>
           <Btn @click="register" :loading="loading.register">注册</Btn>
@@ -104,12 +96,8 @@ const handleNavSelect = (key: string) => {
 .login-wrapper {
   margin-bottom: 4.5rem;
 
-  & > * {
-    margin-bottom: 0.75rem;
+  .login-input {
+    margin-bottom: 0.5rem;
   }
-}
-
-.actions {
-  margin-top: 0.5rem;
 }
 </style>

@@ -2,6 +2,7 @@
 import { storeToRefs } from 'pinia'
 import List from '../components/layout/List.vue'
 import Card from '../components/Card.vue'
+import Input from '../components/Input.vue'
 import StepperFilter from '../components/StepperFilter.vue'
 import { debounce, formatDate } from '../utils/common'
 import { useMessageStore } from '../store/message'
@@ -23,14 +24,14 @@ const { isLogin, isAdmin } = storeToRefs(userStore)
 
 // dataing
 const currentYear = new Date().getFullYear()
-const year = ref<number | null>(null)
+const year = ref<number>(currentYear)
 const keyword = ref('')
 const showReplyPanel = ref(false)
 
 const fetchMessages = async () => {
   const trimmedKeyword = keyword.value.trim()
   const keywordParam = isAdmin.value ? trimmedKeyword : undefined
-  const yearParam = isAdmin.value && !trimmedKeyword ? (year.value ?? undefined) : undefined
+  const yearParam = isAdmin.value && !trimmedKeyword ? year.value : undefined
   await messageStore.fetchMessages(
     isLogin.value,
     yearParam,
@@ -125,15 +126,15 @@ watch(
               :value="year"
               :min="2016"
               :max="currentYear"
-              nullable-position="max"
-              @update:value="year = typeof $event === 'number' || $event === null ? $event : null; fetchMessages()"
+              :nullable="false"
+              @update:value="year = typeof $event === 'number' ? $event : currentYear; fetchMessages()"
             />
           </div>
           <div class="filter-row">
             <div class="filter-label">搜索</div>
             <div class="search-wrapper">
               <div class="search-row">
-                <input
+                  <Input
                   v-model="keyword"
                   class="search-input"
                   @input="fetchBySearch"
@@ -213,7 +214,6 @@ watch(
 <style lang="less" scoped>
 
 .admin-card {
-  padding: 0.875rem 1rem;
   text-align: left;
   border: 1px solid var(--border-light);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
@@ -283,11 +283,15 @@ watch(
   font-size: 14px;
   background: var(--bg);
   color: var(--text);
+
+  &:hover {
+    border-color: var(--accent-color);
+  }
 }
 
 .search-input:focus {
   outline: none;
-  border-color: var(--border);
+  border-color: var(--accent-color);
   background: var(--card-bg);
 }
 
@@ -300,7 +304,7 @@ watch(
 }
 
 .message {
-  padding: 0.5rem 1rem;
+  padding: 0.375rem .75rem;
   text-align: left;
 
   .header {

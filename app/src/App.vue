@@ -143,8 +143,12 @@ body {
   background-color: var(--card-bg);
   color: var(--text);
 
+  &:hover {
+    border: 1px solid var(--accent-color);
+  }
+
   &:focus {
-    border: 1px solid #2285d0;
+    border: 1px solid var(--accent-color);
   }
 }
 
@@ -155,16 +159,6 @@ body {
 
 .card-group {
   margin-top: 1rem;
-}
-.card-group-name {
-  margin: 0 0 0.5rem 3px;
-  text-align: left;
-  font-size: 14px;
-  color: var(--text-muted);
-  font-family: Avenir, Helvetica, Arial, sans-serif;
-  &:not(:first-child) {
-    margin-top: 0.75rem;
-  }
 }
 
 .ending {

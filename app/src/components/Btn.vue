@@ -1,5 +1,5 @@
 <script setup lang="ts">
-defineProps<{ type?: string; loading?: boolean; small?: boolean; }>()
+defineProps<{ type?: string; loading?: boolean; small?: boolean }>()
 </script>
 
 <template>
@@ -20,16 +20,17 @@ defineProps<{ type?: string; loading?: boolean; small?: boolean; }>()
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 5rem;
+  width: fit-content;
   box-sizing: border-box;
   flex-shrink: 0;
   white-space: nowrap;
-  padding: 0.375rem 1rem;
+  padding: 0.25rem .5rem;
   color: var(--btn-text);
-  border-radius: 4px;
+  border-radius: 6px;
   background-color: var(--btn-bg);
   transition: 0.2s ease;
   cursor: pointer;
+  font-size: 14px;
   &:hover {
     background-color: var(--btn-hover);
   }
@@ -75,9 +76,9 @@ defineProps<{ type?: string; loading?: boolean; small?: boolean; }>()
 }
 .primary {
   color: white;
-  background-color: #2285d0;
+  background-color: var(--accent-color);
   &:hover {
-    background-color: #1578c3;
+    background-color: var(--accent-color);
   }
 }
 

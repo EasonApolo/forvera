@@ -2,6 +2,7 @@
 import { storeToRefs } from 'pinia'
 import Btn from '../components/Btn.vue'
 import Card from '../components/Card.vue'
+import Input from '../components/Input.vue'
 import List from '../components/layout/List.vue'
 import { useCategories } from '../store/category'
 import { usePostDetail } from '../store/postDetail'
@@ -31,8 +32,8 @@ const submit = async ({ remove = false }) => {
   <List>
     <template v-slot:content>
       <Card class="edit-wrapper">
-        <input class="text-input" v-model="editing.title" />
-        <input class="text-input" v-model="editing.description" />
+        <Input v-model="editing.title" />
+        <Input v-model="editing.description" />
         <div class="actions">
           <Btn type="primary" @click="submit({})">{{ submitText }}</Btn>
           <Btn

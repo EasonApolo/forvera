@@ -9,9 +9,9 @@ import { useMessageStore } from '../store/message'
 import { useUserStore } from '../store/user'
 import { readFile } from '../utils/common'
 import { request } from '../utils/request'
-import Label from '../components/Label.vue'
 import FileInput from '../components/FileInput.vue'
 import DraggableGallery from '../components/DraggableGallery.vue'
+import Textarea from '../components/Textarea.vue'
 import { getUrlFromFD } from '../store/write'
 import { useToastStore } from '../store/toast'
 
@@ -130,10 +130,10 @@ const loading = ref({ send: false })
               : '发言'
           }}。<br />
         </div>
-        <textarea
+        <Textarea
           class="input text-input"
           v-model="messageInput.content"
-          rows="3"
+          :rows="3"
         />
         <DraggableGallery
           v-if="!messageWrapper.anonymous && displayImages?.length"
@@ -156,11 +156,11 @@ const loading = ref({ send: false })
               :change="fileInputChange"
               :multiple="true"
             ></FileInput>
-            <Label
+            <Btn
               class="action"
               @click="toggleAnonymous"
-              :active="messageWrapper.anonymous"
-              >{{ messageWrapper.anonymous ? '匿名中' : '启用匿名' }}</Label
+              :type="messageWrapper.anonymous ? 'primary' : undefined"
+              >{{ messageWrapper.anonymous ? '匿名中' : '启用匿名' }}</Btn
             >
           </div>
         </div>
@@ -185,10 +185,10 @@ const loading = ref({ send: false })
                 : '发言'
             }}。<br />
           </div>
-          <textarea
+          <Textarea
             class="input text-input"
             v-model="messageInput.content"
-            rows="3"
+            :rows="3"
           />
           <DraggableGallery
             v-if="!messageWrapper.anonymous && displayImages?.length"
@@ -210,11 +210,11 @@ const loading = ref({ send: false })
                 :change="fileInputChange"
                 :multiple="true"
               ></FileInput>
-              <Label
+              <Btn
                 class="action"
                 @click="toggleAnonymous"
-                :active="messageWrapper.anonymous"
-                >{{ messageWrapper.anonymous ? '匿名中' : '启用匿名' }}</Label
+                :type="messageWrapper.anonymous ? 'primary' : undefined"
+                >{{ messageWrapper.anonymous ? '匿名中' : '启用匿名' }}</Btn
               >
             </div>
           </div>
@@ -229,7 +229,7 @@ const loading = ref({ send: false })
 .input-wrapper {
   .actions {
     display: flex;
-    margin: 1rem auto 0;
+    margin: .5rem auto 0;
     align-items: center;
     justify-content: space-between;
     column-gap: 0.5rem;

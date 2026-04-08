@@ -31,7 +31,11 @@ export const useTaxonomyStore = defineStore('taxonomy', {
     },
     async update(
       nodeId: string,
-      payload: { title?: string; description?: string; images?: string[] }
+      payload: {
+        title?: string
+        description?: string
+        images?: string[]
+      }
     ) {
       return await request(`taxonomy/${nodeId}`, 'PUT', payload)
     },

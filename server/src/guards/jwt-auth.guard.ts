@@ -42,8 +42,10 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       [context.getHandler(), context.getClass()],
     );
 
-    console.log('role check !!!!!', requiredRoles, user.role);
-    if (requiredRoles && !requiredRoles.includes(user.role)) {
+    const userRole = Number(user.role);
+    const normalizedRequiredRoles = (requiredRoles || []).map(role => Number(role));
+    console.log('role check !!!!!', normalizedRequiredRoles, user.role);
+    if (normalizedRequiredRoles.length && !normalizedRequiredRoles.includes(userRole)) {
       throw new ForbiddenException('User does not have the required role');
     }
 

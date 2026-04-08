@@ -16,14 +16,15 @@ const showTitle = slots.title
 
 <style lang="less" scoped>
 .card {
-  padding: 1rem;
+  padding: .75rem;
   border-radius: 0.5rem;
   background-color: var(--card-bg);
   transition: background-color 0.25s ease;
   & > .title {
-    margin-bottom: 0.25rem;
-    font-size: 18px;
+    margin-bottom: 5px;
+    font-size: 15px;
     font-weight: bold;
+    line-height: 16px;
     text-align: left;
   }
 }

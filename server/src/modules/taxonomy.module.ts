@@ -19,6 +19,7 @@ import { Public } from 'src/guards/jwt-auth.guard';
 import { ValidateObjectId } from 'src/shared/validate-object-id.pipes';
 import { promises as fs } from 'fs';
 import { join } from 'path';
+import * as https from 'https';
 import { staticPath } from 'src/shared/staticPath';
 import { File as SavedFile, FileSchema } from './file.module';
 
@@ -96,6 +97,10 @@ export class TaxonomyService {
       throw new BadRequestException('Invalid parent id');
     }
   }
+
+
+
+
 
   private async ensureNotSelfOrDescendant(nodeId: string, newParent: string | null) {
     if (!newParent) return;

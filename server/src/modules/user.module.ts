@@ -9,12 +9,13 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectModel, MongooseModule } from '@nestjs/mongoose';
-import { Model, Document } from 'mongoose';
+import { Model, Document, Types } from 'mongoose';
 import { anonymousNameList } from 'src/config';
 import { Public } from 'src/guards/jwt-auth.guard';
 
 // DTO
 export class CreateUserDTO {
+  readonly _id?: string;
   readonly username: string;
   readonly password: string;
 }
@@ -44,7 +45,11 @@ export class UserService implements OnModuleInit {
 
   async onModuleInit() {
     this.anonymous = await this.addUser(
-      { username: 'anonymous', password: 'anonymous' },
+      {
+        _id: '62177473f69dac7cad7fe8e2',
+        username: 'anonymous',
+        password: 'anonymous',
+      },
       true,
     );
   }
@@ -70,11 +75,27 @@ export class UserService implements OnModuleInit {
     createUserDTO: CreateUserDTO,
     addIfNotExist?: boolean,
   ): Promise<User> {
+    if (createUserDTO._id) {
+      const byId = await this.userModel.findById(createUserDTO._id).exec();
+      if (byId) {
+        return byId;
+      }
+    }
+
     let res = await this.getUserByName(createUserDTO.username);
     if (res) {
       return addIfNotExist ? res : null;
     }
-    const newUser = new this.userModel(createUserDTO);
+
+    const userData: any = {
+      username: createUserDTO.username,
+      password: createUserDTO.password,
+    };
+    if (createUserDTO._id && Types.ObjectId.isValid(createUserDTO._id)) {
+      userData._id = new Types.ObjectId(createUserDTO._id);
+    }
+
+    const newUser = new this.userModel(userData);
     return newUser.save();
   }
 

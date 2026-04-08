@@ -1,4 +1,4 @@
-import { Module, Controller, Get, Param, UseGuards } from '@nestjs/common';
+import { Module, Controller, Delete, Get, Param } from '@nestjs/common';
 import {
   WebSocketGateway,
   WebSocketServer,
@@ -9,7 +9,7 @@ import {
   ConnectedSocket,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { JwtAuthGuard, Public, Roles } from 'src/guards/jwt-auth.guard';
+import { Public, Roles } from 'src/guards/jwt-auth.guard';
 import { anonymousNameList } from 'src/config';
 import { use } from 'passport';
 
@@ -2097,23 +2097,24 @@ export class HoldemController {
 
   // 管理员获取所有房间列表
   @Get('rooms')
-  @UseGuards(JwtAuthGuard)
-  @Roles(1) // 假设 1 是管理员角色
+  @Roles(3)
   async getRooms() {
     const rooms = Array.from(this.holdemGateway.rooms.entries()).map(([id, room]) => ({
       id,
       status: room.status,
+      gamePhase: room.gamePhase,
       userCount: room.users.length,
+      connectedCount: room.users.filter(user => user.connectStatus === 'connected').length,
       hostId: room.hostId,
       round: room.round,
+      messageCount: room.messages.length,
     }));
     return { success: true, rooms };
   }
 
   // 管理员关闭房间
-  @Get('rooms/:roomId/close')
-  @UseGuards(JwtAuthGuard)
-  @Roles(1) // 假设 1 是管理员角色
+  @Delete('rooms/:roomId')
+  @Roles(3)
   async closeRoom(@Param('roomId') roomId: string) {
     return this.holdemGateway.closeRoom(roomId);
   }
