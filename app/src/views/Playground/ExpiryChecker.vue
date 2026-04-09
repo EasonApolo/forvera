@@ -352,7 +352,7 @@ const removeEditingItem = async () => {
 }
 
 const completeItem = async (item: ExpiryItem) => {
-  await request(`expiry/${item._id}`, 'PUT', {
+    await request(`expiry/${item._id}`, 'PUT', {
     completed: !item.completed,
   })
   await loadItems()

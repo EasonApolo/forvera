@@ -22,8 +22,10 @@ export async function request(
   requestOptions?: RequestOptions
 ) {
   const userStore = useUserStore()
+  const normalizedUrl =
+    url.startsWith('/') || url.startsWith('http') ? url : `/api/${url}`
   let options: AxiosRequestConfig = {
-    url,
+    url: normalizedUrl,
     baseURL,
     withCredentials: requestOptions?.withCredentials ?? true,
     headers: {},
@@ -50,8 +52,10 @@ export async function request(
   if (params) {
     if (method.toLowerCase() === 'get') {
       const queryString = new URLSearchParams(params).toString()
-      url += url.includes('?') ? `&${queryString}` : `?${queryString}`
-      options.url = url
+      const finalUrl = queryString
+        ? `${normalizedUrl}${normalizedUrl.includes('?') ? '&' : '?'}${queryString}`
+        : normalizedUrl
+      options.url = finalUrl
     } else {
       if (typeof params == 'string') {
         options.data = params

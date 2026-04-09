@@ -120,7 +120,7 @@ class BackupService {
   }
 }
 
-@Controller('backup')
+@Controller('api/backup')
 export class BackupController {
   constructor(private readonly backupService: BackupService) {}
 

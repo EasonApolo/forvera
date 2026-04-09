@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
 import { request } from '../utils/request'
 import { useCategories } from './category'
+import { ip } from '../config'
 
 export const useImageStore = defineStore('image', {
   state: () => {
@@ -14,6 +15,24 @@ export const useImageStore = defineStore('image', {
     show: state => !!state.url || !!state.thumbUrl
   },
   actions: {
+    toBackendResourceUrl(url: string) {
+      let pathOnly = url
+      if (url.includes('://')) {
+        try {
+          const urlObj = new URL(url)
+          pathOnly = urlObj.pathname
+        } catch (e) {
+          pathOnly = url
+        }
+      }
+
+      pathOnly = pathOnly.replace(/\/+/g, '/')
+      const resourcePath = pathOnly.startsWith('/resource')
+        ? pathOnly
+        : `/resource${pathOnly.startsWith('/') ? pathOnly : `/${pathOnly}`}`
+      return `${ip.replace(/\/+$/, '')}${resourcePath}`
+    },
+
     toOriginal(url: string) {
       return url.replace('_thumb', '')
     },
@@ -28,8 +47,10 @@ export const useImageStore = defineStore('image', {
       return `${url.slice(0, dotIndex)}_thumb${url.slice(dotIndex)}`
     },
     preview(url: string) {
-      this.url = this.toOriginal(url)
-      this.thumbUrl = this.toThumb(url)
+      const resourceUrl = this.toBackendResourceUrl(url)
+
+      this.url = this.toOriginal(resourceUrl)
+      this.thumbUrl = this.toThumb(resourceUrl)
     },
     stopPreview() {
       this.url = ''

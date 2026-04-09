@@ -229,7 +229,7 @@ export class TwitService {
 }
 
 // Controller
-@Controller('twit')
+@Controller('api/twit')
 export class TwitController {
   constructor(private readonly twitService: TwitService) {}
 

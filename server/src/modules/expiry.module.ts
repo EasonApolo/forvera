@@ -184,7 +184,7 @@ export class ExpiryService {
   }
 }
 
-@Controller('expiry')
+@Controller('api/expiry')
 export class ExpiryController {
   constructor(private readonly expiryService: ExpiryService) {}
 

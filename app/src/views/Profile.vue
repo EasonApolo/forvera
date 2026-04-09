@@ -92,7 +92,7 @@ const downloadBackup = async () => {
       return
     }
 
-    const res = await axios.get(`${baseURL}backup/latest`, {
+    const res = await axios.get(`${baseURL}api/backup/latest`, {
       responseType: 'blob',
       withCredentials: true,
       headers: userInfo.value.token

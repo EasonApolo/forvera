@@ -2091,7 +2091,7 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 }
 
-@Controller('holdem')
+@Controller('api/holdem')
 export class HoldemController {
   constructor(private holdemGateway: HoldemGateway) {}
 

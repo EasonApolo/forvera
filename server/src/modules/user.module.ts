@@ -105,7 +105,7 @@ export class UserService implements OnModuleInit {
 }
 
 // Controller
-@Controller('user')
+@Controller('api/user')
 export class UserController {
   constructor(private userService: UserService) {}
 

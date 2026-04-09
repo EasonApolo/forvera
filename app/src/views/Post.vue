@@ -84,7 +84,8 @@ const buildPostEnhancements = async () => {
     image.style.cursor = 'zoom-in'
     image.onclick = (event) => {
       event.stopPropagation()
-      imageStore.preview(image.src)
+      const original = image.getAttribute('data-original') || image.src
+      imageStore.preview(original)
     }
   })
 

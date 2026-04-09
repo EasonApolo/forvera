@@ -113,7 +113,7 @@ export class PostService {
 }
 
 // Controller
-@Controller('post')
+@Controller('api/post')
 export class PostController {
   constructor(private postService: PostService) {}
 

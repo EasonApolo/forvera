@@ -257,7 +257,7 @@ export class TaxonomyService {
   }
 }
 
-@Controller('taxonomy')
+@Controller('api/taxonomy')
 export class TaxonomyController {
   constructor(private readonly taxonomyService: TaxonomyService) {}
 

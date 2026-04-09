@@ -98,7 +98,7 @@ export class FileService {
 }
 
 // Controller
-@Controller('file')
+@Controller('api/file')
 export class FileController {
   constructor(private fileService: FileService) {}
 

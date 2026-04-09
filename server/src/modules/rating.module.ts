@@ -208,7 +208,7 @@ export class DocumentService {
 }
 
 // Controller
-@Controller('documents')
+@Controller('api/documents')
 export class DocumentController {
   constructor(private readonly documentService: DocumentService) {}
 

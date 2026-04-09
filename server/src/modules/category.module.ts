@@ -61,7 +61,7 @@ export class CategoryService {
 }
 
 // Controller
-@Controller('cat')
+@Controller('api/cat')
 export class CategoryController {
   constructor(private catService: CategoryService) {}
 
