@@ -145,7 +145,7 @@ const loading = ref({ send: false })
         ></DraggableGallery>
         <div class="actions">
           <Btn class="action" @click="closePanel">取消</Btn>
-          <Btn class="action send" @click="send" :loading="loading.send">{{
+          <Btn class="action send" type="primary" @click="send" :loading="loading.send">{{
             sendBtnContent
           }}</Btn>
           <div class="right">
@@ -199,7 +199,7 @@ const loading = ref({ send: false })
             :onRemove="onRemove"
           ></DraggableGallery>
           <div class="actions">
-            <Btn class="action send" @click="send" :loading="loading.send">{{
+            <Btn class="action send" type="primary" @click="send" :loading="loading.send">{{
               sendBtnContent
             }}</Btn>
             <div class="right">

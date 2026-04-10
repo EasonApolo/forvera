@@ -8,9 +8,9 @@ import FileInput from '@/components/FileInput.vue'
 import { useTaxonomyStore, type TaxonomyNode } from '@/store/taxonomy'
 import { useUserStore } from '@/store/user'
 import { storeToRefs } from 'pinia'
-import { ip } from '@/config'
 import { useImageStore } from '@/store/image'
 import { useToastStore } from '@/store/toast'
+import { toViewerOriginalUrl, toViewerThumbUrl } from '@/components/imageViewer'
 
 type FlatNode = {
   node: TaxonomyNode
@@ -145,12 +145,10 @@ const searchResults = computed(() => {
 })
 
 const getThumb = (url: string) => {
-  const dotIndex = url.lastIndexOf('.')
-  const thumb = dotIndex === -1 ? `${url}_thumb` : `${url.slice(0, dotIndex)}_thumb${url.slice(dotIndex)}`
-  return `${ip}${thumb}`
+  return toViewerThumbUrl(url)
 }
 
-const getFull = (url: string) => `${ip}${url}`
+const getFull = (url: string) => toViewerOriginalUrl(url)
 
 const refresh = async () => {
   loading.value = true

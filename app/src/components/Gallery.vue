@@ -19,15 +19,16 @@ defineProps<{
 <style lang="less" scoped>
 .gallery {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(6rem, 1fr));
-  grid-gap: 1rem;
+  grid-template-columns: repeat(auto-fill, 6rem);
+  gap: 6px;
+  justify-content: start;
   .item {
     width: 6rem;
     height: 6rem;
     background-position: center;
     background-size: cover;
     background-repeat: no-repeat;
-    border-radius: 4px;
+    border-radius: 8px;
   }
 }
 </style>

@@ -36,6 +36,38 @@ export SHARP_DIST_BASE_URL="$SHARP_LIBVIPS_HOST"
 mkdir -p "$LOG_DIR" "$PID_DIR"
 mkdir -p "$ROOT_DIR/../assets"
 
+echo "[pre] Stopping existing services before start..."
+"$ROOT_DIR/stop-prod.sh" || true
+
+# Force-kill any remaining processes still holding the ports
+force_kill_port() {
+  local port="$1"
+  local pids
+  pids="$(lsof -ti tcp:"$port" 2>/dev/null || true)"
+  if [[ -n "$pids" ]]; then
+    echo "[pre] Force killing leftover processes on port $port: $pids"
+    kill -9 $pids 2>/dev/null || true
+  fi
+}
+
+# Wait until a port is no longer in use (up to 10 s)
+wait_port_free() {
+  local port="$1"
+  for ((i=1; i<=10; i++)); do
+    if ! lsof -ti tcp:"$port" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "[pre] Warning: port $port still in use after waiting"
+  return 1
+}
+
+force_kill_port "$SERVER_PORT"
+force_kill_port "$APP_PORT"
+wait_port_free "$SERVER_PORT" || true
+wait_port_free "$APP_PORT"    || true
+
 stop_if_running() {
   local name="$1"
   local pid_file="$PID_DIR/${name}.pid"
@@ -80,9 +112,9 @@ wait_for_http() {
 
 echo "[1/4] Installing dependencies..."
 cd "$SERVER_DIR"
-npm ci
+npm install
 cd "$APP_DIR"
-npm ci
+npm install
 
 echo "[2/4] Building server..."
 cd "$SERVER_DIR"

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
-import { ip } from '../config'
 import { request } from '../utils/request'
+import { toViewerOriginalUrl, toViewerThumbUrl } from '@/components/imageViewer'
 
 export const useMessageStore = defineStore('message', {
   state: () => {
@@ -68,8 +68,8 @@ export const useMessageStore = defineStore('message', {
           message.status = 1
         }
         message.files.forEach(f => {
-          f.url = `${ip}${f.url}`
-          f.thumb = `${ip}${f.thumb}`
+          f.url = toViewerOriginalUrl(f.url)
+          f.thumb = toViewerThumbUrl(f.thumb || f.url)
         })
         message.descendants?.forEach(reply => {
           if (reply.status === undefined) {

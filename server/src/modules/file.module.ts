@@ -16,6 +16,8 @@ import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { promises as fs } from 'fs';
 import { join, extname } from 'path';
 import * as ThumbNail from 'image-thumbnail';
+import { randomBytes } from 'crypto';
+import { imageSize } from 'image-size';
 import { staticPath } from 'src/shared/staticPath';
 
 // Interface
@@ -71,10 +73,14 @@ export class FileService {
     // mkdir, update document, write file/thumb
     const assetsDir = join(staticPath, postId);
     await fs.mkdir(assetsDir, { recursive: true });
-    const fName = `${newFile._id.toString()}${extname(file.originalname)}`;
-    const tName = `${newFile._id.toString()}_thumb${extname(
-      file.originalname,
-    )}`;
+    const ext = extname(file.originalname);
+    const randomId = randomBytes(8).toString('hex');
+    const dimensions = imageSize(buffer);
+    const width = dimensions?.width;
+    const height = dimensions?.height;
+    const sizeSuffix = width && height ? `_${width}_${height}` : '';
+    const fName = `${randomId}${sizeSuffix}${ext}`;
+    const tName = `${randomId}${sizeSuffix}_thumb${ext}`;
     const savedFile = await this.fileModel.findByIdAndUpdate(
       newFile._id,
       { url: `${postId}/${fName}`, thumb: `${postId}/${tName}` },

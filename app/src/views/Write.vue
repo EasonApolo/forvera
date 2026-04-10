@@ -138,6 +138,7 @@ const copy = (e: any) => {
           >
         </div>
       </div>
+      <div class="module-divider" aria-hidden="true"></div>
       <div class="write-block actions">
         <Btn @click="publish">提交</Btn>
         <Btn @click="changeStatus" :type="post.status === 1 ? 'primary' : undefined">{{
@@ -196,5 +197,10 @@ const copy = (e: any) => {
   border-radius: 4px;
   background-color: var(--btn-bg);
   word-break: break-all;
+}
+
+.module-divider {
+  margin-top: 1rem;
+  border-top: 1px solid var(--border-light);
 }
 </style>

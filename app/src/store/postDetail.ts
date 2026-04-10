@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { parse } from '../utils/markdown'
 import { usePostStore } from './post'
-import { ip } from '@/config'
+import { rewriteContentImagesForViewer } from '@/components/imageViewer'
 
 export const usePostDetail = defineStore('detail', {
   state: () => {
@@ -17,21 +17,7 @@ export const usePostDetail = defineStore('detail', {
       this.post.content = parse(this.post.content)
     },
     replaceUrl(html: string) {
-      const regex = /<img src="(https?:\/\/[^\/]+)?(\/[^"]+)"/g
-      return html.replace(regex, (_, _origin, path) => {
-        const normalizedPath = (path || '').replace(/\/+/g, '/')
-        const resourceBase = `${ip.replace(/\/+$/, '')}/resource${normalizedPath}`
-        const thumb = normalizedPath.includes('_thumb')
-          ? resourceBase
-          : (() => {
-              const dotIndex = resourceBase.lastIndexOf('.')
-              return dotIndex === -1
-                ? `${resourceBase}_thumb`
-                : `${resourceBase.slice(0, dotIndex)}_thumb${resourceBase.slice(dotIndex)}`
-            })()
-        const original = resourceBase
-        return `<img src="${thumb}" data-original="${original}"`
-      })
+      return rewriteContentImagesForViewer(html)
     },
     clear() {
       this.post = {} as Post

@@ -21,6 +21,7 @@ const frameHeight = ref(0)
 
 const frameDisplayWidth = computed(() => frameWidth.value || stageWidth.value)
 const frameDisplayHeight = computed(() => frameHeight.value || stageHeight.value)
+const thumbLayerSize = computed(() => Math.min(frameDisplayWidth.value, frameDisplayHeight.value))
 
 const transformStyle = computed(() => {
   return `translate(${translateX.value}px, ${translateY.value}px) scale(${scale.value}) rotate(${rotation.value}deg)`
@@ -34,17 +35,20 @@ const updateLayout = () => {
     stageHeight.value = stageEl.clientHeight
   }
 
-  if (!originalEl || !originalEl.naturalWidth || !originalEl.naturalHeight) {
+  const sourceWidth = originalEl?.naturalWidth || imageStore.width
+  const sourceHeight = originalEl?.naturalHeight || imageStore.height
+
+  if (!sourceWidth || !sourceHeight) {
     return
   }
 
   const fitScale = Math.min(
-    stageWidth.value / originalEl.naturalWidth,
-    stageHeight.value / originalEl.naturalHeight,
+    stageWidth.value / sourceWidth,
+    stageHeight.value / sourceHeight,
     1
   )
-  frameWidth.value = Math.round(originalEl.naturalWidth * fitScale)
-  frameHeight.value = Math.round(originalEl.naturalHeight * fitScale)
+  frameWidth.value = Math.round(sourceWidth * fitScale)
+  frameHeight.value = Math.round(sourceHeight * fitScale)
 }
 
 const resetTransform = () => {
@@ -144,6 +148,10 @@ watch(
           <img
             class="thumb-layer"
             :src="imageStore.thumbUrl"
+            :style="{
+              width: `${thumbLayerSize}px`,
+              height: `${thumbLayerSize}px`,
+            }"
             draggable="false"
           />
           <img
@@ -221,13 +229,12 @@ watch(
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 120px;
-  height: 120px;
-  object-fit: cover;
+  object-fit: contain;
   object-position: center;
   border-radius: 8px;
   filter: none;
   opacity: 1;
+  pointer-events: none;
 }
 
 .original-layer {

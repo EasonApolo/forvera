@@ -11,6 +11,7 @@ import GreyText from '../components/GreyText.vue'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { useImageStore } from '@/store/image'
+import { bindContentImagesForViewer } from '@/components/imageViewer'
 
 const [postDetailStore, categoryStore] = [usePostDetail(), useCategories()]
 const imageStore = useImageStore()
@@ -79,15 +80,7 @@ const buildPostEnhancements = async () => {
 
   activeTocId.value = tocList.value[0]?.id || ''
 
-  const images = Array.from(container.querySelectorAll('img')) as HTMLImageElement[]
-  images.forEach(image => {
-    image.style.cursor = 'zoom-in'
-    image.onclick = (event) => {
-      event.stopPropagation()
-      const original = image.getAttribute('data-original') || image.src
-      imageStore.preview(original)
-    }
-  })
+  bindContentImagesForViewer(container, (original) => imageStore.preview(original))
 
   syncActiveTocByScroll()
 }

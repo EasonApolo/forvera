@@ -73,11 +73,13 @@ const onDragLeaveRemove = () => {
   margin: 1rem 0;
   .gallery {
     display: flex;
-    grid-template-columns: repeat(auto-fill, 6rem);
-    grid-gap: 1rem;
+    flex-wrap: wrap;
+    gap: 6px;
     .item {
+      flex: 0 0 6rem;
       width: 6rem;
       height: 6rem;
+      border-radius: 8px;
       background-position: center;
       background-size: cover;
       background-repeat: no-repeat;

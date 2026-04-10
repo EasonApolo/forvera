@@ -8,7 +8,7 @@ import StepperFilter from '@/components/StepperFilter.vue'
 import { useRouter } from 'vue-router'
 import { useToastStore } from '@/store/toast'
 import { request } from '@/utils/request'
-import { throttle } from '@/utils/common'
+import { debounce } from '@/utils/common'
 
 type ShelfUnit = 'day' | 'week' | 'month' | 'year'
 
@@ -84,16 +84,23 @@ const searchSuggest = async (keyword: string) => {
   }
   const result = await request('expiry/suggest', 'GET', { keyword: trimmed })
   if (modal.name.trim() !== trimmed) return
-  suggestions.value = Array.isArray(result) ? result : []
+  const list = Array.isArray(result) ? result : []
+  const seenNames = new Set<string>()
+  suggestions.value = list.filter(item => {
+    const key = `${item?.name || ''}`.trim()
+    if (!key || seenNames.has(key)) return false
+    seenNames.add(key)
+    return true
+  })
 }
 
-const throttledSuggest = throttle((keyword: string) => {
+const debouncedSuggest = debounce((keyword: string) => {
   searchSuggest(keyword)
-})
+}, 250)
 
-const onNameInput = () => {
+const onNameInput = (value: string | number) => {
   suggestionVisible.value = true
-  throttledSuggest(modal.name)
+  debouncedSuggest(String(value ?? ''))
 }
 
 const addDurationToNow = (durationMs: number) => {
@@ -125,7 +132,7 @@ const applySuggestion = (item: ExpiryItem) => {
 
 const onNameFocus = () => {
   suggestionVisible.value = true
-  throttledSuggest(modal.name)
+  debouncedSuggest(modal.name)
 }
 
 const onNameBlur = () => {
@@ -504,7 +511,7 @@ const handleNavSelect = (key: string) => {
               <Input
                 v-model="modal.name"
                 placeholder="例如：牛奶"
-                @input="onNameInput"
+                @update:modelValue="onNameInput"
                 @focus="onNameFocus"
                 @blur="onNameBlur"
               />
@@ -519,9 +526,6 @@ const handleNavSelect = (key: string) => {
                   @mousedown.prevent="applySuggestion(item)"
                 >
                   <div class="suggest-name">{{ item.name }}</div>
-                  <div class="suggest-meta">
-                    {{ item.mode === 'shelf' ? '保质时长' : '过期日期' }}
-                  </div>
                 </div>
               </div>
             </div>
@@ -733,12 +737,6 @@ const handleNavSelect = (key: string) => {
           .suggest-name {
             font-size: 13px;
             font-weight: 600;
-          }
-
-          .suggest-meta {
-            margin-top: 2px;
-            font-size: 12px;
-            color: var(--text-secondary);
           }
         }
       }
