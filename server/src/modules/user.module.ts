@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Body,
   Request,
   Injectable,
   OnModuleInit,
@@ -20,11 +21,20 @@ export class CreateUserDTO {
   readonly password: string;
 }
 
+export class UpdateUserSettingsDTO {
+  readonly settings?: {
+    playgroundSort?: string[];
+  };
+}
+
 // Interface
 export interface User extends Document {
   readonly username: string;
   readonly password: string;
   readonly role?: number;
+  readonly settings?: {
+    playgroundSort?: string[];
+  };
 }
 
 // Schema
@@ -35,6 +45,7 @@ export const UserSchema = new Schema({
   username: { type: String, required: true, unique: true },
   password: { type: String, required: true },
   role: { type: Number, default: 1 },
+  settings: { type: Schema.Types.Mixed, default: {} },
 });
 
 // Service
@@ -102,6 +113,32 @@ export class UserService implements OnModuleInit {
   async getAnonymousNameList(): Promise<string[]> {
     return anonymousNameList;
   }
+
+  async updateUserSettings(user: any, payload: UpdateUserSettingsDTO): Promise<User> {
+    const userId = user?.userId;
+    const target = await this.userModel.findById(userId).exec();
+    if (!target) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    const currentSettings =
+      target.settings && typeof target.settings === 'object' ? { ...target.settings } : {};
+
+    const nextSettings: any = { ...currentSettings };
+    const incoming = payload?.settings || {};
+
+    if (Array.isArray(incoming.playgroundSort)) {
+      nextSettings.playgroundSort = incoming.playgroundSort
+        .filter((item) => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter((item) => !!item);
+    }
+
+    (target as any).settings = nextSettings;
+    await target.save();
+
+    return await this.userModel.findById(userId).select('-password').exec();
+  }
 }
 
 // Controller
@@ -118,6 +155,11 @@ export class UserController {
   @Get('anonymous')
   async getAnonymousNameList() {
     return await this.userService.getAnonymousNameList();
+  }
+
+  @Post('settings')
+  async updateUserSettings(@Request() req, @Body() body: UpdateUserSettingsDTO) {
+    return await this.userService.updateUserSettings(req.user, body);
   }
 }
 

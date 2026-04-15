@@ -19,6 +19,7 @@ import HoldemVue from './views/Holdem.vue'
 import HoldemRoomVue from './views/HoldemRoom.vue'
 import LoginVue from './views/Login.vue'
 import ExpiryCheckerVue from './views/Playground/ExpiryChecker.vue'
+import PetVue from './views/Pet.vue'
 
 const routerOptions = {
   history: createWebHistory(),
@@ -71,6 +72,7 @@ const routerOptions = {
     { path: '/holdem', component: HoldemVue, name: 'holdem' },
     { path: '/holdem/:id', component: HoldemRoomVue, name: 'holdemRoom' },
     { path: '/holdem/:id/:userId', component: HoldemRoomVue, name: 'holdemRoomWithUser' },
+    { path: '/pet', component: PetVue, name: 'pet' },
   ],
 }
 

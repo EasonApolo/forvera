@@ -11,6 +11,7 @@
     "@vue/runtime-core": "^3.5.13",
     "@vue/runtime-dom": "^3.5.13",
     "axios": "^0.24.0",
+    "globe.gl": "^2.45.3",
     "less": "^4.2.1",
     "less-loader": "^12.2.0",
     "pinia": "^2.0.1",

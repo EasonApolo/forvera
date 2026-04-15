@@ -5,6 +5,11 @@ const host =
     ? 'localhost'
     : location.hostname
 
-const backend_url = `http://${host}:3000/`
+const protocol =
+  location.hostname === 'localhost' || location.hostname === '127.0.0.1'
+    ? 'http'
+    : 'https'
+
+const backend_url = `${protocol}://${host}:3000/`
 
 export const ip = backend_url

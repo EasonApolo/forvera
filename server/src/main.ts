@@ -2,26 +2,44 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { corsDomains } from './config';
 import { IoAdapter } from '@nestjs/platform-socket.io';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { staticPath } from './shared/staticPath';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const certPath = process.env.SSL_CERT_PATH || '/etc/letsencrypt/live/eason-s.life/fullchain.pem';
+  const keyPath = process.env.SSL_KEY_PATH || '/etc/letsencrypt/live/eason-s.life/privkey.pem';
+  const forceHttp = process.env.FORVERA_FORCE_HTTP === '1';
+  const enableHttps = !forceHttp && existsSync(certPath) && existsSync(keyPath);
+
+  const app = await NestFactory.create(
+    AppModule,
+    enableHttps
+      ? {
+          httpsOptions: {
+            cert: readFileSync(certPath),
+            key: readFileSync(keyPath),
+          },
+        }
+      : undefined,
+  );
   app.useWebSocketAdapter(new IoAdapter(app));
-  const allowOriginSet = new Set(corsDomains);
+  const allowOriginSet = new Set(corsDomains.map((origin) => origin.replace(/\/$/, '')));
   app.enableCors({
     origin: (origin, callback) => {
       if (!origin) {
-        return callback(null, true);
+        return callback(null, false);
       }
 
-      const isAllowedExact = allowOriginSet.has(origin);
-      const isAllowedLocal = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin);
-      const isAllowedLanIp = /^https?:\/\/(\d{1,3}\.){3}\d{1,3}(:\d+)?$/i.test(origin);
+      const normalizedOrigin = origin.replace(/\/$/, '');
 
-      if (isAllowedExact || isAllowedLocal || isAllowedLanIp) {
-        return callback(null, true);
+      const isAllowedExact = allowOriginSet.has(normalizedOrigin);
+      const isAllowedForvera = /^https?:\/\/([a-z0-9-]+\.)*forvera\.me(:\d+)?$/i.test(normalizedOrigin);
+      const isAllowedLocal = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(normalizedOrigin);
+      const isAllowedLanIp = /^https?:\/\/(\d{1,3}\.){3}\d{1,3}(:\d+)?$/i.test(normalizedOrigin);
+
+      if (isAllowedExact || isAllowedForvera || isAllowedLocal || isAllowedLanIp) {
+        return callback(null, normalizedOrigin);
       }
 
       return callback(new Error(`CORS blocked for origin: ${origin}`), false);
@@ -61,5 +79,6 @@ async function bootstrap() {
   });
 
   await app.listen(3000, '0.0.0.0');
+  console.log(`[bootstrap] API listening on ${enableHttps ? 'https' : 'http'}://0.0.0.0:3000`);
 }
 bootstrap();

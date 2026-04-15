@@ -10,6 +10,9 @@ PID_DIR="$RUNTIME_DIR/pids"
 
 APP_PORT="${APP_PORT:-10000}"
 SERVER_PORT="${SERVER_PORT:-3000}"
+SSL_CERT_PATH="${SSL_CERT_PATH:-/etc/letsencrypt/live/eason-s.life/fullchain.pem}"
+SSL_KEY_PATH="${SSL_KEY_PATH:-/etc/letsencrypt/live/eason-s.life/privkey.pem}"
+FORVERA_FORCE_HTTP="${FORVERA_FORCE_HTTP:-0}"
 
 # npm/sharp mirrors (can be overridden by environment variables)
 NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmmirror.com}"
@@ -92,9 +95,10 @@ wait_for_http() {
   local url="$2"
   local log_file="$3"
   local retries="${4:-20}"
+  local curl_args="${5:-}"
 
   for ((i=1; i<=retries; i++)); do
-    if curl -fsS "$url" >/dev/null 2>&1; then
+    if curl -fsS $curl_args "$url" >/dev/null 2>&1; then
       echo "[$name] health check passed: $url"
       return 0
     fi
@@ -136,8 +140,17 @@ cd "$APP_DIR"
 nohup npm run serve -- --host 0.0.0.0 --port "$APP_PORT" > "$LOG_DIR/app.log" 2>&1 &
 echo $! > "$PID_DIR/app.pid"
 
-wait_for_http "server" "http://127.0.0.1:$SERVER_PORT/" "$LOG_DIR/server.log"
-wait_for_http "app" "http://127.0.0.1:$APP_PORT/" "$LOG_DIR/app.log"
+SERVER_PROTO="http"
+APP_PROTO="http"
+CURL_EXTRA=""
+if [[ "$FORVERA_FORCE_HTTP" != "1" && -f "$SSL_CERT_PATH" && -f "$SSL_KEY_PATH" ]]; then
+  SERVER_PROTO="https"
+  APP_PROTO="https"
+  CURL_EXTRA="-k"
+fi
+
+wait_for_http "server" "$SERVER_PROTO://127.0.0.1:$SERVER_PORT/" "$LOG_DIR/server.log" 20 "$CURL_EXTRA"
+wait_for_http "app" "$APP_PROTO://127.0.0.1:$APP_PORT/" "$LOG_DIR/app.log" 20 "$CURL_EXTRA"
 
 echo
 printf "Server started (pid=%s, port=%s)\n" "$(cat "$PID_DIR/server.pid")" "$SERVER_PORT"

@@ -8,7 +8,7 @@ const props = withDefaults(
     mobileSize?: number
     mobileFontSize?: number
     variant?: 'muted' | 'overlay'
-    icon?: 'chevron-left' | 'chevron-right' | 'rotate-left' | 'rotate-right' | 'close'
+    icon?: 'chevron-left' | 'chevron-right' | 'chevron-up' | 'chevron-down' | 'rotate-left' | 'rotate-right' | 'close'
     ariaLabel?: string
   }>(),
   {
@@ -43,6 +43,12 @@ const styleVars = computed(() => ({
     </svg>
     <svg v-else-if="icon === 'chevron-right'" class="circle-btn-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path d="M9.5 6.5L15 12l-5.5 5.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+    <svg v-else-if="icon === 'chevron-up'" class="circle-btn-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M6.5 14.5L12 9l5.5 5.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+    <svg v-else-if="icon === 'chevron-down'" class="circle-btn-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M6.5 9.5L12 15l5.5-5.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
     </svg>
     <svg v-else-if="icon === 'rotate-left'" class="circle-btn-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path d="M7 9V5m0 0H3m4 0l-2.5 2.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />

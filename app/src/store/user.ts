@@ -12,6 +12,9 @@ export const useUserStore = defineStore('user', {
       username: undefined,
       token: undefined,
       role: 0,
+      settings: {} as {
+        playgroundSort?: string[]
+      },
     },
   }),
   getters: {
@@ -26,11 +29,15 @@ export const useUserStore = defineStore('user', {
         token = `Bearer ${token}`
         Object.assign(this.userInfo, { token })
         const res = await request('user/info', 'POST')
-        const { username, role } = res
+        const { username, role, settings } = res
         if (username) {
           localStorage.username = username
           localStorage.role = role
-          Object.assign(this.userInfo, { username, role })
+          Object.assign(this.userInfo, {
+            username,
+            role,
+            settings: settings || {},
+          })
         }
       }
     },
@@ -74,6 +81,13 @@ export const useUserStore = defineStore('user', {
         JSON.stringify(payload)
       )
       Object.assign(this.userInfo, { token, username: this.loginData.username })
+    },
+    async updateSettings(settings: { playgroundSort?: string[] }) {
+      if (!this.isLogin) return
+      const res = await request('user/settings', 'POST', JSON.stringify({ settings }))
+      Object.assign(this.userInfo, {
+        settings: res?.settings || this.userInfo.settings || {},
+      })
     },
   },
 })

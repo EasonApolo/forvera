@@ -1,40 +1,184 @@
 <script setup lang="ts">
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useUserStore } from '../store/user'
+import Btn from '../components/Btn.vue'
 import Card from '../components/Card.vue'
+import CircleBtn from '../components/CircleBtn.vue'
 import List from '../components/layout/List.vue'
 
 const router = useRouter()
+const userStore = useUserStore()
+const defaultCardOrder = ['siteinfo', 'taxonomy', 'expiry', 'holdem', 'pet', 'rating', 'mihoyo']
+
+type PlaygroundCard =
+  | { key: string; type: 'path'; title: string; path: string }
+  | { key: string; type: 'route'; title: string; routeName: string }
+  | {
+      key: string
+      type: 'pair'
+      links: { title: string; href: string }[]
+    }
+
+const cardMap: Record<string, PlaygroundCard> = {
+  siteinfo: { key: 'siteinfo', type: 'path', title: '最近更新', path: '/siteinfo' },
+  taxonomy: { key: 'taxonomy', type: 'route', title: '🌳Taxonomy', routeName: 'taxonomy' },
+  expiry: { key: 'expiry', type: 'route', title: '🥛什么时候过期？', routeName: 'expiry' },
+  holdem: { key: 'holdem', type: 'route', title: '🃏德扑', routeName: 'holdem' },
+  pet: { key: 'pet', type: 'route', title: 'Agent', routeName: 'pet' },
+  rating: { key: 'rating', type: 'route', title: '⭐Rating', routeName: 'rating' },
+  mihoyo: {
+    key: 'mihoyo',
+    type: 'pair',
+    links: [
+      { title: '原神启动', href: 'https://ys.mihoyo.com/cloud/#/' },
+      { title: '崩铁启动', href: 'https://sr.mihoyo.com/cloud/#/' },
+    ],
+  },
+}
+
+const cardOrder = ref<string[]>([...defaultCardOrder])
+const sortMode = ref(false)
+
+const cards = computed(() => cardOrder.value.map(key => cardMap[key]).filter(Boolean))
 
 const goto = (routeName: string) => {
   router.push({ name: routeName })
 }
+
+const gotoPath = (path: string) => {
+  router.push(path)
+}
+
+const toggleSortMode = () => {
+  sortMode.value = !sortMode.value
+}
+
+const sameArray = (a: string[], b: string[]) => {
+  if (a.length !== b.length) return false
+  return a.every((item, index) => item === b[index])
+}
+
+const normalizeSortOrder = (saved?: string[]) => {
+  const validKeys = new Set(Object.keys(cardMap))
+  const seen = new Set<string>()
+  const merged: string[] = []
+
+  if (Array.isArray(saved)) {
+    for (const key of saved) {
+      if (!validKeys.has(key) || seen.has(key)) continue
+      merged.push(key)
+      seen.add(key)
+    }
+  }
+
+  for (const key of defaultCardOrder) {
+    if (validKeys.has(key) && !seen.has(key)) {
+      merged.push(key)
+      seen.add(key)
+    }
+  }
+
+  for (const key of Object.keys(cardMap)) {
+    if (!seen.has(key)) {
+      merged.push(key)
+      seen.add(key)
+    }
+  }
+
+  return merged
+}
+
+const persistPlaygroundSort = async () => {
+  if (!userStore.isLogin) return
+  await userStore.updateSettings({ playgroundSort: cardOrder.value })
+}
+
+const moveCard = (index: number, direction: 'up' | 'down') => {
+  const offset = direction === 'up' ? -1 : 1
+  const targetIndex = index + offset
+  if (targetIndex < 0 || targetIndex >= cardOrder.value.length) {
+    return
+  }
+  const next = [...cardOrder.value]
+  const [current] = next.splice(index, 1)
+  next.splice(targetIndex, 0, current)
+  cardOrder.value = next
+  void persistPlaygroundSort()
+}
+
+watch(
+  () => userStore.userInfo.settings?.playgroundSort,
+  (savedOrder) => {
+    const normalized = normalizeSortOrder(savedOrder)
+    if (!sameArray(cardOrder.value, normalized)) {
+      cardOrder.value = normalized
+    }
+
+    if (userStore.isLogin && Array.isArray(savedOrder) && !sameArray(savedOrder, normalized)) {
+      void userStore.updateSettings({ playgroundSort: normalized })
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
   <List>
     <template v-slot:content>
-      <router-link to="/siteinfo">
-        <Card>最近更新</Card>
-      </router-link>
-      <Card class="entry" @click="goto('taxonomy')">
-        <span>🌳Taxonomy</span>
-      </Card>
-      <Card class="entry" @click="goto('expiry')">
-        <span>🥛什么时候过期？</span>
-      </Card>
-      <Card class="entry" @click="goto('holdem')">
-        <span>🃏德扑</span>
-      </Card>
-      <Card class="entry" @click="goto('rating')">
-        <span>⭐Rating</span>
-      </Card>
-      <div class="card-row">
-        <a href="https://ys.mihoyo.com/cloud/#/" target="_blank" class="card-link">
-          <Card class="entry">原神启动</Card>
-        </a>
-        <a href="https://sr.mihoyo.com/cloud/#/" target="_blank" class="card-link">
-          <Card class="entry">崩铁启动</Card>
-        </a>
+      <div class="toolbar">
+          <Btn v-if="userStore.isLogin" small @click="toggleSortMode">{{ sortMode ? '完成排序' : '排序' }}</Btn>
+      </div>
+
+      <div v-for="(card, index) in cards" :key="card.key" class="entry-row">
+        <div class="entry-main">
+          <Card
+            v-if="card.type === 'path'"
+            class="entry"
+            @click="gotoPath(card.path)"
+          >
+            <span>{{ card.title }}</span>
+          </Card>
+
+          <Card
+            v-else-if="card.type === 'route'"
+            class="entry"
+            @click="goto(card.routeName)"
+          >
+            <span>{{ card.title }}</span>
+          </Card>
+
+          <div v-else class="entry pair-entry">
+            <Card v-for="link in card.links" :key="link.href" class="pair-card">
+              <a
+                :href="link.href"
+                target="_blank"
+                class="pair-link"
+              >
+                {{ link.title }}
+              </a>
+            </Card>
+          </div>
+        </div>
+
+        <div v-if="sortMode && userStore.isLogin" class="sort-controls">
+          <CircleBtn
+            icon="chevron-up"
+            :size="18"
+            :mobileSize="18"
+            aria-label="move up"
+            :class="{ disabled: index === 0 }"
+            @click="moveCard(index, 'up')"
+          />
+          <CircleBtn
+            icon="chevron-down"
+            :size="18"
+            :mobileSize="18"
+            aria-label="move down"
+            :class="{ disabled: index === cards.length - 1 }"
+            @click="moveCard(index, 'down')"
+          />
+        </div>
       </div>
     </template>
   </List>
@@ -45,16 +189,55 @@ a {
   text-decoration: none;
   color: inherit;
 }
+
+.toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.5rem;
+}
+
+.entry-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+.entry-row + .entry-row {
+  margin-top: 0.5rem;
+}
+
+.entry-main {
+  flex: 1;
+  min-width: 0;
+}
+
 .entry {
   cursor: pointer;
 }
-.card-row {
-  margin-top: 0.5rem;
-  display: flex;
+
+.pair-entry {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.5rem;
-  .card-link {
-    flex: 1;
-    display: block;
+
+  .card {
+    margin-top: 0 !important;
+  }
+
+  .pair-card {
+    cursor: pointer;
+  }
+}
+
+.sort-controls {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.375rem;
+
+  .disabled {
+    pointer-events: none;
+    opacity: 0.4;
   }
 }
 

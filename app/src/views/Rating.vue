@@ -147,23 +147,23 @@ const openUrlInNewPage = (url: string) => {
   window.open(url, '_blank', 'noopener noreferrer')
 }
 
-const getLastCommentTime = (document: RatingDocument) => {
+const getFirstCommentTime = (document: RatingDocument) => {
   const comments = Array.isArray(document.comments) ? document.comments : []
   const timestamps = comments
     .map(comment => new Date(comment.createdAt).getTime())
     .filter(time => Number.isFinite(time))
   if (!timestamps.length) return 0
-  return Math.max(...timestamps)
+  return Math.min(...timestamps)
 }
 
 const getDisplayDate = (document: RatingDocument) => {
   return typeof document.date === 'string' ? document.date.trim() : ''
 }
 
-const getDisplayYear = (document: RatingDocument) => {
-  const displayDate = getDisplayDate(document)
-  const matched = displayDate.match(/\d{4}/)
-  return matched?.[0] || ''
+const getFirstWatchYear = (document: RatingDocument) => {
+  const firstTime = getFirstCommentTime(document)
+  if (!firstTime) return ''
+  return String(new Date(firstTime).getFullYear())
 }
 
 const createDocument = async () => {
@@ -342,7 +342,7 @@ const filteredDocuments = computed(() => {
 
   if (movieFilters.value.year !== null) {
     list = list.filter(doc => {
-      const year = Number(getDisplayYear(doc))
+      const year = Number(getFirstWatchYear(doc))
       return year === movieFilters.value.year
     })
   }
@@ -351,7 +351,7 @@ const filteredDocuments = computed(() => {
     list = list.filter(doc => doc.comments.length === movieFilters.value.watchCount)
   }
 
-  return list.sort((a, b) => getLastCommentTime(b) - getLastCommentTime(a))
+  return list.sort((a, b) => getFirstCommentTime(b) - getFirstCommentTime(a))
 })
 </script>
 

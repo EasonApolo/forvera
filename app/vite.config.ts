@@ -1,6 +1,12 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import path from 'path'
+import fs from 'fs'
+
+const certPath = process.env.SSL_CERT_PATH || '/etc/letsencrypt/live/eason-s.life/fullchain.pem'
+const keyPath = process.env.SSL_KEY_PATH || '/etc/letsencrypt/live/eason-s.life/privkey.pem'
+const forceHttp = process.env.FORVERA_FORCE_HTTP === '1'
+const enablePreviewHttps = !forceHttp && fs.existsSync(certPath) && fs.existsSync(keyPath)
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -13,6 +19,12 @@ export default defineConfig({
   preview: {
     host: '0.0.0.0',
     port: 10000,
+    https: enablePreviewHttps
+      ? {
+          cert: fs.readFileSync(certPath),
+          key: fs.readFileSync(keyPath),
+        }
+      : false,
   },
   resolve: {
     alias: {
