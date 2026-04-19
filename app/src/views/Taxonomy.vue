@@ -40,6 +40,7 @@ const modal = reactive({
   parent: null as string | null,
   title: '',
   description: '',
+  defaultOpen: false,
   images: [] as string[],
   files: [] as File[],
   saving: false,
@@ -47,10 +48,12 @@ const modal = reactive({
 
 const preview = reactive({
   show: false,
+  nodeId: '',
   title: '',
   description: '',
   images: [] as string[],
   createdTime: '',
+  position: '',
 })
 
 const nodes = computed(() => taxonomyStore.nodes)
@@ -91,29 +94,28 @@ const hasChildren = (nodeId: string) => nodesWithChildren.value.has(nodeId)
 
 const isCollapsed = (nodeId: string) => collapsedNodeIds.value.has(nodeId)
 
+const getOrderedChildren = (nodeId: string) => childMap.value.get(nodeId) || []
+
+const expandSingleChildChain = (startNodeId: string, nextCollapsed: Set<string>) => {
+  let cursor: string | null = startNodeId
+  while (cursor) {
+    const children = getOrderedChildren(cursor)
+    if (children.length !== 1) break
+    const onlyChild = children[0]
+    if (!hasChildren(onlyChild._id)) break
+    nextCollapsed.delete(onlyChild._id)
+    cursor = onlyChild._id
+  }
+}
+
 const toggleCollapse = (nodeId: string) => {
   if (!hasChildren(nodeId)) return
   const next = new Set(collapsedNodeIds.value)
-  if (next.has(nodeId)) next.delete(nodeId)
-  else next.add(nodeId)
-  collapsedNodeIds.value = next
-}
-
-const syncCollapsedState = (collapseAll: boolean) => {
-  const next = new Set<string>()
-  if (collapseAll) {
-    nodesWithChildren.value.forEach(id => next.add(id))
+  if (next.has(nodeId)) {
+    next.delete(nodeId)
+    expandSingleChildChain(nodeId, next)
   } else {
-    collapsedNodeIds.value.forEach(id => {
-      if (nodesWithChildren.value.has(id)) {
-        next.add(id)
-      }
-    })
-    nodesWithChildren.value.forEach(id => {
-      if (!collapsedNodeIds.value.has(id)) {
-        next.add(id)
-      }
-    })
+    next.add(nodeId)
   }
   collapsedNodeIds.value = next
 }
@@ -159,8 +161,15 @@ const refresh = async () => {
     await taxonomyStore.fetchAll()
     
     if (!hasLoadedCollapseState.value) {
-      // 第一次加载，全部关闭
-      syncCollapsedState(true)
+      // 第一次加载：默认关闭；勾选“默认打开”的节点自动展开
+      const next = new Set<string>()
+      nodesWithChildren.value.forEach(id => {
+        const node = idMap.value.get(id)
+        if (!node?.defaultOpen) {
+          next.add(id)
+        }
+      })
+      collapsedNodeIds.value = next
       hasLoadedCollapseState.value = true
     } else {
       // 后续加载，保留之前的展开状态，只清理那些不再有子节点的节点
@@ -212,6 +221,7 @@ const openCreate = (parent: string | null = null) => {
   modal.parent = parent
   modal.title = ''
   modal.description = ''
+  modal.defaultOpen = false
   modal.images = []
   modal.files = []
 }
@@ -224,6 +234,7 @@ const openEdit = (node: TaxonomyNode) => {
   modal.parent = node.parent || null
   modal.title = node.title
   modal.description = node.description
+  modal.defaultOpen = !!node.defaultOpen
   modal.images = [...(node.images || [])]
   modal.files = []
 }
@@ -255,14 +266,44 @@ const truncateDescription = (description: string) => {
 
 const openPreview = (node: TaxonomyNode) => {
   preview.show = true
+  preview.nodeId = node._id
   preview.title = node.title
   preview.description = node.description || ''
   preview.images = [...(node.images || [])]
   preview.createdTime = node.created_time
+  preview.position = ''
 }
 
 const closePreview = () => {
   preview.show = false
+  preview.nodeId = ''
+  preview.position = ''
+}
+
+const previewNode = computed(() => {
+  if (!preview.nodeId) return null
+  return idMap.value.get(preview.nodeId) || null
+})
+
+const previewCreateChild = () => {
+  if (!previewNode.value || !isAdmin.value) return
+  const node = previewNode.value
+  openCreate(node._id)
+  closePreview()
+}
+
+const previewEditNode = () => {
+  if (!previewNode.value || !isAdmin.value) return
+  const node = previewNode.value
+  openEdit(node)
+  closePreview()
+}
+
+const previewRemoveNode = async () => {
+  if (!previewNode.value || !isAdmin.value) return
+  const node = previewNode.value
+  closePreview()
+  await removeNode(node)
 }
 
 const saveModal = async () => {
@@ -282,6 +323,7 @@ const saveModal = async () => {
         title,
         description: modal.description,
         parent: modal.parent,
+        defaultOpen: modal.defaultOpen,
       })
       nodeId = created._id
     }
@@ -296,6 +338,7 @@ const saveModal = async () => {
       title,
       description: modal.description,
       images: mergedImages,
+      defaultOpen: modal.defaultOpen,
     })
 
     modal.show = false
@@ -502,11 +545,6 @@ onMounted(() => {
               </div>
             </div>
           </div>
-          <div class="actions" v-if="isAdmin">
-            <Btn small class="icon-btn" @click.stop="openCreate(item.node._id)">+</Btn>
-            <Btn small class="icon-btn" @click.stop="openEdit(item.node)">e</Btn>
-            <Btn small class="icon-btn" type="danger" @click.stop="removeNode(item.node)">-</Btn>
-          </div>
         </div>
       </div>
 
@@ -519,6 +557,10 @@ onMounted(() => {
           <div class="form-fields">
             <Input placeholder="名称" v-model="modal.title" />
             <Textarea placeholder="描述" :rows="10" v-model="modal.description"></Textarea>
+            <label class="default-open-row">
+              <input type="checkbox" v-model="modal.defaultOpen" />
+              <span>默认打开</span>
+            </label>
           </div>
 
           <div class="upload-row">
@@ -558,6 +600,11 @@ onMounted(() => {
               :style="{ backgroundImage: `url(${getThumb(img)})` }"
               @click.stop="imageStore.preview(getFull(img))"
             ></div>
+          </div>
+          <div class="preview-actions" v-if="isAdmin && previewNode">
+            <Btn @click.stop="previewCreateChild">添加子节点</Btn>
+            <Btn @click.stop="previewEditNode">编辑</Btn>
+            <Btn type="danger" @click.stop="previewRemoveNode">删除</Btn>
           </div>
         </div>
       </div>
@@ -762,15 +809,19 @@ onMounted(() => {
       }
     }
 
-    .actions {
-      display: flex;
-      align-items: center;
-      margin-left: 1rem;
+  }
+}
 
-      > .button:not(:last-child) {
-        margin-right: 0.5rem;
-      }
-    }
+.default-open-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 13px;
+  color: var(--text-secondary);
+  user-select: none;
+
+  input {
+    margin: 0;
   }
 }
 
@@ -896,6 +947,16 @@ onMounted(() => {
         text-align: left;
         font-size: 13px;
         color: var(--text-secondary);
+      }
+
+      .preview-actions {
+        margin-top: 0.75rem;
+        display: flex;
+        justify-content: flex-end;
+
+        > .button:not(:last-child) {
+          margin-right: 0.5rem;
+        }
       }
     }
   }

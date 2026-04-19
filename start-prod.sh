@@ -137,7 +137,11 @@ nohup npm run start:prod > "$LOG_DIR/server.log" 2>&1 &
 echo $! > "$PID_DIR/server.pid"
 
 cd "$APP_DIR"
-nohup npm run serve -- --host 0.0.0.0 --port "$APP_PORT" > "$LOG_DIR/app.log" 2>&1 &
+APP_PORT="$APP_PORT" \
+SSL_CERT_PATH="$SSL_CERT_PATH" \
+SSL_KEY_PATH="$SSL_KEY_PATH" \
+FORVERA_FORCE_HTTP="$FORVERA_FORCE_HTTP" \
+nohup node "$APP_DIR/serve-static.js" > "$LOG_DIR/app.log" 2>&1 &
 echo $! > "$PID_DIR/app.pid"
 
 SERVER_PROTO="http"

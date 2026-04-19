@@ -27,6 +27,7 @@ export interface TaxonomyNode extends Document {
   title: string;
   description: string;
   images: string[];
+  defaultOpen?: boolean;
   parent: string | null;
   order: number;
   created_time: Date;
@@ -37,6 +38,7 @@ export class CreateTaxonomyDto {
   title: string;
   description?: string;
   images?: string[];
+  defaultOpen?: boolean;
   parent?: string | null;
 }
 
@@ -44,6 +46,7 @@ export class UpdateTaxonomyDto {
   title?: string;
   description?: string;
   images?: string[];
+  defaultOpen?: boolean;
 }
 
 export class MoveTaxonomyDto {
@@ -55,6 +58,7 @@ export const TaxonomySchema = new Schema({
   title: { type: String, required: true },
   description: { type: String, default: '' },
   images: { type: [String], default: [] },
+  defaultOpen: { type: Boolean, default: false },
   parent: { type: Schema.Types.ObjectId, ref: 'Taxonomy', default: null },
   order: { type: Number, default: 0 },
   created_time: Date,
@@ -136,6 +140,7 @@ export class TaxonomyService {
       title: dto.title.trim(),
       description: dto.description || '',
       images: dto.images || [],
+      defaultOpen: !!dto.defaultOpen,
       parent: parentValue,
       order: siblingCount,
       created_time: now,
@@ -159,6 +164,9 @@ export class TaxonomyService {
     }
     if (Array.isArray(dto.images)) {
       payload.images = dto.images;
+    }
+    if (typeof dto.defaultOpen === 'boolean') {
+      payload.defaultOpen = dto.defaultOpen;
     }
 
     const updated = await this.taxonomyModel

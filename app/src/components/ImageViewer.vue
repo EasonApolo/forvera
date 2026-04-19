@@ -21,7 +21,8 @@ const frameHeight = ref(0)
 
 const frameDisplayWidth = computed(() => frameWidth.value || stageWidth.value)
 const frameDisplayHeight = computed(() => frameHeight.value || stageHeight.value)
-const thumbLayerSize = computed(() => Math.min(frameDisplayWidth.value, frameDisplayHeight.value))
+let restoreHtmlOverflow = ''
+let restoreBodyOverflow = ''
 
 const transformStyle = computed(() => {
   return `translate(${translateX.value}px, ${translateY.value}px) scale(${scale.value}) rotate(${rotation.value}deg)`
@@ -58,6 +59,19 @@ const resetTransform = () => {
   rotation.value = 0
 }
 
+const zoomBy = (delta: number) => {
+  const nextScale = Math.min(4, Math.max(1, scale.value + delta))
+  scale.value = Number(nextScale.toFixed(2))
+  if (scale.value === 1) {
+    translateX.value = 0
+    translateY.value = 0
+  }
+}
+
+const rotateRight = () => {
+  rotation.value += 90
+}
+
 const closeViewer = () => {
   resetTransform()
   frameWidth.value = 0
@@ -71,13 +85,7 @@ const onOriginalLoad = () => {
 
 const onWheel = (event: WheelEvent) => {
   event.preventDefault()
-  const delta = event.deltaY > 0 ? -0.1 : 0.1
-  const nextScale = Math.min(4, Math.max(1, scale.value + delta))
-  scale.value = Number(nextScale.toFixed(2))
-  if (scale.value === 1) {
-    translateX.value = 0
-    translateY.value = 0
-  }
+  zoomBy(event.deltaY > 0 ? -0.1 : 0.1)
 }
 
 const onPointerDown = (event: PointerEvent) => {
@@ -87,6 +95,8 @@ const onPointerDown = (event: PointerEvent) => {
   dragging.value = true
   startX.value = event.clientX - translateX.value
   startY.value = event.clientY - translateY.value
+  const target = event.currentTarget as HTMLElement | null
+  target?.setPointerCapture?.(event.pointerId)
 }
 
 const onPointerMove = (event: PointerEvent) => {
@@ -107,12 +117,22 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('resize', updateLayout)
+  document.documentElement.style.overflow = restoreHtmlOverflow
+  document.body.style.overflow = restoreBodyOverflow
 })
 
 watch(
   () => imageStore.show,
   async (show) => {
-    if (!show) return
+    if (!show) {
+      document.documentElement.style.overflow = restoreHtmlOverflow
+      document.body.style.overflow = restoreBodyOverflow
+      return
+    }
+    restoreHtmlOverflow = document.documentElement.style.overflow
+    restoreBodyOverflow = document.body.style.overflow
+    document.documentElement.style.overflow = 'hidden'
+    document.body.style.overflow = 'hidden'
     await nextTick()
     updateLayout()
   }
@@ -131,9 +151,22 @@ watch(
 
 <template>
   <transition name="fade">
-    <div v-if="imageStore.show" class="image-viewer" @wheel="onWheel" @pointermove="onPointerMove" @pointerup="onPointerUp" @pointercancel="onPointerUp">
+    <div
+      v-if="imageStore.show"
+      class="image-viewer"
+      @click="closeViewer"
+      @wheel.prevent="onWheel"
+      @pointermove="onPointerMove"
+      @pointerup="onPointerUp"
+      @pointercancel="onPointerUp"
+    >
       <div class="viewer-bg" @click="closeViewer"></div>
-      <CircleBtn class="close-btn" variant="overlay" icon="close" aria-label="close" :size="36" :mobile-size="40" @click="closeViewer" />
+      <CircleBtn class="close-btn" variant="overlay" icon="close" aria-label="close" :size="36" :mobile-size="40" @click.stop="closeViewer" />
+      <div class="toolbox" @click.stop>
+        <CircleBtn variant="overlay" aria-label="rotate-right" :size="34" :mobile-size="36" @click="rotateRight">
+          <img class="rotate-icon" src="/rotate.svg" alt="" aria-hidden="true" />
+        </CircleBtn>
+      </div>
       <div class="stage" ref="stageRef">
         <div
           class="media-frame"
@@ -142,6 +175,7 @@ watch(
             width: `${frameDisplayWidth}px`,
             height: `${frameDisplayHeight}px`,
           }"
+          @click.stop
           @pointerdown.stop.prevent="onPointerDown"
           @dblclick="resetTransform"
         >
@@ -149,8 +183,8 @@ watch(
             class="thumb-layer"
             :src="imageStore.thumbUrl"
             :style="{
-              width: `${thumbLayerSize}px`,
-              height: `${thumbLayerSize}px`,
+              width: `${frameDisplayWidth}px`,
+              height: `${frameDisplayHeight}px`,
             }"
             draggable="false"
           />
@@ -181,6 +215,8 @@ watch(
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  touch-action: none;
+  overscroll-behavior: contain;
 }
 
 .viewer-bg {
@@ -196,10 +232,33 @@ watch(
   z-index: 3;
 }
 
+.toolbox {
+  position: absolute;
+  left: 1rem;
+  top: 1rem;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.rotate-icon {
+  width: 60%;
+  height: 60%;
+  object-fit: contain;
+  display: block;
+}
+
 @media (max-width: 768px) {
   .close-btn {
     top: 0.75rem;
     right: 0.75rem;
+  }
+
+  .toolbox {
+    left: 0.75rem;
+    top: 0.75rem;
+    gap: 0.25rem;
   }
 }
 

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import Btn from './Btn.vue'
 
 type LocationPoint = {
   lat: number
@@ -22,9 +23,13 @@ const emit = defineEmits<{
 const globeRef = ref<HTMLDivElement | null>(null)
 const loading = ref(false)
 const loadError = ref('')
+const ZOOM_LEVELS = [0.003, 0.01, 0.3, 1, 3] as const
+const INITIAL_ZOOM_LEVEL = 0.01
+const ZOOM_EPSILON = 1e-8
 let globe: any = null
 let rafId = 0
 let selectedDotEl: HTMLElement | null = null
+const pendingSetHome = ref(false)
 const selectedPoint = ref<{
   lat: number
   lng: number
@@ -140,20 +145,31 @@ const getInitialView = () => {
   const points = props.points || []
   const home = [...points].reverse().find(p => p.source === 'home')
   if (home) {
-    return { lat: home.lat, lng: home.lng, altitude: 0.95 }
+    return { lat: home.lat, lng: home.lng, altitude: INITIAL_ZOOM_LEVEL }
   }
 
   const latest = points[points.length - 1]
   if (latest) {
-    return { lat: latest.lat, lng: latest.lng, altitude: 1.2 }
+    return { lat: latest.lat, lng: latest.lng, altitude: INITIAL_ZOOM_LEVEL }
   }
 
-  return { lat: 20, lng: 0, altitude: 1.8 }
+  return { lat: 20, lng: 0, altitude: INITIAL_ZOOM_LEVEL }
 }
 
 const centerToInitialView = (ms = 0) => {
   if (!globe) return
   globe.pointOfView(getInitialView(), ms)
+}
+
+const destroyGlobe = () => {
+  if (rafId) {
+    cancelAnimationFrame(rafId)
+    rafId = 0
+  }
+  if (globe && typeof globe._destructor === 'function') {
+    globe._destructor()
+  }
+  globe = null
 }
 
 const mountGlobe = async () => {
@@ -177,6 +193,7 @@ const mountGlobe = async () => {
         el.title = d.label
         el.addEventListener('click', (event) => {
           event.stopPropagation()
+          pendingSetHome.value = false
           selectedPoint.value = {
             lat: d.lat,
             lng: d.lng,
@@ -188,7 +205,7 @@ const mountGlobe = async () => {
           }
           el.classList.add('selected')
           selectedDotEl = el
-          globe.pointOfView({ lat: d.lat, lng: d.lng, altitude: 0.9 }, 700)
+          globe.pointOfView({ lat: d.lat, lng: d.lng, altitude: INITIAL_ZOOM_LEVEL }, 700)
         })
         return el
       })
@@ -219,12 +236,54 @@ const refreshGlobe = () => {
   }
 }
 
-const confirmSetHome = () => {
+const getNextZoomLevel = (currentAltitude: number, direction: 'in' | 'out') => {
+  if (direction === 'in') {
+    let candidate: number | null = null
+    for (const level of ZOOM_LEVELS) {
+      if (level < currentAltitude - ZOOM_EPSILON) {
+        candidate = level
+      }
+    }
+    return candidate
+  }
+
+  for (const level of ZOOM_LEVELS) {
+    if (level > currentAltitude + ZOOM_EPSILON) {
+      return level
+    }
+  }
+  return null
+}
+
+const zoomGlobe = (direction: 'in' | 'out') => {
+  if (!globe) return
+  const pov = globe.pointOfView()
+  const altitude = pov?.altitude ?? 1
+  const nextAltitude = getNextZoomLevel(altitude, direction)
+  if (nextAltitude === null) return
+  globe.pointOfView({ ...pov, altitude: nextAltitude }, 260)
+}
+
+const zoomIn = () => {
+  zoomGlobe('in')
+}
+
+const zoomOut = () => {
+  zoomGlobe('out')
+}
+
+const requestSetHomeConfirm = () => {
   if (!selectedPoint.value) return
+  pendingSetHome.value = true
+}
+
+const confirmSetHome = () => {
+  if (!selectedPoint.value || !pendingSetHome.value) return
   emit('set-home', {
     lat: selectedPoint.value.lat,
     lng: selectedPoint.value.lng,
   })
+  pendingSetHome.value = false
 }
 
 const formatCoord = (value: number) => value.toFixed(6)
@@ -239,7 +298,9 @@ watch(
       centerToInitialView(450)
     } else {
       selectedPoint.value = null
+      pendingSetHome.value = false
       selectedDotEl = null
+      destroyGlobe()
     }
   },
   { immediate: true },
@@ -254,11 +315,7 @@ watch(
 )
 
 onBeforeUnmount(() => {
-  if (rafId) {
-    cancelAnimationFrame(rafId)
-    rafId = 0
-  }
-  globe = null
+  destroyGlobe()
 })
 </script>
 
@@ -270,14 +327,27 @@ onBeforeUnmount(() => {
         <button class="close" @click="emit('close')">关闭</button>
       </div>
       <div ref="globeRef" class="globe"></div>
+      <div v-if="!loading && !loadError" class="zoom-controls">
+        <button class="zoom-btn" @click="zoomIn" aria-label="放大地球">+</button>
+        <button class="zoom-btn" @click="zoomOut" aria-label="缩小地球">-</button>
+      </div>
       <div v-if="loading" class="tip">地球加载中...</div>
       <div v-if="loadError" class="tip error">{{ loadError }}</div>
       <div v-if="selectedPoint" class="point-info">
-        <div class="point-title">已选位置</div>
-        <div class="point-line">纬度：{{ formatCoord(selectedPoint.lat) }}</div>
-        <div class="point-line">经度：{{ formatCoord(selectedPoint.lng) }}</div>
-        <div class="point-line">次数：{{ selectedPoint.count }}</div>
-        <button class="set-home" @click="confirmSetHome">设为家</button>
+        <div class="point-main">
+          <div class="coords">
+            <div class="point-line">纬度：{{ formatCoord(selectedPoint.lat) }}</div>
+            <div class="point-line">经度：{{ formatCoord(selectedPoint.lng) }}</div>
+          </div>
+          <div class="point-count">
+            <div class="count-label">次数</div>
+            <div class="count-value">{{ selectedPoint.count }}</div>
+          </div>
+        </div>
+        <div class="point-actions">
+          <Btn size="small" @click="requestSetHomeConfirm">设为家</Btn>
+          <Btn v-if="pendingSetHome" type="primary" size="small" @click="confirmSetHome">确定</Btn>
+        </div>
       </div>
     </div>
   </div>
@@ -367,35 +437,92 @@ onBeforeUnmount(() => {
   position: absolute;
   right: 0.75rem;
   bottom: 0.75rem;
-  min-width: 11rem;
-  background: rgba(20, 24, 35, 0.85);
-  color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 8px;
-  padding: 0.55rem 0.6rem;
+  min-width: 12.5rem;
+  background: rgba(var(--card-bg-rgb), 0.92);
+  color: var(--text);
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  padding: 0.5rem 0.55rem;
   font-size: 12px;
+  z-index: 2;
+  backdrop-filter: blur(6px);
+}
+
+.zoom-controls {
+  position: absolute;
+  left: 0.75rem;
+  bottom: 0.75rem;
+  display: flex;
+  gap: 0.45rem;
   z-index: 2;
 }
 
-.point-title {
-  font-size: 12px;
-  font-weight: 700;
-  margin-bottom: 0.3rem;
+.zoom-btn {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-light);
+  background: rgba(var(--card-bg-rgb), 0.9);
+  color: var(--text);
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.zoom-btn:active {
+  transform: translateY(1px) scale(0.98);
+}
+
+.point-main {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.coords {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  align-items: flex-start;
 }
 
 .point-line {
   line-height: 1.35;
+  text-align: left;
 }
 
-.set-home {
-  margin-top: 0.45rem;
-  width: 100%;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
-  font-size: 12px;
-  padding: 0.28rem 0.4rem;
-  cursor: pointer;
+.point-count {
+  min-width: 2.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 0.12rem;
+}
+
+.count-label {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.count-value {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.point-actions {
+  margin-top: 0.4rem;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+:global(:root.dark) .point-info,
+:global(:root.dark) .zoom-btn {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.28);
 }
 </style>

@@ -20,6 +20,7 @@ import HoldemRoomVue from './views/HoldemRoom.vue'
 import LoginVue from './views/Login.vue'
 import ExpiryCheckerVue from './views/Playground/ExpiryChecker.vue'
 import PetVue from './views/Pet.vue'
+import UserManageVue from './views/UserManage.vue'
 
 const routerOptions = {
   history: createWebHistory(),
@@ -54,6 +55,12 @@ const routerOptions = {
       path: '/category',
       component: CategoryVue,
       name: 'category',
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/user-manage',
+      component: UserManageVue,
+      name: 'userManage',
       meta: { requiresAuth: true },
     },
     { path: '/siteinfo', component: SiteInfoVue, name: 'siteinfo' },

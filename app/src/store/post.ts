@@ -27,11 +27,11 @@ export const usePostStore = defineStore('post', {
       let res = await request(`post/${postId}`, 'PUT', JSON.stringify(payload))
       return res
     },
-    async uploadSingleImage(postId: string, file: File) {
+    async uploadSingleImage(postId: string, file: File, keepOriginalRatio = false) {
       const fd = await request(
         `file/uploadSingle/${postId}`,
         'POST',
-        { file },
+        { file, keepOriginalRatio },
         { contentType: 'formData' }
       )
       return fd

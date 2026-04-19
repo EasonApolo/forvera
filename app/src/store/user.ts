@@ -9,6 +9,7 @@ export const useUserStore = defineStore('user', {
       password: '',
     },
     userInfo: {
+      _id: undefined,
       username: undefined,
       token: undefined,
       role: 0,
@@ -29,11 +30,12 @@ export const useUserStore = defineStore('user', {
         token = `Bearer ${token}`
         Object.assign(this.userInfo, { token })
         const res = await request('user/info', 'POST')
-        const { username, role, settings } = res
+        const { _id, username, role, settings } = res
         if (username) {
           localStorage.username = username
           localStorage.role = role
           Object.assign(this.userInfo, {
+            _id,
             username,
             role,
             settings: settings || {},
@@ -59,9 +61,11 @@ export const useUserStore = defineStore('user', {
       delete localStorage.username
       delete localStorage.role
       Object.assign(this.userInfo, {
+        _id: undefined,
         token: undefined,
         username: undefined,
         role: undefined,
+        settings: {},
       })
     },
     validateLoginForm() {

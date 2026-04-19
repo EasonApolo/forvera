@@ -64,7 +64,7 @@ export const useWriteStore = defineStore('write', {
       }
     },
     async uploadImage(image: File) {
-      await usePostStore().uploadSingleImage(this.postId, image)
+      await usePostStore().uploadSingleImage(this.postId, image, true)
       this.initUploadedImages()
     },
     async initUploadedImages() {

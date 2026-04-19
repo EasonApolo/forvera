@@ -162,6 +162,8 @@ watch(open, async (isOpen) => {
   padding: 0.45rem 0.55rem;
   box-shadow: 0 6px 20px var(--nav-shadow);
   white-space: normal;
+  color: var(--text);
+  font-weight: 400;
 }
 
 .pop-arrow,
@@ -188,12 +190,15 @@ watch(open, async (isOpen) => {
   display: flex;
   flex-direction: column;
   gap: 0.18rem;
+  color: var(--text);
+  font-weight: 400;
 }
 
 .pop-line {
   font-size: 12px;
-  color: var(--text-primary);
+  color: var(--text);
   line-height: 1.4;
+  font-weight: 400;
 }
 
 .pop-fade-enter-active,

@@ -51,12 +51,12 @@ const styleVars = computed(() => ({
       <path d="M6.5 9.5L12 15l5.5-5.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
     </svg>
     <svg v-else-if="icon === 'rotate-left'" class="circle-btn-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M7 9V5m0 0H3m4 0l-2.5 2.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-      <path d="M7 5a8 8 0 1 1-2.3 5.7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+      <path d="M3 2v6h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+      <path d="M3 8a9 9 0 1 0 2.83-6.36L3 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
     </svg>
     <svg v-else-if="icon === 'rotate-right'" class="circle-btn-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M17 9V5m0 0h4m-4 0l2.5 2.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-      <path d="M17 5a8 8 0 1 0 2.3 5.7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+      <path d="M21 2v6h-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+      <path d="M21 8a9 9 0 1 1-2.83-6.36L21 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
     </svg>
     <svg v-else-if="icon === 'close'" class="circle-btn-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path d="M6.5 6.5l11 11m0-11l-11 11" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />

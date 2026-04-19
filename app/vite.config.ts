@@ -23,6 +23,9 @@ export default defineConfig({
       ? {
           cert: fs.readFileSync(certPath),
           key: fs.readFileSync(keyPath),
+          // Vite 2.x + Node 20/22 may crash on HTTP/2 response handling in preview.
+          // Force TLS ALPN to HTTP/1.1 to avoid Http2ServerResponse runtime error.
+          ALPNProtocols: ['http/1.1'],
         }
       : false,
   },

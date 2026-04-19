@@ -12,19 +12,36 @@ import Popover from '../components/Popover.vue'
 import { ip } from '../config'
 
 type TodoKind =
-  | 'eat-mcdonald'
+  | 'eat-oreo'
+  | 'eat-cheese-beef-burger'
   | 'eat-luosifen'
+  | 'eat-sichuan-hotpot'
+  | 'eat-bbq'
+  | 'eat-salad'
+  | 'eat-baozi'
   | 'drink-water'
   | 'drink-hot-water'
   | 'drink-cold-water'
   | 'drink-coffee'
   | 'drink-tea'
+  | 'drink-ice-coconut-water'
+  | 'drink-hot-soymilk'
+  | 'drink-ice-cream'
   | 'sleep'
   | 'watch-short-video'
   | 'play-genshin'
   | 'slow-jog'
   | 'work-code'
   | 'work-live'
+
+type ActionTimePeriod =
+  | 'morning'
+  | 'forenoon'
+  | 'noon'
+  | 'afternoon'
+  | 'dusk'
+  | 'evening'
+  | 'late-night'
 
 type ActionCategory = {
   key: string
@@ -35,6 +52,8 @@ type ActionCategory = {
     totalMinutes: number
     mode?: 'finite' | 'ongoing'
     effects: string
+    availablePeriods?: ActionTimePeriod[]
+    settleEveryMinutes?: number
     skill?: {
       level: number
       exp: number
@@ -110,8 +129,11 @@ type PetState = {
     name: string
     description: string
     price: number
+    sellRate: number
     equippable: boolean
     equipped: boolean
+    durability: number
+    durabilityDailyDecay: number
     count: number
   }>
   shopCatalog: Array<{
@@ -119,7 +141,10 @@ type PetState = {
     name: string
     description: string
     price: number
+    sellRate: number
     equippable: boolean
+    initialDurability: number
+    durabilityDailyDecay: number
   }>
   currentTodo: {
     _id: string
@@ -142,6 +167,7 @@ type PetState = {
   } | null
   records: Array<{
     _id: string
+    type: 'start' | 'progress' | 'complete' | 'interrupt' | 'system'
     message: string
     happenedAt: string
   }>
@@ -165,8 +191,11 @@ const selectedThing = ref<{
   name: string
   description: string
   price: number
+  sellRate?: number
   equippable: boolean
   equipped?: boolean
+  durability?: number
+  durabilityDailyDecay?: number
   ownedCount?: number
 } | null>(null)
 const selectedThingSource = ref<'things' | 'buy'>('things')
@@ -237,10 +266,22 @@ const displayRecords = computed(() => {
   return [...state.value.records].reverse()
 })
 
+const isSystemRecord = (record: PetState['records'][number]) => {
+  return record.type === 'system'
+}
+
 const canBuySelectedThing = computed(() => {
   if (selectedThingSource.value !== 'buy' || !selectedThing.value) return false
   if (selectedThing.value.equippable && (selectedThing.value.ownedCount || 0) > 0) return false
   return state.value.stats.money >= selectedThing.value.price
+})
+
+const inventoryThings = computed(() => {
+  return [...state.value.things].sort((a, b) => {
+    if (a.equipped && !b.equipped) return -1
+    if (!a.equipped && b.equipped) return 1
+    return 0
+  })
 })
 
 const currentProgressText = computed(() => {
@@ -251,6 +292,16 @@ const currentProgressText = computed(() => {
   }
   return `${current.title} (${current.elapsedMinutes}/${current.totalMinutes} 分钟)`
 })
+
+const periodLabelMap: Record<ActionTimePeriod, string> = {
+  morning: '早晨',
+  forenoon: '上午',
+  noon: '中午',
+  afternoon: '下午',
+  dusk: '傍晚',
+  evening: '晚上',
+  'late-night': '深夜',
+}
 
 const getLevelByExp = (exp: number) => {
   if (exp >= 1000) return 3
@@ -266,6 +317,47 @@ const moneyGainByLevel = (kind: TodoKind, level: number) => {
     return level === 1 ? 1 : level === 2 ? 1.5 : 3
   }
   return 0
+}
+
+const getActionDurationText = (option: ActionCategory['options'][number]) => {
+  if (option.mode === 'ongoing' || option.totalMinutes <= 0) {
+    return `每${Math.max(1, option.settleEveryMinutes || 1)}分钟结算`
+  }
+  return `${option.totalMinutes}分钟`
+}
+
+const getActionAvailablePeriodsText = (option: ActionCategory['options'][number]) => {
+  if (option.kind === 'sleep') return '中午、晚上、深夜'
+  if (!option.availablePeriods?.length) return ''
+  return option.availablePeriods.map(period => periodLabelMap[period]).join('、')
+}
+
+const getWorkIncomeText = (kind: TodoKind, level: number) => {
+  return `${formatNumber(moneyGainByLevel(kind, level))}元/分钟`
+}
+
+const getActionSummary = (option: ActionCategory['options'][number]) => {
+  if (option.skill) {
+    return `${option.effects} ${getWorkIncomeText(option.kind, option.skill.level)}`
+  }
+  return option.effects
+}
+
+const getActionPopoverContent = (option: ActionCategory['options'][number]) => {
+  const lines = [`时长：${getActionDurationText(option)}`, `效果：${option.effects}`]
+
+  const availablePeriodsText = getActionAvailablePeriodsText(option)
+  if (availablePeriodsText) {
+    lines.unshift(`可用时间：${availablePeriodsText}`)
+  }
+
+  if (option.skill) {
+    lines.push(`当前等级：Lv${option.skill.level}`)
+    lines.push(`当前经验：${option.skill.exp}/${option.skill.maxExp}`)
+    lines.push(`等级收益：${getWorkIncomeText(option.kind, 1)} / ${getWorkIncomeText(option.kind, 2)} / ${getWorkIncomeText(option.kind, 3)}`)
+  }
+
+  return lines.join('\n')
 }
 
 const formatNumber = (val: number) => {
@@ -449,8 +541,11 @@ const openThingDetailFromInventory = (thing: PetState['things'][number]) => {
     name: thing.name,
     description: thing.description,
     price: thing.price,
+    sellRate: thing.sellRate,
     equippable: thing.equippable,
     equipped: thing.equipped,
+    durability: thing.durability,
+    durabilityDailyDecay: thing.durabilityDailyDecay,
     ownedCount: thing.count,
   }
 }
@@ -463,8 +558,11 @@ const openThingDetailFromShop = (thing: PetState['shopCatalog'][number]) => {
     name: thing.name,
     description: thing.description,
     price: thing.price,
+    sellRate: thing.sellRate,
     equippable: thing.equippable,
     equipped: owned?.equipped || false,
+    durability: owned?.durability || thing.initialDurability || 0,
+    durabilityDailyDecay: owned?.durabilityDailyDecay || thing.durabilityDailyDecay || 0,
     ownedCount: owned?.count || 0,
   }
 }
@@ -473,9 +571,9 @@ const getOwnedThing = (itemId: string) => {
   return state.value.things.find(entry => entry.itemId === itemId)
 }
 
-const getSellPriceLabel = (thing: { price: number } | null) => {
+const getSellPriceLabel = (thing: { price: number; sellRate?: number } | null) => {
   if (!thing) return '0'
-  return formatNumber(Math.max(0, thing.price || 0))
+  return formatNumber(Math.max(0, (thing.price || 0) * Math.max(0, thing.sellRate || 0)))
 }
 
 const purchaseSelectedThing = () => {
@@ -500,6 +598,23 @@ const equipSelectedThing = () => {
   if (!selectedThing.value || selectedThingSource.value !== 'things') return
   socketRef.value?.emit(
     'equipPetThing',
+    {
+      petId,
+      itemId: selectedThing.value.itemId,
+    },
+    (snapshot?: PetState) => {
+      if (snapshot) {
+        applyPetState(snapshot)
+      }
+      selectedThing.value = null
+    }
+  )
+}
+
+const unequipSelectedThing = () => {
+  if (!selectedThing.value || selectedThingSource.value !== 'things') return
+  socketRef.value?.emit(
+    'unequipPetThing',
     {
       petId,
       itemId: selectedThing.value.itemId,
@@ -744,7 +859,7 @@ onUnmounted(() => {
             placeholder="输入名字"
             @submit="submitPetName"
           />
-          <Btn small :loading="restarting" @click="restartPet">重启</Btn>
+          <Btn size="small" :loading="restarting" @click="restartPet">重启</Btn>
         </div>
         <div class="pet-status">当前：{{ currentProgressText }}</div>
         <div class="pet-gain">{{ currentGainText }}</div>
@@ -755,7 +870,12 @@ onUnmounted(() => {
 
       <Card v-else class="log-card">
         <div class="log-list">
-          <div class="log-item" v-for="record in displayRecords" :key="record._id">
+          <div
+            class="log-item"
+            :class="{ system: isSystemRecord(record) }"
+            v-for="record in displayRecords"
+            :key="record._id"
+          >
             <div class="time" :title="formatFullTime(record.happenedAt)">
               {{ formatTime(record.happenedAt) }}
             </div>
@@ -775,12 +895,12 @@ onUnmounted(() => {
         >
           <div class="action-main">
             <div class="action-left">
-              <div class="name">
-                {{ option.title }}
-                <span v-if="option.kind === 'sleep'" class="sleep-badge">😴</span>
-                <span class="duration">
-                  ({{ option.mode === 'ongoing' || option.totalMinutes <= 0 ? '每分钟' : `${option.totalMinutes}分钟` }})
-                </span>
+              <div class="name-row">
+                <div class="name">
+                  {{ option.title }}
+                  <span v-if="option.kind === 'sleep'" class="sleep-badge">😴</span>
+                </div>
+                <Popover :content="getActionPopoverContent(option)" />
               </div>
               <div class="skill" v-if="option.skill">
                 <div class="skill-row">
@@ -799,7 +919,7 @@ onUnmounted(() => {
                 </div>
               </div>
             </div>
-            <div class="effect">{{ option.effects }}</div>
+            <div class="effect">{{ getActionSummary(option) }}</div>
           </div>
         </div>
       </div>
@@ -823,7 +943,7 @@ onUnmounted(() => {
           <div
             class="item-cell"
             :class="{ equipped: thing.equipped }"
-            v-for="thing in state.things"
+            v-for="thing in inventoryThings"
             :key="thing.itemId"
             @click="openThingDetailFromInventory(thing)"
           >
@@ -856,6 +976,7 @@ onUnmounted(() => {
           <div class="thing-detail-desc">{{ selectedThing.description || '暂无介绍' }}</div>
           <div class="thing-detail-price" v-if="selectedThingSource === 'buy'">{{ selectedThing.price }}元</div>
           <div class="thing-detail-owned" v-if="(selectedThing.ownedCount || 0) > 1">持有：{{ selectedThing.ownedCount }}</div>
+          <div class="thing-detail-owned" v-if="selectedThingSource === 'things' && selectedThing.equippable">耐久：{{ formatNumber(selectedThing.durability || 0) }}</div>
 
           <div class="thing-detail-actions">
             <Btn
@@ -876,6 +997,12 @@ onUnmounted(() => {
               small
               @click="equipSelectedThing"
             >装备</Btn>
+
+            <Btn
+              v-if="selectedThingSource === 'things' && selectedThing.equippable && selectedThing.equipped"
+              small
+              @click="unequipSelectedThing"
+            >卸下</Btn>
 
             <Btn
               v-if="selectedThingSource === 'things' && (selectedThing.ownedCount || 0) > 0"
@@ -975,7 +1102,7 @@ onUnmounted(() => {
         <div class="status-row travel-row">
           <div class="status-main">
             <span>旅行</span>
-            <Btn small @click="openGlobe">地球</Btn>
+            <Btn size="small" @click="openGlobe">地球</Btn>
           </div>
           <span class="travel-inline">{{ travelTypeText }}（{{ formatNumber(state.travel.distanceKm) }}km）</span>
         </div>
@@ -1036,6 +1163,10 @@ onUnmounted(() => {
     align-items: center;
     justify-content: space-between;
     gap: 0.5rem;
+
+    :deep(.button) {
+      font-weight: 400;
+    }
   }
 
   .pet-status {
@@ -1081,6 +1212,13 @@ onUnmounted(() => {
     font-size: 13px;
     word-break: break-all;
     line-height: 1.4;
+  }
+
+  &.system {
+    .time,
+    .msg {
+      color: var(--text-secondary);
+    }
   }
 }
 
@@ -1140,19 +1278,21 @@ onUnmounted(() => {
     flex: 0 0 auto;
   }
 
+  .name-row {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    min-width: 0;
+  }
+
   .name {
     font-weight: 700;
     font-size: 13px;
     display: flex;
     align-items: center;
     gap: 0.25rem;
-    flex-shrink: 0;
-
-    .duration {
-      font-weight: 400;
-      color: var(--text-secondary);
-      font-size: 12px;
-    }
+    min-width: 0;
+    flex-shrink: 1;
 
     .sleep-badge {
       display: inline-flex;
@@ -1165,7 +1305,8 @@ onUnmounted(() => {
       background: #0f2a68;
       color: #dbe8ff;
       font-size: 11px;
-      line-height: 1;
+      line-height: normal;
+      transform: translateY(0.5px);
     }
   }
 
@@ -1313,8 +1454,11 @@ onUnmounted(() => {
     background: #b42318;
     color: #fff;
     font-size: 10px;
-    line-height: 1rem;
-    text-align: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: normal;
+    transform: translateY(0.5px);
   }
 
 }
@@ -1430,7 +1574,8 @@ onUnmounted(() => {
   padding: 0 0.4rem;
   border-radius: 999px;
   font-size: 11px;
-  line-height: 1;
+  line-height: normal;
+  transform: translateY(0.5px);
 
   &.danger {
     background: #b42318;

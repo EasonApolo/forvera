@@ -6,6 +6,7 @@ export interface TaxonomyNode {
   title: string
   description: string
   images: string[]
+  defaultOpen?: boolean
   parent: string | null
   order: number
   created_time: string
@@ -26,6 +27,7 @@ export const useTaxonomyStore = defineStore('taxonomy', {
       description: string
       parent: string | null
       images?: string[]
+      defaultOpen?: boolean
     }) {
       return await request('taxonomy', 'POST', payload)
     },
@@ -35,6 +37,7 @@ export const useTaxonomyStore = defineStore('taxonomy', {
         title?: string
         description?: string
         images?: string[]
+        defaultOpen?: boolean
       }
     ) {
       return await request(`taxonomy/${nodeId}`, 'PUT', payload)

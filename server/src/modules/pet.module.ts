@@ -20,13 +20,21 @@ import { Server, Socket } from 'socket.io';
 import { Public } from 'src/guards/jwt-auth.guard';
 
 type PetTodoKind =
-  | 'eat-mcdonald'
+  | 'eat-oreo'
+  | 'eat-cheese-beef-burger'
   | 'eat-luosifen'
+  | 'eat-sichuan-hotpot'
+  | 'eat-bbq'
+  | 'eat-salad'
+  | 'eat-baozi'
   | 'drink-water'
   | 'drink-hot-water'
   | 'drink-cold-water'
   | 'drink-coffee'
   | 'drink-tea'
+  | 'drink-ice-coconut-water'
+  | 'drink-hot-soymilk'
+  | 'drink-ice-cream'
   | 'sleep'
   | 'watch-short-video'
   | 'play-genshin'
@@ -35,12 +43,14 @@ type PetTodoKind =
   | 'work-live';
 type PetTodoStatus = 'running' | 'done' | 'cancelled';
 type PetTodoMode = 'finite' | 'ongoing';
+type AutoPickSource = 'hunger' | 'thirst' | 'energy' | 'happiness' | 'work' | 'leisure';
+type TimePeriod = 'morning' | 'forenoon' | 'noon' | 'afternoon' | 'dusk' | 'evening' | 'late-night';
 
 const SKILL_THRESHOLDS = [100, 300, 1000];
 const SKILL_MAX_EXP = 1500;
 const round2 = (value: number) => Math.round(value * 100) / 100;
 const round3 = (value: number) => Math.round(value * 1000) / 1000;
-const MOCK_WEATHER_TEMP_C: number | null = -20;
+const MOCK_WEATHER_TEMP_C: number | null = null;
 const BASE_EFFECTS_PER_MINUTE = {
   hunger: -0.12,
   thirst: -0.18,
@@ -52,6 +62,43 @@ const AUTO_TRIGGER_THRESHOLD = {
   thirst: 30,
   energy: 30,
   happiness: 50,
+};
+
+const PICK_DECISION_COOLDOWN_MS = 20 * 60 * 1000;
+const PICK_PROBABILITY_POINTS: Record<
+  Extract<AutoPickSource, 'hunger' | 'thirst' | 'happiness' | 'energy'>,
+  Array<{ value: number; probability: number }>
+> = {
+  hunger: [
+    { value: 50, probability: 0.05 },
+    { value: 40, probability: 0.15 },
+    { value: 30, probability: 0.6 },
+    { value: 20, probability: 0.9 },
+    { value: 10, probability: 0.97 },
+    { value: 0, probability: 1 },
+  ],
+  thirst: [
+    { value: 70, probability: 0.05 },
+    { value: 50, probability: 0.2 },
+    { value: 40, probability: 0.4 },
+    { value: 30, probability: 0.6 },
+    { value: 20, probability: 0.9 },
+    { value: 10, probability: 0.99 },
+    { value: 0, probability: 1 },
+  ],
+  happiness: [
+    { value: 80, probability: 0.05 },
+    { value: 50, probability: 0.2 },
+    { value: 20, probability: 0.9 },
+    { value: 0, probability: 1 },
+  ],
+  energy: [
+    { value: 50, probability: 0.05 },
+    { value: 30, probability: 0.3 },
+    { value: 20, probability: 0.7 },
+    { value: 10, probability: 0.9 },
+    { value: 0, probability: 1 },
+  ],
 };
 
 const DEFAULT_PET_ID = 'default-pet';
@@ -86,6 +133,7 @@ interface TodoTemplate {
   title: string;
   mode: PetTodoMode;
   totalMinutes: number;
+  availablePeriods?: TimePeriod[];
   settleEveryMinutes?: number;
   minDurationMinutes?: number;
   hungerDelta: number;
@@ -106,6 +154,9 @@ type ShopItem = {
   description: string;
   price: number;
   equippable: boolean;
+  sellRate: number;
+  initialDurability: number;
+  durabilityDailyDecay: number;
 };
 
 const SHOP_CATALOG: ShopItem[] = [
@@ -115,6 +166,9 @@ const SHOP_CATALOG: ShopItem[] = [
     description: '黑色针织毛衣，低于10°C时，天气的降温效果*50%，并自带+0.05/分钟升温。',
     price: 35,
     equippable: true,
+    sellRate: 0.8,
+    initialDurability: 100,
+    durabilityDailyDecay: 0.2,
   },
   {
     itemId: 'revive-potion',
@@ -122,13 +176,30 @@ const SHOP_CATALOG: ShopItem[] = [
     description: '立即回复100健康，并赋予120分钟回复 buff（每分钟+1健康）。',
     price: 0,
     equippable: false,
+    sellRate: 1,
+    initialDurability: 0,
+    durabilityDailyDecay: 0,
   },
 ];
 
 const TODO_TEMPLATES: Record<PetTodoKind, TodoTemplate> = {
-  'eat-mcdonald': {
-    kind: 'eat-mcdonald',
-    title: '吃麦当劳',
+  'eat-oreo': {
+    kind: 'eat-oreo',
+    title: '奥利奥饼干',
+    mode: 'finite',
+    totalMinutes: 5,
+    hungerDelta: 30,
+    thirstDelta: -10,
+    happinessDelta: 0,
+    energyDelta: 0,
+    healthDelta: 0,
+    warmthDelta: 0,
+    moneyDelta: -8,
+    caloriesDelta: 400,
+  },
+  'eat-cheese-beef-burger': {
+    kind: 'eat-cheese-beef-burger',
+    title: '芝士牛肉汉堡',
     mode: 'finite',
     totalMinutes: 15,
     hungerDelta: 60,
@@ -137,7 +208,7 @@ const TODO_TEMPLATES: Record<PetTodoKind, TodoTemplate> = {
     energyDelta: 0,
     healthDelta: 0,
     warmthDelta: 0,
-    moneyDelta: -25,
+    moneyDelta: -28,
     caloriesDelta: 800,
   },
   'eat-luosifen': {
@@ -153,6 +224,65 @@ const TODO_TEMPLATES: Record<PetTodoKind, TodoTemplate> = {
     warmthDelta: 0,
     moneyDelta: -18,
     caloriesDelta: 800,
+  },
+  'eat-sichuan-hotpot': {
+    kind: 'eat-sichuan-hotpot',
+    title: '四川火锅',
+    mode: 'finite',
+    totalMinutes: 45,
+    availablePeriods: ['dusk', 'evening'],
+    hungerDelta: 100,
+    thirstDelta: -50,
+    happinessDelta: 15,
+    energyDelta: 0,
+    healthDelta: 0,
+    warmthDelta: 10,
+    moneyDelta: -124,
+    caloriesDelta: 1500,
+  },
+  'eat-bbq': {
+    kind: 'eat-bbq',
+    title: '烧烤',
+    mode: 'finite',
+    totalMinutes: 40,
+    availablePeriods: ['evening', 'late-night'],
+    hungerDelta: 80,
+    thirstDelta: -40,
+    happinessDelta: 10,
+    energyDelta: 0,
+    healthDelta: 0,
+    warmthDelta: 4,
+    moneyDelta: -115,
+    caloriesDelta: 1400,
+  },
+  'eat-salad': {
+    kind: 'eat-salad',
+    title: '蔬菜沙拉',
+    mode: 'finite',
+    totalMinutes: 10,
+    hungerDelta: 50,
+    thirstDelta: 5,
+    happinessDelta: -10,
+    energyDelta: 0,
+    healthDelta: 5,
+    warmthDelta: 0,
+    moneyDelta: -22,
+    caloriesDelta: 200,
+  },
+  'eat-baozi': {
+    kind: 'eat-baozi',
+    title: '包子',
+    mode: 'finite',
+    totalMinutes: 8,
+    availablePeriods: ['morning'],
+    hungerDelta: 55,
+    thirstDelta: 0,
+    happinessDelta: 0,
+    energyDelta: 0,
+    healthDelta: 0,
+    warmthDelta: 0,
+    moneyDelta: -5,
+    caloriesDelta: 400,
   },
   'drink-water': {
     kind: 'drink-water',
@@ -198,6 +328,7 @@ const TODO_TEMPLATES: Record<PetTodoKind, TodoTemplate> = {
     title: '咖啡',
     mode: 'finite',
     totalMinutes: 10,
+    availablePeriods: ['morning', 'forenoon', 'noon', 'afternoon'],
     hungerDelta: 0,
     thirstDelta: 20,
     happinessDelta: 0,
@@ -212,6 +343,7 @@ const TODO_TEMPLATES: Record<PetTodoKind, TodoTemplate> = {
     title: '绿茶',
     mode: 'finite',
     totalMinutes: 15,
+    availablePeriods: ['morning', 'forenoon', 'noon', 'afternoon'],
     hungerDelta: 0,
     thirstDelta: 20,
     happinessDelta: 0,
@@ -221,10 +353,53 @@ const TODO_TEMPLATES: Record<PetTodoKind, TodoTemplate> = {
     moneyDelta: -12,
     teaEnergyBuffMinutes: 150,
   },
+  'drink-ice-coconut-water': {
+    kind: 'drink-ice-coconut-water',
+    title: '冰椰子水',
+    mode: 'finite',
+    totalMinutes: 6,
+    hungerDelta: 0,
+    thirstDelta: 25,
+    happinessDelta: 3,
+    energyDelta: 0,
+    healthDelta: 0,
+    warmthDelta: -4,
+    moneyDelta: -10,
+    caloriesDelta: 100,
+  },
+  'drink-hot-soymilk': {
+    kind: 'drink-hot-soymilk',
+    title: '热豆浆',
+    mode: 'finite',
+    totalMinutes: 6,
+    hungerDelta: 0,
+    thirstDelta: 25,
+    happinessDelta: 0,
+    energyDelta: 0,
+    healthDelta: 0,
+    warmthDelta: 10,
+    moneyDelta: -4,
+    caloriesDelta: 250,
+  },
+  'drink-ice-cream': {
+    kind: 'drink-ice-cream',
+    title: '冰淇淋',
+    mode: 'finite',
+    totalMinutes: 8,
+    hungerDelta: 5,
+    thirstDelta: 5,
+    happinessDelta: 30,
+    energyDelta: 0,
+    healthDelta: -1,
+    warmthDelta: -25,
+    moneyDelta: -13,
+    caloriesDelta: 500,
+  },
   sleep: {
     kind: 'sleep',
     title: '睡觉',
     mode: 'ongoing',
+    availablePeriods: ['noon', 'evening', 'late-night'],
     totalMinutes: 0,
     settleEveryMinutes: 1,
     minDurationMinutes: 60,
@@ -354,7 +529,10 @@ export class PetThing extends MongooseDocument {
   @Prop({ required: true, default: '' }) description: string;
   @Prop({ required: true, default: 0 }) price: number;
   @Prop({ required: true, default: false }) equippable: boolean;
+  @Prop({ required: true, default: 1 }) sellRate: number;
   @Prop({ required: true, default: false }) equipped: boolean;
+  @Prop({ required: true, default: 0 }) durability: number;
+  @Prop({ required: true, default: 0 }) durabilityDailyDecay: number;
   @Prop({ required: true, default: 0 }) count: number;
 }
 
@@ -382,6 +560,7 @@ export class PetTodo extends MongooseDocument {
   @Prop({ required: true, default: 1 }) skillLevel: number;
   @Prop({ required: true, default: 0 }) caloriesDelta: number;
   @Prop({ required: true, default: 0 }) teaEnergyBuffMinutes: number;
+  @Prop({ default: null }) pickedBy?: AutoPickSource | null;
   @Prop() startedAt?: Date;
   @Prop() endedAt?: Date;
 }
@@ -389,7 +568,7 @@ export class PetTodo extends MongooseDocument {
 @Schema({ timestamps: true, collection: 'pet-records' })
 export class PetRecord extends MongooseDocument {
   @Prop({ required: true }) petId: string;
-  @Prop({ required: true }) type: 'start' | 'progress' | 'complete' | 'interrupt';
+  @Prop({ required: true }) type: 'start' | 'progress' | 'complete' | 'interrupt' | 'system';
   @Prop({ required: true }) message: string;
   @Prop() todoId?: string;
   @Prop({ required: true, default: Date.now }) happenedAt: Date;
@@ -451,6 +630,7 @@ type StatusEffects = {
 type AutoTodoPlan = {
   kind: PetTodoKind;
   reason?: string;
+  pickedBy?: AutoPickSource;
 };
 
 export const PetStatsSchema = SchemaFactory.createForClass(PetStats);
@@ -465,6 +645,10 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
   private dailyTimer: NodeJS.Timeout | null = null;
   private lastDecayDate = '';
   private weatherCache = new Map<string, { expiresAt: number; data: WeatherInfo }>();
+  private pickDecisionCooldownUntil = new Map<
+    Extract<AutoPickSource, 'hunger' | 'thirst' | 'happiness' | 'energy'>,
+    number
+  >();
 
   constructor(
     @InjectModel(PetStats.name) private petStatsModel: Model<PetStats>,
@@ -535,18 +719,83 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
 
   private getTimePeriodByBeijing(date = new Date()) {
     const totalMinutes = this.getBeijingMinutes(date);
-    if (totalMinutes >= 6 * 60 && totalMinutes < 9 * 60) return 'morning' as const;
-    if (totalMinutes >= 9 * 60 && totalMinutes < 11 * 60 + 30) return 'forenoon' as const;
-    if (totalMinutes >= 11 * 60 + 30 && totalMinutes < 13 * 60 + 30) return 'noon' as const;
-    if (totalMinutes >= 13 * 60 + 30 && totalMinutes < 17 * 60) return 'afternoon' as const;
-    if (totalMinutes >= 17 * 60 && totalMinutes < 19 * 60) return 'dusk' as const;
-    if (totalMinutes >= 19 * 60) return 'evening' as const;
-    return 'late-night' as const;
+    if (totalMinutes >= 6 * 60 && totalMinutes < 9 * 60) return 'morning';
+    if (totalMinutes >= 9 * 60 && totalMinutes < 11 * 60 + 30) return 'forenoon';
+    if (totalMinutes >= 11 * 60 + 30 && totalMinutes < 13 * 60 + 30) return 'noon';
+    if (totalMinutes >= 13 * 60 + 30 && totalMinutes < 17 * 60) return 'afternoon';
+    if (totalMinutes >= 17 * 60 && totalMinutes < 19 * 60) return 'dusk';
+    if (totalMinutes >= 19 * 60 && totalMinutes < 24 * 60) return 'evening';
+    return 'late-night';
   }
 
   private canSleepNow(date = new Date()) {
     const period = this.getTimePeriodByBeijing(date);
-    return period === 'noon' || period === 'late-night';
+    return period === 'noon' || period === 'evening' || period === 'late-night';
+  }
+
+  private isTodoAvailableAt(kind: PetTodoKind, date = new Date()) {
+    if (kind === 'sleep') {
+      return this.canSleepNow(date);
+    }
+    const template = TODO_TEMPLATES[kind];
+    if (!template) {
+      return false;
+    }
+    if (!template.availablePeriods?.length) {
+      return true;
+    }
+    return template.availablePeriods.includes(this.getTimePeriodByBeijing(date));
+  }
+
+  private getInterpolatedProbability(
+    value: number,
+    points: Array<{ value: number; probability: number }>,
+  ) {
+    if (!points.length) {
+      return 0;
+    }
+
+    const sorted = [...points].sort((a, b) => b.value - a.value);
+    if (value >= sorted[0].value) {
+      return sorted[0].probability;
+    }
+    if (value <= sorted[sorted.length - 1].value) {
+      return sorted[sorted.length - 1].probability;
+    }
+
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const upper = sorted[i];
+      const lower = sorted[i + 1];
+      if (value <= upper.value && value >= lower.value) {
+        const ratio = (upper.value - value) / (upper.value - lower.value);
+        return upper.probability + (lower.probability - upper.probability) * ratio;
+      }
+    }
+
+    return 0;
+  }
+
+  private pickThisTodoKind(
+    source: Extract<AutoPickSource, 'hunger' | 'thirst' | 'happiness' | 'energy'>,
+    value: number,
+  ) {
+    const now = Date.now();
+    const cooldownUntil = Number(this.pickDecisionCooldownUntil.get(source) || 0);
+    if (cooldownUntil > now) {
+      return false;
+    }
+
+    const points = PICK_PROBABILITY_POINTS[source];
+    const probability = this.getInterpolatedProbability(Number(value || 0), points);
+    const shouldPick = Math.random() < probability;
+
+    if (!shouldPick) {
+      this.pickDecisionCooldownUntil.set(source, now + PICK_DECISION_COOLDOWN_MS);
+    } else {
+      this.pickDecisionCooldownUntil.delete(source);
+    }
+
+    return shouldPick;
   }
 
   private async runDailyDecayIfNeeded() {
@@ -604,10 +853,28 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
         await latest.save();
       }
 
+      const equippedThings = await this.petThingModel
+        .find({
+          petId,
+          equipped: true,
+          durabilityDailyDecay: { $gt: 0 },
+          durability: { $gt: 0 },
+        })
+        .exec();
+
+      for (const thing of equippedThings) {
+        const decay = Math.max(0, Number(thing.durabilityDailyDecay || 0));
+        if (!decay) {
+          continue;
+        }
+        thing.durability = round2(Math.max(0, Number(thing.durability || 0) - decay));
+        await thing.save();
+      }
+
       await this.petRecordModel.create({
         petId,
-        type: 'progress',
-        message: `日结 卡${round2(calories)} 体重${weightDelta >= 0 ? '+' : ''}${round3(weightDelta)}kg 技能-10`,
+        type: 'system',
+        message: `日结 卡${round2(calories)} 体重${weightDelta >= 0 ? '+' : ''}${round3(weightDelta)}kg 技能-10 已衰减装备耐久`,
         happenedAt: new Date(),
       });
     }
@@ -809,10 +1076,34 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
       .updateMany({ petId, equippable: { $exists: false } }, { $set: { equippable: false } })
       .exec();
     await this.petThingModel
+      .updateMany({ petId, sellRate: { $exists: false } }, { $set: { sellRate: 1 } })
+      .exec();
+    await this.petThingModel
       .updateMany({ petId, equipped: { $exists: false } }, { $set: { equipped: false } })
       .exec();
     await this.petThingModel
+      .updateMany({ petId, durability: { $exists: false } }, { $set: { durability: 0 } })
+      .exec();
+    await this.petThingModel
+      .updateMany(
+        { petId, durabilityDailyDecay: { $exists: false } },
+        { $set: { durabilityDailyDecay: 0 } },
+      )
+      .exec();
+    await this.petThingModel
       .updateMany({ petId, equippable: true, count: { $gt: 1 } }, { $set: { count: 1 } })
+      .exec();
+    await this.petThingModel
+      .updateMany(
+        { petId, itemId: 'black-sweater' },
+        { $set: { sellRate: 0.8, durabilityDailyDecay: 0.2 } },
+      )
+      .exec();
+    await this.petThingModel
+      .updateMany(
+        { petId, itemId: 'black-sweater', durability: { $lte: 0 } },
+        { $set: { durability: 100 } },
+      )
       .exec();
   }
 
@@ -865,6 +1156,85 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
       .lean()
       .exec();
 
+    const toActionOption = (
+      kind: PetTodoKind,
+      effects: string,
+      skill?: ReturnType<PetService['buildSkillView']>,
+    ) => {
+      const template = TODO_TEMPLATES[kind];
+      return {
+        kind,
+        title: template.title,
+        totalMinutes: template.totalMinutes,
+        mode: template.mode,
+        effects,
+        availablePeriods: template.availablePeriods || [],
+        settleEveryMinutes: template.settleEveryMinutes || 1,
+        skill,
+      };
+    };
+
+    const actionCatalog: Array<{
+      key: string;
+      title: string;
+      options: Array<{
+        kind: PetTodoKind;
+        title: string;
+        totalMinutes: number;
+        mode: 'finite' | 'ongoing';
+        effects: string;
+        availablePeriods: TimePeriod[];
+        settleEveryMinutes: number;
+        skill?: ReturnType<PetService['buildSkillView']>;
+      }>;
+    }> = [
+      {
+        key: 'eat',
+        title: '吃',
+        options: [
+          toActionOption('eat-oreo', '+400卡 +30饱 -10水 -8元'),
+          toActionOption('eat-cheese-beef-burger', '+800卡 +60饱 -5水 +10快乐 -28元'),
+          toActionOption('eat-luosifen', '+800卡 +70饱 -20水 +10快乐 -18元'),
+          toActionOption('eat-sichuan-hotpot', '+1500卡 +100饱 -50水 +15快乐 -124元'),
+          toActionOption('eat-bbq', '+1400卡 +80饱 -40水 +10快乐 -115元'),
+          toActionOption('eat-salad', '+200卡 +50饱 +5水 +5健康 -10快乐 -22元'),
+          toActionOption('eat-baozi', '+400卡 +55饱 -5元'),
+        ],
+      },
+      {
+        key: 'drink',
+        title: '喝',
+        options: [
+          toActionOption('drink-water', '+30水 -1冷暖'),
+          toActionOption('drink-hot-water', '+25水 +1健康 +10冷暖'),
+          toActionOption('drink-cold-water', '+35水 +1快乐 -0.2健康 -10冷暖'),
+          toActionOption('drink-coffee', '-15元 +60卡 +20水 +20精力'),
+          toActionOption('drink-tea', '-12元 +20水 +10精力 +0.1精力(150分钟)'),
+          toActionOption('drink-ice-coconut-water', '-10元 +100卡 +25水 +3快乐'),
+          toActionOption('drink-hot-soymilk', '-4元 +250卡 +25水 +10冷暖'),
+          toActionOption('drink-ice-cream', '-13元 +500卡 +5饱 +5水 +30快乐 -1健康 -25冷暖'),
+        ],
+      },
+      {
+        key: 'fun',
+        title: '休闲',
+        options: [
+          toActionOption('sleep', '+0.25精力'),
+          toActionOption('watch-short-video', '-0.1精力 +0.15快乐'),
+          toActionOption('play-genshin', '-0.12精力 +0.2快乐'),
+          toActionOption('slow-jog', '-5卡 -0.4饱度 +0.1精力 +0.1健康'),
+        ],
+      },
+      {
+        key: 'work',
+        title: '工作',
+        options: [
+          toActionOption('work-live', '-0.2快乐 -0.1精力', skillMap.get('work-live') || this.buildSkillView(0)),
+          toActionOption('work-code', '-0.1快乐 -0.3精力', skillMap.get('work-code') || this.buildSkillView(0)),
+        ],
+      },
+    ];
+
     return {
       petId,
       stats,
@@ -877,125 +1247,7 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
       locations: locations.reverse(),
       currentTodo,
       records: records.reverse(),
-      actionCatalog: [
-        {
-          key: 'eat',
-          title: '吃',
-          options: [
-            {
-              kind: 'eat-mcdonald',
-              title: '麦当劳',
-              totalMinutes: 15,
-              mode: 'finite',
-              effects: '+800卡 +60饱 -5水 +10快乐 -25元',
-            },
-            {
-              kind: 'eat-luosifen',
-              title: '螺蛳粉',
-              totalMinutes: 20,
-              mode: 'finite',
-              effects: '+800卡 +70饱 -20水 +10快乐 -18元',
-            },
-          ],
-        },
-        {
-          key: 'drink',
-          title: '喝',
-          options: [
-            {
-              kind: 'drink-water',
-              title: '水',
-              totalMinutes: 1,
-              mode: 'finite',
-              effects: '+30水 -1冷暖',
-            },
-            {
-              kind: 'drink-hot-water',
-              title: '热水',
-              totalMinutes: 3,
-              mode: 'finite',
-              effects: '+25水 +1健康 +10冷暖',
-            },
-            {
-              kind: 'drink-cold-water',
-              title: '冰水',
-              totalMinutes: 2,
-              mode: 'finite',
-              effects: '+35水 +1快乐 -0.2健康 -10冷暖',
-            },
-            {
-              kind: 'drink-coffee',
-              title: '咖啡',
-              totalMinutes: 10,
-              mode: 'finite',
-              effects: '-15元 +60卡 +20水 +20精力',
-            },
-            {
-              kind: 'drink-tea',
-              title: '绿茶',
-              totalMinutes: 15,
-              mode: 'finite',
-              effects: '-12元 +20水 +10精力 +0.1精力(150分钟)',
-            },
-          ],
-        },
-        {
-          key: 'fun',
-          title: '休闲',
-          options: [
-            {
-              kind: 'sleep',
-              title: '睡觉',
-              totalMinutes: 0,
-              mode: 'ongoing',
-              effects: '+0.25精力',
-            },
-            {
-              kind: 'watch-short-video',
-              title: '刷短视频',
-              totalMinutes: 0,
-              mode: 'ongoing',
-              effects: '-0.1精力 +0.15快乐',
-            },
-            {
-              kind: 'play-genshin',
-              title: '玩原神',
-              totalMinutes: 0,
-              mode: 'ongoing',
-              effects: '-0.12精力 +0.2快乐',
-            },
-            {
-              kind: 'slow-jog',
-              title: '慢跑',
-              totalMinutes: 0,
-              mode: 'ongoing',
-              effects: '-5卡 -0.4饱度 +0.1精力 +0.1健康',
-            },
-          ],
-        },
-        {
-          key: 'work',
-          title: '工作',
-          options: [
-            {
-              kind: 'work-live',
-              title: '做直播',
-              totalMinutes: 0,
-              mode: 'ongoing',
-              effects: '-0.2快乐 -0.1精力 +1/1.5/3元',
-              skill: skillMap.get('work-live') || this.buildSkillView(0),
-            },
-            {
-              kind: 'work-code',
-              title: '写代码',
-              totalMinutes: 0,
-              mode: 'ongoing',
-              effects: '-0.1快乐 -0.3精力 +3/4/6元',
-              skill: skillMap.get('work-code') || this.buildSkillView(0),
-            },
-          ],
-        },
-      ],
+      actionCatalog,
     };
   }
 
@@ -1042,43 +1294,117 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
     }
 
     const plan = await this.pickAutoTodoPlan(stats);
-    await this.triggerTodo(plan.kind, 'auto', petId, plan.reason);
+    await this.triggerTodo(plan.kind, 'auto', petId, plan.reason, plan.pickedBy);
   }
 
   private async pickAutoTodoPlan(stats: PetStats): Promise<AutoTodoPlan> {
-    if (stats.hunger < AUTO_TRIGGER_THRESHOLD.hunger) {
+    if (this.pickThisTodoKind('hunger', stats.hunger)) {
       return {
         kind: await this.pickFoodTodoKind(stats.petId),
         reason: `饿了（饱度低于${AUTO_TRIGGER_THRESHOLD.hunger}），开始吃饭`,
+        pickedBy: 'hunger',
       };
     }
 
-    if (stats.thirst < AUTO_TRIGGER_THRESHOLD.thirst) {
+    if (this.pickThisTodoKind('thirst', stats.thirst)) {
       return {
         kind: await this.pickDrinkTodoKind(stats.petId),
         reason: `渴了（渴度低于${AUTO_TRIGGER_THRESHOLD.thirst}），开始喝水`,
+        pickedBy: 'thirst',
       };
     }
 
-    if (stats.energy < AUTO_TRIGGER_THRESHOLD.energy) {
+    if (this.pickThisTodoKind('energy', stats.energy)) {
+      const kind = await this.pickBySourceWithContinuation(
+        stats.petId,
+        'energy',
+        () => this.pickEnergyTodoKind(),
+      );
       return {
-        kind: this.pickEnergyTodoKind(),
+        kind,
         reason: `累了（精力低于${AUTO_TRIGGER_THRESHOLD.energy}），开始恢复精力`,
+        pickedBy: 'energy',
       };
     }
 
-    if (stats.happiness < AUTO_TRIGGER_THRESHOLD.happiness) {
+    if (this.pickThisTodoKind('happiness', stats.happiness)) {
+      const kind = await this.pickBySourceWithContinuation(
+        stats.petId,
+        'happiness',
+        () => this.pickHappinessTodoKind(),
+      );
       return {
-        kind: this.pickHappinessTodoKind(),
+        kind,
         reason: `心情低落（快乐低于${AUTO_TRIGGER_THRESHOLD.happiness}），开始放松`,
+        pickedBy: 'happiness',
       };
     }
 
-    if (stats.hunger > 50 && stats.thirst > 50 && stats.energy > 50) {
-      return { kind: await this.pickWorkTodoKind(stats.petId) };
+    const willWork = stats.hunger > 50 && stats.thirst > 50 && stats.energy > 50;
+
+    if (willWork) {
+      return {
+        kind: await this.pickBySourceWithContinuation(
+          stats.petId,
+          'work',
+          () => this.pickWorkTodoKind(stats.petId),
+        ),
+        pickedBy: 'work',
+      };
     }
 
-    return { kind: await this.pickLeisureTodoKind(stats.petId, stats) };
+    return {
+      kind: await this.pickLeisureTodoKind(stats.petId, stats),
+      pickedBy: 'leisure',
+    };
+  }
+
+  private shouldContinuePrev(
+    prevTodo:
+      | Pick<PetTodo, 'kind' | 'mode'>
+      | { kind?: PetTodoKind; mode?: PetTodoMode }
+      | null
+      | undefined,
+  ) {
+    if (!prevTodo || prevTodo.mode !== 'ongoing') {
+      return false;
+    }
+    if (prevTodo.kind === 'sleep' && !this.canSleepNow()) {
+      return false;
+    }
+    return Math.random() < 0.9;
+  }
+
+  private async pickBySourceWithContinuation(
+    petId: string,
+    pickedBy: Extract<AutoPickSource, 'energy' | 'happiness' | 'work'>,
+    fallbackPicker: () => PetTodoKind | Promise<PetTodoKind>,
+    currentTodo?: Pick<PetTodo, 'kind' | 'mode' | 'pickedBy' | 'source'> | null,
+  ): Promise<PetTodoKind> {
+    const currentPickedBy = (currentTodo?.pickedBy || null) as AutoPickSource | null;
+    const useCurrent =
+      !!currentTodo && currentTodo.source === 'auto' && currentPickedBy === pickedBy;
+
+    let prevTodo:
+      | Pick<PetTodo, 'kind' | 'mode'>
+      | { kind?: PetTodoKind; mode?: PetTodoMode }
+      | null = null;
+
+    if (useCurrent) {
+      prevTodo = currentTodo as Pick<PetTodo, 'kind' | 'mode'>;
+    } else {
+      prevTodo = (await this.petTodoModel
+        .findOne({ petId, pickedBy, status: { $in: ['done', 'cancelled'] } })
+        .sort({ createdAt: -1 })
+        .lean()
+        .exec()) as { kind?: PetTodoKind; mode?: PetTodoMode } | null;
+    }
+
+    if (this.shouldContinuePrev(prevTodo)) {
+      return prevTodo!.kind as PetTodoKind;
+    }
+
+    return await fallbackPicker();
   }
 
   /**
@@ -1100,12 +1426,12 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
       .map(([kind, template]) => ({ kind: kind as PetTodoKind, ...template }));
 
     if (!foodTemplates.length) {
-      return 'eat-mcdonald';
+      return 'eat-luosifen';
     }
 
     const stats = await this.petStatsModel.findOne({ petId }).exec();
     if (!stats) {
-      return 'eat-mcdonald';
+      return 'eat-luosifen';
     }
 
     const money = Number(stats.money || 0);
@@ -1119,11 +1445,11 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
     // ===== 阶段2: 筛选能买得起的食物 =====
     const affordableFoods = foodTemplates.filter((template) => {
       const cost = Math.abs(template.moneyDelta);
-      return money >= cost;
+      return money >= cost && this.isTodoAvailableAt(template.kind);
     });
 
     if (!affordableFoods.length) {
-      return 'eat-mcdonald';
+      return 'eat-luosifen';
     }
 
     // ===== 阶段3: 计算基础权重（基于价格） =====
@@ -1237,7 +1563,7 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
       .sort((a, b) => b[1] - a[1]);
 
     if (!validWeights.length) {
-      return 'eat-mcdonald';
+      return 'eat-luosifen';
     }
 
     const totalWeight = validWeights.reduce((sum, [, w]) => sum + w, 0);
@@ -1287,7 +1613,7 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
     // ===== 阶段2: 筛选能买得起的饮料 =====
     const affordableDrinks = drinkTemplates.filter((template) => {
       const cost = Math.abs(template.moneyDelta);
-      return money >= cost;
+      return money >= cost && this.isTodoAvailableAt(template.kind);
     });
 
     if (!affordableDrinks.length) {
@@ -1421,7 +1747,7 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
   private pickEnergyTodoKind(): PetTodoKind {
     const candidates = Object.values(TODO_TEMPLATES)
       .filter((template) => template.energyDelta > 0)
-      .filter((template) => template.kind !== 'sleep' || this.canSleepNow())
+      .filter((template) => this.isTodoAvailableAt(template.kind))
       .map((template) => template.kind);
     if (!candidates.length) {
       return this.canSleepNow() ? 'sleep' : 'drink-coffee';
@@ -1434,7 +1760,7 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
       .filter((template) =>
         ['sleep', 'watch-short-video', 'play-genshin', 'slow-jog'].includes(template.kind),
       )
-      .filter((template) => template.kind !== 'sleep' || this.canSleepNow())
+      .filter((template) => this.isTodoAvailableAt(template.kind))
       .map((template) => template.kind);
     if (!candidates.length) {
       return 'play-genshin';
@@ -1459,7 +1785,7 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
       .filter((template) =>
         ['sleep', 'watch-short-video', 'play-genshin', 'slow-jog'].includes(template.kind),
       )
-      .filter((template) => template.kind !== 'sleep' || this.canSleepNow())
+      .filter((template) => this.isTodoAvailableAt(template.kind))
       .map((template) => template.kind);
 
     if (!candidates.length) {
@@ -1473,6 +1799,7 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
 
     const hunger = Number(stats.hunger || 0);
     const weightKg = Number(stats.weightKg || 0);
+    const isLateNight = this.getTimePeriodByBeijing() === 'late-night';
 
     const recentLeisureTodos = await this.petTodoModel
       .find({ petId, kind: { $in: candidates } })
@@ -1505,6 +1832,10 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
 
       if (weightKg > 55 && (template.caloriesDelta || 0) < 0) {
         weight += (weightKg - 55) * 0.1;
+      }
+
+      if (kind === 'sleep' && isLateNight) {
+        weight += 10;
       }
 
       const appearCount = leisureFrequency.get(kind) || 0;
@@ -1610,9 +1941,22 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
     source: 'auto' | 'manual',
     petId = DEFAULT_PET_ID,
     startReason?: string,
+    pickedBy?: AutoPickSource,
   ) {
     const template = TODO_TEMPLATES[kind];
     if (!template) {
+      return this.getSnapshot(petId);
+    }
+
+    if (!this.isTodoAvailableAt(kind)) {
+      if (source === 'manual') {
+        await this.petRecordModel.create({
+          petId,
+          type: 'system',
+          message: `${template.title} 当前时段不可用`,
+          happenedAt: new Date(),
+        });
+      }
       return this.getSnapshot(petId);
     }
 
@@ -1669,7 +2013,10 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
       elapsedMinutes: 0,
       totalMinutes: template.totalMinutes,
       settleEveryMinutes: template.settleEveryMinutes || 1,
-      minDurationMinutes: template.minDurationMinutes || 0,
+      minDurationMinutes:
+        template.kind === 'sleep' && this.getTimePeriodByBeijing() === 'late-night'
+          ? 120
+          : template.minDurationMinutes || 0,
       hungerDelta: template.hungerDelta,
       thirstDelta: template.thirstDelta,
       happinessDelta: template.happinessDelta,
@@ -1682,6 +2029,7 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
       skillLevel,
       caloriesDelta: template.caloriesDelta || 0,
       teaEnergyBuffMinutes: template.teaEnergyBuffMinutes || 0,
+      pickedBy: source === 'auto' ? pickedBy || null : null,
       startedAt: now,
     });
 
@@ -1779,6 +2127,15 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
 
     const existing = await this.petThingModel.findOne({ petId, itemId }).exec();
     if (existing && item.equippable) {
+      existing.name = item.name;
+      existing.description = item.description;
+      existing.price = item.price;
+      existing.equippable = item.equippable;
+      existing.sellRate = item.sellRate;
+      existing.durabilityDailyDecay = item.durabilityDailyDecay;
+      existing.durability = Math.max(existing.durability || 0, item.initialDurability || 0);
+      await existing.save();
+
       await this.petRecordModel.create({
         petId,
         type: 'interrupt',
@@ -1794,6 +2151,9 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
       existing.description = item.description;
       existing.price = item.price;
       existing.equippable = item.equippable;
+      existing.sellRate = item.sellRate;
+      existing.durability = Math.max(existing.durability || 0, item.initialDurability || 0);
+      existing.durabilityDailyDecay = item.durabilityDailyDecay || 0;
       await existing.save();
     } else {
       await this.petThingModel.create({
@@ -1803,7 +2163,10 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
         description: item.description,
         price: item.price,
         equippable: item.equippable,
+        sellRate: item.sellRate,
         equipped: false,
+        durability: item.initialDurability,
+        durabilityDailyDecay: item.durabilityDailyDecay,
         count: 1,
       });
     }
@@ -1886,8 +2249,30 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
     return this.getSnapshot(petId);
   }
 
-  private getSellPrice(thing: Pick<PetThing, 'price'>) {
-    return Math.max(0, round2(thing.price || 0));
+  async unequipThing(itemId: string, petId = DEFAULT_PET_ID) {
+    await this.ensurePet(petId);
+    const thing = await this.petThingModel.findOne({ petId, itemId }).exec();
+    if (!thing || !thing.equippable) {
+      return this.getSnapshot(petId);
+    }
+
+    if (thing.equipped) {
+      thing.equipped = false;
+      await thing.save();
+
+      await this.petRecordModel.create({
+        petId,
+        type: 'progress',
+        message: `卸下 ${thing.name}`,
+        happenedAt: new Date(),
+      });
+    }
+
+    return this.getSnapshot(petId);
+  }
+
+  private getSellPrice(thing: Pick<PetThing, 'price' | 'sellRate'>) {
+    return Math.max(0, round2((thing.price || 0) * Math.max(0, thing.sellRate || 0)));
   }
 
   async sellThing(itemId: string, petId = DEFAULT_PET_ID) {
@@ -2132,7 +2517,7 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
 
     if (!runningTodo) {
       const plan = await this.pickAutoTodoPlan(stats);
-      await this.triggerTodo(plan.kind, 'auto', petId, plan.reason);
+      await this.triggerTodo(plan.kind, 'auto', petId, plan.reason, plan.pickedBy);
       runningTodo = await this.petTodoModel
         .findOne({ petId, status: 'running' })
         .sort({ createdAt: -1 })
@@ -2157,26 +2542,55 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
-      let nextKind: PetTodoKind | null = null;
-      let nextReason: string | undefined;
-      if (stats.hunger < AUTO_TRIGGER_THRESHOLD.hunger) {
-        nextKind = await this.pickFoodTodoKind(stats.petId);
-        nextReason = `饿了（饱度低于${AUTO_TRIGGER_THRESHOLD.hunger}），开始吃饭`;
-      } else if (stats.thirst < AUTO_TRIGGER_THRESHOLD.thirst) {
-        nextKind = await this.pickDrinkTodoKind(stats.petId);
-        nextReason = `渴了（渴度低于${AUTO_TRIGGER_THRESHOLD.thirst}），开始喝水`;
-      } else if (stats.energy < AUTO_TRIGGER_THRESHOLD.energy) {
-        nextKind = this.pickEnergyTodoKind();
-        nextReason = `累了（精力低于${AUTO_TRIGGER_THRESHOLD.energy}），开始恢复精力`;
-      } else if (stats.happiness < AUTO_TRIGGER_THRESHOLD.happiness) {
-        nextKind = this.pickHappinessTodoKind();
-        nextReason = `心情低落（快乐低于${AUTO_TRIGGER_THRESHOLD.happiness}），开始放松`;
+      let nextPlan: AutoTodoPlan | null = null;
+      if (this.pickThisTodoKind('hunger', stats.hunger)) {
+        nextPlan = {
+          kind: await this.pickFoodTodoKind(stats.petId),
+          reason: `饿了（饱度低于${AUTO_TRIGGER_THRESHOLD.hunger}），开始吃饭`,
+          pickedBy: 'hunger',
+        };
+      } else if (this.pickThisTodoKind('thirst', stats.thirst)) {
+        nextPlan = {
+          kind: await this.pickDrinkTodoKind(stats.petId),
+          reason: `渴了（渴度低于${AUTO_TRIGGER_THRESHOLD.thirst}），开始喝水`,
+          pickedBy: 'thirst',
+        };
+      } else if (this.pickThisTodoKind('energy', stats.energy)) {
+        nextPlan = {
+          kind: await this.pickBySourceWithContinuation(
+            stats.petId,
+            'energy',
+            () => this.pickEnergyTodoKind(),
+            runningTodo,
+          ),
+          reason: `累了（精力低于${AUTO_TRIGGER_THRESHOLD.energy}），开始恢复精力`,
+          pickedBy: 'energy',
+        };
+      } else if (this.pickThisTodoKind('happiness', stats.happiness)) {
+        nextPlan = {
+          kind: await this.pickBySourceWithContinuation(
+            stats.petId,
+            'happiness',
+            () => this.pickHappinessTodoKind(),
+            runningTodo,
+          ),
+          reason: `心情低落（快乐低于${AUTO_TRIGGER_THRESHOLD.happiness}），开始放松`,
+          pickedBy: 'happiness',
+        };
       } else if (runningTodo.kind !== 'work-code' && runningTodo.kind !== 'work-live') {
-        nextKind = await this.pickWorkTodoKind(stats.petId);
+        nextPlan = {
+          kind: await this.pickBySourceWithContinuation(
+            stats.petId,
+            'work',
+            () => this.pickWorkTodoKind(stats.petId),
+            runningTodo,
+          ),
+          pickedBy: 'work',
+        };
       }
 
-      if (nextKind && nextKind !== runningTodo.kind) {
-        await this.triggerTodo(nextKind, 'auto', petId, nextReason);
+      if (nextPlan && nextPlan.kind !== runningTodo.kind) {
+        await this.triggerTodo(nextPlan.kind, 'auto', petId, nextPlan.reason, nextPlan.pickedBy);
         await stats.save();
         return;
       }
@@ -2216,7 +2630,7 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
     await todo.save();
 
     const plan = await this.pickAutoTodoPlan(stats);
-    await this.triggerTodo(plan.kind, 'auto', todo.petId, plan.reason);
+    await this.triggerTodo(plan.kind, 'auto', todo.petId, plan.reason, plan.pickedBy);
   }
 
   private async interruptTodoWithProgress(todo: PetTodo, stats: PetStats) {
@@ -2466,12 +2880,12 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
     hasEquippedBlackSweater: boolean,
     temperatureC: number | null,
   ) {
-    if (!(hasEquippedBlackSweater && temperatureC !== null && temperatureC < 10)) {
+    if (!hasEquippedBlackSweater) {
       return 0;
     }
 
     let bonus = 0.05;
-    if (rawWarmthDelta < 0) {
+    if (temperatureC !== null && temperatureC < 10 && rawWarmthDelta < 0) {
       bonus += -rawWarmthDelta * 0.5;
     }
     return round2(bonus);
@@ -2563,17 +2977,17 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
       addReason('happiness', source, travel.effects.happinessDelta);
     }
 
+    const rawWarmth = Number(weather.effects.warmthDelta || 0);
     if (weather.temperatureC !== null) {
       const source = `天气(${weather.text} ${round2(weather.temperatureC)}°C)`;
       addReason('hunger', source, weather.effects.hungerDelta);
       addReason('thirst', source, weather.effects.thirstDelta);
-      const rawWarmth = Number(weather.effects.warmthDelta || 0);
       addReason('warmth', source, rawWarmth);
-      if (hasEquippedBlackSweater && weather.temperatureC < 10) {
-        if (rawWarmth < 0) {
-          addReason('warmth', '黑色毛衣(天气降温*50%)', round2(-rawWarmth * 0.5));
-        }
-        addReason('warmth', '黑色毛衣', 0.05);
+    }
+    if (hasEquippedBlackSweater) {
+      addReason('warmth', '黑色毛衣', 0.05);
+      if (weather.temperatureC !== null && weather.temperatureC < 10 && rawWarmth < 0) {
+        addReason('warmth', '黑色毛衣(天气降温*50%)', round2(-rawWarmth * 0.5));
       }
     }
 
@@ -2868,6 +3282,18 @@ export class PetGateway implements OnGatewayConnection, OnGatewayDisconnect, OnM
   ) {
     const petId = data?.petId || DEFAULT_PET_ID;
     const snapshot = await this.petService.equipThing(data?.itemId, petId);
+    client.emit('petState', snapshot);
+    this.server.to(`pet:${petId}`).emit('petState', snapshot);
+    return snapshot;
+  }
+
+  @SubscribeMessage('unequipPetThing')
+  async unequipPetThing(
+    @MessageBody() data: { petId?: string; itemId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    const petId = data?.petId || DEFAULT_PET_ID;
+    const snapshot = await this.petService.unequipThing(data?.itemId, petId);
     client.emit('petState', snapshot);
     this.server.to(`pet:${petId}`).emit('petState', snapshot);
     return snapshot;

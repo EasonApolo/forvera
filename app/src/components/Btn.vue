@@ -1,10 +1,17 @@
 <script setup lang="ts">
-defineProps<{ type?: string; loading?: boolean; small?: boolean }>()
+const props = defineProps<{ type?: string; loading?: boolean; small?: boolean; size?: 'small' | 'default' }>()
 </script>
 
 <template>
-  <div class="button" :class="{ primary: type == 'primary', danger: type == 'danger', small: small }">
-    <div v-if="loading">
+  <div
+    class="button"
+    :class="{
+      primary: props.type == 'primary',
+      danger: props.type == 'danger',
+      small: props.small || props.size === 'small',
+    }"
+  >
+    <div v-if="props.loading">
       <svg viewBox="0 0 50 50" class="loading-svg">
         <circle cx="25" cy="25" r="20" fill="none" class="path" />
       </svg>

@@ -77,7 +77,17 @@ export class PostService {
     const posts = await this.postModel
       .find({ author: userID })
       .sort({ created_time: -1 })
-      .select('title updated_time status category')
+      .select('title created_time updated_time status category')
+      .exec();
+    return posts;
+  }
+
+  async getPostsMetaForAdmin(): Promise<Post[]> {
+    const posts = await this.postModel
+      .find({})
+      .sort({ created_time: -1 })
+      .select('title created_time updated_time status category author')
+      .populate('author', 'username')
       .exec();
     return posts;
   }
@@ -133,7 +143,10 @@ export class PostController {
   @Post('user')
   async getPostMetasByUserId(@Request() req) {
     const userId = req.user.userId;
-    const posts = await this.postService.getPostsMetaByUserId(userId);
+    const isAdmin = Number(req.user.role) === 3;
+    const posts = isAdmin
+      ? await this.postService.getPostsMetaForAdmin()
+      : await this.postService.getPostsMetaByUserId(userId);
     return posts;
   }
 
@@ -150,11 +163,12 @@ export class PostController {
     @Param('postId', new ValidateObjectId()) postId: string,
     @Body() editPostDTO: EditPostDTO,
   ) {
+    const isAdmin = Number(req.user.role) === 3;
     let isAuthor = await this.postService.validateAuthor(
       req.user.userId,
       postId,
     );
-    if (!isAuthor) {
+    if (!isAuthor && !isAdmin) {
       throw new UnauthorizedException(
         `${req.user.username} is not the author of ${postId}.`,
       );
@@ -169,11 +183,12 @@ export class PostController {
     @Request() req,
     @Param('postId', new ValidateObjectId()) postId,
   ) {
+    const isAdmin = Number(req.user.role) === 3;
     let isAuthor = await this.postService.validateAuthor(
       req.user.userId,
       postId,
     );
-    if (!isAuthor) {
+    if (!isAuthor && !isAdmin) {
       throw new UnauthorizedException(
         `${req.user.username} is not the author of ${postId}.`,
       );

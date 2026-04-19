@@ -111,6 +111,7 @@ stop_by_pid_file "server" \
 
 stop_by_pid_file "app" \
   || stop_by_port "app" "$APP_PORT" \
+  || stop_by_pattern "app" "$ROOT_DIR/app/.*/serve-static\.js" \
   || stop_by_pattern "app" "$ROOT_DIR/app/.*/vite preview" \
   || stop_by_pattern "app" "$ROOT_DIR/app/.*/npm run serve" \
   || true

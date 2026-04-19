@@ -9,10 +9,9 @@ import List from '../components/layout/List.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
-const defaultCardOrder = ['siteinfo', 'taxonomy', 'expiry', 'holdem', 'pet', 'rating', 'mihoyo']
+const defaultCardOrder = ['taxonomy', 'expiry', 'holdem', 'pet', 'rating', 'mihoyo']
 
 type PlaygroundCard =
-  | { key: string; type: 'path'; title: string; path: string }
   | { key: string; type: 'route'; title: string; routeName: string }
   | {
       key: string
@@ -21,11 +20,10 @@ type PlaygroundCard =
     }
 
 const cardMap: Record<string, PlaygroundCard> = {
-  siteinfo: { key: 'siteinfo', type: 'path', title: '最近更新', path: '/siteinfo' },
   taxonomy: { key: 'taxonomy', type: 'route', title: '🌳Taxonomy', routeName: 'taxonomy' },
   expiry: { key: 'expiry', type: 'route', title: '🥛什么时候过期？', routeName: 'expiry' },
   holdem: { key: 'holdem', type: 'route', title: '🃏德扑', routeName: 'holdem' },
-  pet: { key: 'pet', type: 'route', title: 'Agent', routeName: 'pet' },
+  pet: { key: 'pet', type: 'route', title: 'AGENT', routeName: 'pet' },
   rating: { key: 'rating', type: 'route', title: '⭐Rating', routeName: 'rating' },
   mihoyo: {
     key: 'mihoyo',
@@ -44,10 +42,6 @@ const cards = computed(() => cardOrder.value.map(key => cardMap[key]).filter(Boo
 
 const goto = (routeName: string) => {
   router.push({ name: routeName })
-}
-
-const gotoPath = (path: string) => {
-  router.push(path)
 }
 
 const toggleSortMode = () => {
@@ -127,21 +121,13 @@ watch(
   <List>
     <template v-slot:content>
       <div class="toolbar">
-          <Btn v-if="userStore.isLogin" small @click="toggleSortMode">{{ sortMode ? '完成排序' : '排序' }}</Btn>
+          <Btn v-if="userStore.isLogin" size="small" @click="toggleSortMode">{{ sortMode ? '完成排序' : '排序' }}</Btn>
       </div>
 
       <div v-for="(card, index) in cards" :key="card.key" class="entry-row">
         <div class="entry-main">
           <Card
-            v-if="card.type === 'path'"
-            class="entry"
-            @click="gotoPath(card.path)"
-          >
-            <span>{{ card.title }}</span>
-          </Card>
-
-          <Card
-            v-else-if="card.type === 'route'"
+            v-if="card.type === 'route'"
             class="entry"
             @click="goto(card.routeName)"
           >

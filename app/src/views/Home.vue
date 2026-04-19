@@ -93,7 +93,8 @@ const closeReplyPanel = () => {
 
 <style lang="less" scoped>
 .tab-content {
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .tab-loading {
