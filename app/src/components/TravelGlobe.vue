@@ -29,6 +29,7 @@ const ZOOM_EPSILON = 1e-8
 let globe: any = null
 let rafId = 0
 let selectedDotEl: HTMLElement | null = null
+let lastClusterCellKm = -1
 const pendingSetHome = ref(false)
 const selectedPoint = ref<{
   lat: number
@@ -38,7 +39,7 @@ const selectedPoint = ref<{
 } | null>(null)
 
 const getTileUrl = (x: number, y: number, level: number) => {
-  const zoom = Math.max(0, Math.min(19, level))
+  const zoom = Math.max(0, Math.min(19, Math.round(level)))
   return `https://basemaps.cartocdn.com/light_all/${zoom}/${x}/${y}.png`
 }
 
@@ -209,7 +210,6 @@ const mountGlobe = async () => {
         })
         return el
       })
-      .htmlElementsData(buildData())
 
     centerToInitialView(0)
     globe.controls().autoRotate = false
@@ -221,6 +221,7 @@ const mountGlobe = async () => {
         refreshGlobe()
       })
     })
+    refreshGlobe(true)
   } catch (error) {
     console.error('Failed to load globe:', error)
     loadError.value = '地球加载失败，请稍后重试'
@@ -229,11 +230,15 @@ const mountGlobe = async () => {
   }
 }
 
-const refreshGlobe = () => {
-  if (globe) {
-    globe.htmlElementsData(buildData())
-    selectedDotEl = null
+const refreshGlobe = (force = false) => {
+  if (!globe) return
+  const cellKm = getClusterCellKm()
+  if (!force && cellKm === lastClusterCellKm) {
+    return
   }
+  lastClusterCellKm = cellKm
+  globe.htmlElementsData(buildData())
+  selectedDotEl = null
 }
 
 const getNextZoomLevel = (currentAltitude: number, direction: 'in' | 'out') => {
@@ -294,12 +299,13 @@ watch(
     if (val) {
       await nextTick()
       await mountGlobe()
-      refreshGlobe()
-      centerToInitialView(450)
+      refreshGlobe(true)
+      centerToInitialView(0)
     } else {
       selectedPoint.value = null
       pendingSetHome.value = false
       selectedDotEl = null
+      lastClusterCellKm = -1
       destroyGlobe()
     }
   },
@@ -309,7 +315,7 @@ watch(
 watch(
   () => props.points,
   () => {
-    refreshGlobe()
+    refreshGlobe(true)
   },
   { deep: true },
 )
