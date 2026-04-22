@@ -53,10 +53,15 @@ const preview = reactive({
   description: '',
   images: [] as string[],
   createdTime: '',
+  updatedTime: '',
   position: '',
 })
 
 const nodes = computed(() => taxonomyStore.nodes)
+
+const rootNodeCount = computed(() => nodes.value.filter(node => !node.parent).length)
+
+const orderNodeCount = computed(() => nodes.value.filter(node => node.title.endsWith('目')).length)
 
 const idMap = computed(() => {
   const map = new Map<string, TaxonomyNode>()
@@ -78,6 +83,44 @@ const childMap = computed(() => {
     })
   })
   return map
+})
+
+const latestUpdatedNode = computed(() => {
+  const sorted = [...nodes.value].sort((a, b) => {
+    if (a.updated_time !== b.updated_time) {
+      return b.updated_time.localeCompare(a.updated_time)
+    }
+    return b.created_time.localeCompare(a.created_time)
+  })
+  return sorted[0] || null
+})
+
+const buildNodeChain = (nodeId: string) => {
+  const chain: string[] = []
+  let current: string | null = nodeId
+  const visited = new Set<string>()
+
+  while (current && !visited.has(current)) {
+    visited.add(current)
+    const node = idMap.value.get(current)
+    if (!node) break
+    chain.push(node.title)
+    current = node.parent
+  }
+
+  return chain.reverse().join('-')
+}
+
+const latestUpdateSummary = computed(() => {
+  const node = latestUpdatedNode.value
+  if (!node) {
+    return { timeText: '暂无', chainText: '暂无' }
+  }
+
+  return {
+    timeText: formatDateTime(node.updated_time || node.created_time) || '暂无',
+    chainText: buildNodeChain(node._id),
+  }
 })
 
 const nodesWithChildren = computed(() => {
@@ -271,6 +314,7 @@ const openPreview = (node: TaxonomyNode) => {
   preview.description = node.description || ''
   preview.images = [...(node.images || [])]
   preview.createdTime = node.created_time
+  preview.updatedTime = node.updated_time
   preview.position = ''
 }
 
@@ -278,6 +322,18 @@ const closePreview = () => {
   preview.show = false
   preview.nodeId = ''
   preview.position = ''
+}
+
+const formatDateTime = (value: string) => {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const year = date.getFullYear()
+  const month = `${date.getMonth() + 1}`.padStart(2, '0')
+  const day = `${date.getDate()}`.padStart(2, '0')
+  const hour = `${date.getHours()}`.padStart(2, '0')
+  const minute = `${date.getMinutes()}`.padStart(2, '0')
+  return `${year}.${month}.${day} ${hour}:${minute}`
 }
 
 const previewNode = computed(() => {
@@ -491,6 +547,24 @@ onMounted(() => {
         </div>
       </div>
 
+      <div class="status-card taxonomy-summary-card">
+        <div class="summary-line">
+          基于
+          <a
+            href="https://zh.wikipedia.org/wiki/%E8%A2%AB%E5%AD%90%E6%A4%8D%E7%89%A9APG_IV%E5%88%86%E9%A1%9E%E6%B3%95"
+            target="_blank"
+            rel="noreferrer"
+          >
+            APG-IV分类法
+          </a>
+          ，可能略有出入。
+        </div>
+        <div class="summary-line">已发现64个目中的{{ orderNodeCount }}个，共{{ rootNodeCount }}种植物。</div>
+        <div class="summary-line">
+          最近更新：{{ latestUpdateSummary.timeText }} {{ latestUpdateSummary.chainText }}
+        </div>
+      </div>
+
       <div v-if="loading" class="status-card">加载中...</div>
 
       <div v-else-if="!flattened.length" class="empty status-card">
@@ -589,13 +663,14 @@ onMounted(() => {
         <div class="modal preview-modal">
           <div class="preview-title">{{ preview.title }}</div>
           <div class="created-time" v-if="preview.createdTime || preview.position">
-            <span v-if="preview.createdTime">添加时间：{{ formatCreatedTime(preview.createdTime) }}</span>
-            <span v-if="preview.position"> 首次发现于：{{ preview.position }}</span>
+            <div v-if="preview.createdTime">添加时间：{{ formatCreatedTime(preview.createdTime) }}</div>
+            <div v-if="preview.updatedTime && preview.updatedTime !== preview.createdTime"> 更新时间：{{ formatCreatedTime(preview.updatedTime) }}</div>
+            <div v-if="preview.position"> 首次发现于：{{ preview.position }}</div>
           </div>
           <div class="preview-description">{{ preview.description || '无描述' }}</div>
           <div class="thumbs" v-if="preview.images.length">
             <div
-              class="thumb"
+              class="thumb" 
               v-for="img in preview.images"
               :style="{ backgroundImage: `url(${getThumb(img)})` }"
               @click.stop="imageStore.preview(getFull(img))"
@@ -697,6 +772,18 @@ onMounted(() => {
   margin-top: 0.5rem;
   padding: 0.5rem;
   text-align: left;
+}
+
+.taxonomy-summary-card {
+  .summary-line {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+
+    & + .summary-line {
+      margin-top: 0.25rem;
+    }
+  }
 }
 
 .icon-btn {
@@ -832,9 +919,9 @@ onMounted(() => {
   gap: 0.5rem;
 
   .thumb {
-    width: 3rem;
-    height: 3rem;
-    border-radius: 4px;
+    width: 6rem;
+    height: 6rem;
+    border-radius: 6px;
     position: relative;
     background-position: center;
     background-size: cover;
@@ -937,6 +1024,7 @@ onMounted(() => {
       padding: 0.5rem;
 
       .preview-title {
+        margin-bottom: 8px;
         text-align: left;
         font-size: 14px;
         font-weight: 700;
@@ -947,6 +1035,8 @@ onMounted(() => {
         text-align: left;
         font-size: 13px;
         color: var(--text-secondary);
+        white-space: pre-line;
+        line-height: 1.6;
       }
 
       .preview-actions {

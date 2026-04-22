@@ -18,6 +18,13 @@ const stageWidth = ref(0)
 const stageHeight = ref(0)
 const frameWidth = ref(0)
 const frameHeight = ref(0)
+const activePointers = new Map<number, { clientX: number; clientY: number }>()
+const pinchStartDistance = ref(0)
+const pinchStartScale = ref(1)
+const pinchStartTranslateX = ref(0)
+const pinchStartTranslateY = ref(0)
+const pinchStartMidX = ref(0)
+const pinchStartMidY = ref(0)
 
 const frameDisplayWidth = computed(() => frameWidth.value || stageWidth.value)
 const frameDisplayHeight = computed(() => frameHeight.value || stageHeight.value)
@@ -59,6 +66,17 @@ const resetTransform = () => {
   rotation.value = 0
 }
 
+const resetInteractions = () => {
+  dragging.value = false
+  activePointers.clear()
+  pinchStartDistance.value = 0
+  pinchStartScale.value = 1
+  pinchStartTranslateX.value = 0
+  pinchStartTranslateY.value = 0
+  pinchStartMidX.value = 0
+  pinchStartMidY.value = 0
+}
+
 const zoomBy = (delta: number) => {
   const nextScale = Math.min(4, Math.max(1, scale.value + delta))
   scale.value = Number(nextScale.toFixed(2))
@@ -88,18 +106,93 @@ const onWheel = (event: WheelEvent) => {
   zoomBy(event.deltaY > 0 ? -0.1 : 0.1)
 }
 
-const onPointerDown = (event: PointerEvent) => {
-  if (scale.value <= 1) {
+const getStagePoint = (clientX: number, clientY: number) => {
+  const rect = stageRef.value?.getBoundingClientRect()
+  if (!rect) {
+    return { x: clientX, y: clientY }
+  }
+  return {
+    x: clientX - rect.left - rect.width / 2,
+    y: clientY - rect.top - rect.height / 2,
+  }
+}
+
+const beginPinch = () => {
+  const rect = stageRef.value?.getBoundingClientRect()
+  const points = Array.from(activePointers.values()).slice(0, 2)
+  if (points.length < 2 || !rect) {
     return
   }
+
+  pinchStartDistance.value = Math.hypot(points[0].clientX - points[1].clientX, points[0].clientY - points[1].clientY)
+  pinchStartScale.value = scale.value
+  pinchStartTranslateX.value = translateX.value
+  pinchStartTranslateY.value = translateY.value
+  pinchStartMidX.value = (points[0].clientX + points[1].clientX) / 2 - rect.left - rect.width / 2
+  pinchStartMidY.value = (points[0].clientY + points[1].clientY) / 2 - rect.top - rect.height / 2
+  dragging.value = true
+}
+
+const updatePinch = () => {
+  const points = Array.from(activePointers.values()).slice(0, 2)
+  if (points.length < 2 || pinchStartDistance.value <= 0) {
+    return
+  }
+
+  const currentDistance = Math.hypot(points[0].clientX - points[1].clientX, points[0].clientY - points[1].clientY)
+  const nextScale = Math.min(4, Math.max(1, pinchStartScale.value * (currentDistance / pinchStartDistance.value)))
+  scale.value = Number(nextScale.toFixed(2))
+
+  if (scale.value === 1) {
+    translateX.value = 0
+    translateY.value = 0
+    return
+  }
+
+  const currentMidpoint = getStagePoint((points[0].clientX + points[1].clientX) / 2, (points[0].clientY + points[1].clientY) / 2)
+  const scaleRatio = scale.value / pinchStartScale.value
+  translateX.value = Number((currentMidpoint.x - (pinchStartMidX.value - pinchStartTranslateX.value) * scaleRatio).toFixed(2))
+  translateY.value = Number((currentMidpoint.y - (pinchStartMidY.value - pinchStartTranslateY.value) * scaleRatio).toFixed(2))
+}
+
+const onPointerDown = (event: PointerEvent) => {
+  activePointers.set(event.pointerId, {
+    clientX: event.clientX,
+    clientY: event.clientY,
+  })
+  const target = event.currentTarget as HTMLElement | null
+  target?.setPointerCapture?.(event.pointerId)
+
+  if (activePointers.size >= 2) {
+    beginPinch()
+    return
+  }
+
+  if (scale.value <= 1) {
+    dragging.value = false
+    return
+  }
+
   dragging.value = true
   startX.value = event.clientX - translateX.value
   startY.value = event.clientY - translateY.value
-  const target = event.currentTarget as HTMLElement | null
-  target?.setPointerCapture?.(event.pointerId)
 }
 
 const onPointerMove = (event: PointerEvent) => {
+  if (!activePointers.has(event.pointerId)) {
+    return
+  }
+
+  activePointers.set(event.pointerId, {
+    clientX: event.clientX,
+    clientY: event.clientY,
+  })
+
+  if (activePointers.size >= 2) {
+    updatePinch()
+    return
+  }
+
   if (!dragging.value || scale.value <= 1) {
     return
   }
@@ -107,7 +200,22 @@ const onPointerMove = (event: PointerEvent) => {
   translateY.value = event.clientY - startY.value
 }
 
-const onPointerUp = () => {
+const onPointerUp = (event: PointerEvent) => {
+  activePointers.delete(event.pointerId)
+
+  if (activePointers.size >= 2) {
+    beginPinch()
+    return
+  }
+
+  if (activePointers.size === 1 && scale.value > 1) {
+    const point = Array.from(activePointers.values())[0]
+    dragging.value = true
+    startX.value = point.clientX - translateX.value
+    startY.value = point.clientY - translateY.value
+    return
+  }
+
   dragging.value = false
 }
 
@@ -119,6 +227,7 @@ onUnmounted(() => {
   window.removeEventListener('resize', updateLayout)
   document.documentElement.style.overflow = restoreHtmlOverflow
   document.body.style.overflow = restoreBodyOverflow
+  resetInteractions()
 })
 
 watch(
@@ -127,6 +236,7 @@ watch(
     if (!show) {
       document.documentElement.style.overflow = restoreHtmlOverflow
       document.body.style.overflow = restoreBodyOverflow
+      resetInteractions()
       return
     }
     restoreHtmlOverflow = document.documentElement.style.overflow

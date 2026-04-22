@@ -24,6 +24,7 @@ type TodoKind =
   | 'drink-cold-water'
   | 'drink-coffee'
   | 'drink-tea'
+  | 'drink-red-date-goji-tea'
   | 'drink-ice-coconut-water'
   | 'drink-hot-soymilk'
   | 'drink-ice-cream'
@@ -54,6 +55,7 @@ type ActionCategory = {
     effects: string
     availablePeriods?: ActionTimePeriod[]
     settleEveryMinutes?: number
+    minDurationMinutes?: number
     skill?: {
       level: number
       exp: number
@@ -169,6 +171,7 @@ type PetState = {
     _id: string
     type: 'start' | 'progress' | 'complete' | 'interrupt' | 'system'
     message: string
+    reason?: string
     happenedAt: string
   }>
   actionCatalog: ActionCategory[]
@@ -321,7 +324,11 @@ const moneyGainByLevel = (kind: TodoKind, level: number) => {
 
 const getActionDurationText = (option: ActionCategory['options'][number]) => {
   if (option.mode === 'ongoing' || option.totalMinutes <= 0) {
-    return `每${Math.max(1, option.settleEveryMinutes || 1)}分钟结算`
+    const settleText = `每${Math.max(1, option.settleEveryMinutes || 1)}分钟结算`
+    const minDurationText = option.minDurationMinutes && option.minDurationMinutes > 0
+      ? `，最短${option.minDurationMinutes}分钟`
+      : ''
+    return `${settleText}${minDurationText}`
   }
   return `${option.totalMinutes}分钟`
 }
@@ -343,8 +350,26 @@ const getActionSummary = (option: ActionCategory['options'][number]) => {
   return option.effects
 }
 
+const getActionMissingFieldsText = (option: ActionCategory['options'][number]) => {
+  const missingFields: string[] = []
+  if (option.mode === 'ongoing' && !option.minDurationMinutes) {
+    missingFields.push('最短时长')
+  }
+  if (option.mode === 'ongoing' && !option.settleEveryMinutes) {
+    missingFields.push('结算周期')
+  }
+  if (option.kind.startsWith('work-') && !option.skill) {
+    missingFields.push('技能信息')
+  }
+  return missingFields.length ? `未填写项：${missingFields.join('、')}` : '未填写项：无'
+}
+
 const getActionPopoverContent = (option: ActionCategory['options'][number]) => {
-  const lines = [`时长：${getActionDurationText(option)}`, `效果：${option.effects}`]
+  const lines = [
+    `时长：${getActionDurationText(option)}`,
+    getActionMissingFieldsText(option),
+    `效果：${option.effects}`,
+  ]
 
   const availablePeriodsText = getActionAvailablePeriodsText(option)
   if (availablePeriodsText) {
@@ -879,7 +904,10 @@ onUnmounted(() => {
             <div class="time" :title="formatFullTime(record.happenedAt)">
               {{ formatTime(record.happenedAt) }}
             </div>
-            <div class="msg">{{ record.message }}</div>
+            <div class="msg">
+              <span>{{ record.message }}</span>
+              <Popover v-if="record.reason" :content="record.reason" />
+            </div>
           </div>
         </div>
       </Card>
@@ -1210,8 +1238,11 @@ onUnmounted(() => {
 
   .msg {
     font-size: 13px;
-    word-break: break-all;
+    word-break: break-word;
     line-height: 1.4;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
   }
 
   &.system {

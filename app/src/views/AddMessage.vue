@@ -226,6 +226,10 @@ const loading = ref({ send: false })
 </template>
 
 <style lang="less" scoped>
+.floating-content {
+  padding-bottom: 1rem;
+}
+
 .input-wrapper {
   .actions {
     display: flex;
@@ -263,6 +267,7 @@ const loading = ref({ send: false })
     .tips {
       margin-bottom: 8px;
       text-align: left;
+      line-height: 1.65;
     }
   }
 }

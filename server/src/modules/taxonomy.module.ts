@@ -72,7 +72,21 @@ export class TaxonomyService {
     @InjectModel('File') private readonly fileModel: Model<SavedFile>,
   ) {}
 
+  private async backfillUpdatedTime() {
+    const missingUpdatedTime = await this.taxonomyModel
+      .find({ $or: [{ updated_time: { $exists: false } }, { updated_time: null }] })
+      .exec();
+
+    await Promise.all(
+      missingUpdatedTime.map(async (node) => {
+        node.updated_time = node.created_time || new Date();
+        await node.save();
+      }),
+    );
+  }
+
   async getAll(): Promise<TaxonomyNode[]> {
+    await this.backfillUpdatedTime();
     return await this.taxonomyModel
       .find()
       .sort({ order: 1, created_time: 1 })

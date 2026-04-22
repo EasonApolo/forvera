@@ -32,6 +32,7 @@ type PetTodoKind =
   | 'drink-cold-water'
   | 'drink-coffee'
   | 'drink-tea'
+  | 'drink-red-date-goji-tea'
   | 'drink-ice-coconut-water'
   | 'drink-hot-soymilk'
   | 'drink-ice-cream'
@@ -56,6 +57,7 @@ const BASE_EFFECTS_PER_MINUTE = {
   thirst: -0.18,
   happiness: -0.03,
   energy: -0.03,
+  health: 0.01,
 };
 const AUTO_TRIGGER_THRESHOLD = {
   hunger: 30,
@@ -124,6 +126,8 @@ const DEFAULT_STATS = {
   calories: 0,
   weightKg: 50,
   teaEnergyBuffMinutes: 0,
+  gojiHealthBuffMinutes: 0,
+  gojiEnergyBuffMinutes: 0,
   reviveHealthBuffMinutes: 0,
   lastDailySettleDate: '',
 };
@@ -145,6 +149,8 @@ interface TodoTemplate {
   moneyDelta: number;
   caloriesDelta?: number;
   teaEnergyBuffMinutes?: number;
+  gojiHealthBuffMinutes?: number;
+  gojiEnergyBuffMinutes?: number;
   hasSkill?: boolean;
 }
 
@@ -353,6 +359,22 @@ const TODO_TEMPLATES: Record<PetTodoKind, TodoTemplate> = {
     moneyDelta: -12,
     teaEnergyBuffMinutes: 150,
   },
+  'drink-red-date-goji-tea': {
+    kind: 'drink-red-date-goji-tea',
+    title: '红枣枸杞茶',
+    mode: 'finite',
+    totalMinutes: 15,
+    hungerDelta: 0,
+    thirstDelta: 20,
+    happinessDelta: 0,
+    energyDelta: 5,
+    healthDelta: 10,
+    warmthDelta: 10,
+    moneyDelta: -18,
+    caloriesDelta: 50,
+    gojiHealthBuffMinutes: 120,
+    gojiEnergyBuffMinutes: 120,
+  },
   'drink-ice-coconut-water': {
     kind: 'drink-ice-coconut-water',
     title: '冰椰子水',
@@ -517,6 +539,8 @@ export class PetStats extends MongooseDocument {
   @Prop({ required: true, default: 0 }) calories: number;
   @Prop({ required: true, default: 50 }) weightKg: number;
   @Prop({ required: true, default: 0 }) teaEnergyBuffMinutes: number;
+  @Prop({ required: true, default: 0 }) gojiHealthBuffMinutes: number;
+  @Prop({ required: true, default: 0 }) gojiEnergyBuffMinutes: number;
   @Prop({ required: true, default: 0 }) reviveHealthBuffMinutes: number;
   @Prop({ default: '' }) lastDailySettleDate: string;
 }
@@ -560,6 +584,8 @@ export class PetTodo extends MongooseDocument {
   @Prop({ required: true, default: 1 }) skillLevel: number;
   @Prop({ required: true, default: 0 }) caloriesDelta: number;
   @Prop({ required: true, default: 0 }) teaEnergyBuffMinutes: number;
+  @Prop({ required: true, default: 0 }) gojiHealthBuffMinutes: number;
+  @Prop({ required: true, default: 0 }) gojiEnergyBuffMinutes: number;
   @Prop({ default: null }) pickedBy?: AutoPickSource | null;
   @Prop() startedAt?: Date;
   @Prop() endedAt?: Date;
@@ -570,6 +596,7 @@ export class PetRecord extends MongooseDocument {
   @Prop({ required: true }) petId: string;
   @Prop({ required: true }) type: 'start' | 'progress' | 'complete' | 'interrupt' | 'system';
   @Prop({ required: true }) message: string;
+  @Prop({ default: '' }) reason: string;
   @Prop() todoId?: string;
   @Prop({ required: true, default: Date.now }) happenedAt: Date;
 }
@@ -631,6 +658,24 @@ type AutoTodoPlan = {
   kind: PetTodoKind;
   reason?: string;
   pickedBy?: AutoPickSource;
+};
+
+type PickDecision = {
+  shouldPick: boolean;
+  probability: number;
+};
+
+type WeightedPickItem = {
+  kind: PetTodoKind;
+  title: string;
+  weight: number;
+};
+
+type WeightedPickResult = {
+  kind: PetTodoKind;
+  weight: number;
+  rankedWeights: WeightedPickItem[];
+  continued?: boolean;
 };
 
 export const PetStatsSchema = SchemaFactory.createForClass(PetStats);
@@ -778,11 +823,11 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
   private pickThisTodoKind(
     source: Extract<AutoPickSource, 'hunger' | 'thirst' | 'happiness' | 'energy'>,
     value: number,
-  ) {
+  ): PickDecision {
     const now = Date.now();
     const cooldownUntil = Number(this.pickDecisionCooldownUntil.get(source) || 0);
     if (cooldownUntil > now) {
-      return false;
+      return { shouldPick: false, probability: 0 };
     }
 
     const points = PICK_PROBABILITY_POINTS[source];
@@ -795,7 +840,166 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
       this.pickDecisionCooldownUntil.delete(source);
     }
 
-    return shouldPick;
+    return { shouldPick, probability };
+  }
+
+  private buildAutoPickReason(metricLabel: string, value: number, probability: number, todoTitle: string) {
+    const metricValue = round2(Number(value || 0));
+    const probabilityText = `${round2(Math.max(0, Math.min(1, probability)) * 100)}%`;
+    return `${metricLabel}${metricValue}，有${probabilityText}概率做${todoTitle}，判定成功`;
+  }
+
+  private getWorkMoneyBasePerMinute(todo: Pick<PetTodo, 'kind' | 'skillExp'>) {
+    const level = this.getLevelByExp(Number(todo.skillExp || 0));
+    if (todo.kind === 'work-code') {
+      return level === 1 ? 3 : level === 2 ? 4 : 6;
+    }
+    if (todo.kind === 'work-live') {
+      return level === 1 ? 1 : level === 2 ? 1.5 : 3;
+    }
+    return 0;
+  }
+
+  private getWorkMoneyMultiplier(stats: Pick<PetStats, 'energy' | 'health'>) {
+    let multiplier = 1;
+    const energy = Number(stats.energy || 0);
+    const health = Number(stats.health || 0);
+
+    if (energy > 70) {
+      multiplier *= 1.2;
+    } else if (energy < 30) {
+      multiplier *= 0.8;
+    }
+
+    if (health < 10) {
+      multiplier *= 0.2;
+    } else if (health < 30) {
+      multiplier *= 0.5;
+    } else if (health < 50) {
+      multiplier *= 0.8;
+    }
+
+    return round2(multiplier);
+  }
+
+  private getLowHappinessHealthDelta(happiness: number) {
+    if (happiness < 30) {
+      return round2(-(30 - happiness) * 0.01);
+    }
+    return 0;
+  }
+
+  private getWarmthWeightDelta(currentWarmth: number, itemWarmth: number) {
+    const current = Number(currentWarmth || 0);
+    const item = Number(itemWarmth || 0);
+    if (!current || !item) {
+      return 0;
+    }
+
+    const sameDirection = (current > 0 && item > 0) || (current < 0 && item < 0);
+    const total = Math.abs(current) + Math.abs(item);
+    return round2((sameDirection ? -1 : 1) * total * 0.02);
+  }
+
+  private getCaloricWeightDelta(currentWeightKg: number, caloriesDelta: number, satietyGain: number) {
+    const weight = Number(currentWeightKg || 0);
+    const calories = Number(caloriesDelta || 0);
+    const satiety = Number(satietyGain || 0);
+    if (!calories || satiety <= 0) {
+      return 0;
+    }
+
+    const caloricScore = calories / satiety / 10 - 1;
+    if (weight > 55) {
+      return round2(-(weight - 55) * caloricScore * 0.1);
+    }
+    if (weight < 45) {
+      return round2((45 - weight) * caloricScore * 0.1);
+    }
+    return 0;
+  }
+
+  private getHungerWeightMultiplier(currentHunger: number, hungerDelta: number) {
+    const projectedHunger = Number(currentHunger || 0) + Number(hungerDelta || 0);
+    if (projectedHunger > 120) {
+      return 0.01;
+    }
+    if (projectedHunger > 100) {
+      return 0.2;
+    }
+    if (projectedHunger >= 90 || projectedHunger < 80) {
+      return 0.8;
+    }
+    return 1;
+  }
+
+  private buildDetailedAutoPickReason(
+    metricLabel: string,
+    value: number,
+    probability: number,
+    actionLabel: string,
+    selectedTitle: string,
+    selectedWeight: number,
+    rankedWeights: WeightedPickItem[],
+    continued = false,
+  ) {
+    const metricValue = round2(Number(value || 0));
+    const probabilityText = `${round2(Math.max(0, Math.min(1, probability)) * 100)}%`;
+    if (continued) {
+      return [
+        `事项类型：${metricLabel}${metricValue}，有${probabilityText}概率做${actionLabel}，判定成功`,
+        '权重：继续上次事项',
+        `选中事项：${selectedTitle} ${round2(selectedWeight)}`,
+      ].join('\n');
+    }
+
+    const topWeights = rankedWeights.slice(0, 5);
+    const weightLines = topWeights.length
+      ? topWeights.map((item, index) => `${index + 1}. ${item.title} ${round2(item.weight)}`)
+      : ['无'];
+    return [
+      `事项类型：${metricLabel}${metricValue}，有${probabilityText}概率做${actionLabel}，判定成功`,
+      '权重：',
+      ...weightLines,
+      `选中事项：${selectedTitle} ${round2(selectedWeight)}`,
+    ].join('\n');
+  }
+
+  private selectWeightedPick(weights: Map<PetTodoKind, number>): WeightedPickResult {
+    const rankedWeights = Array.from(weights.entries())
+      .filter(([, weight]) => weight > 0)
+      .map(([kind, weight]) => ({ kind, title: TODO_TEMPLATES[kind].title, weight }))
+      .sort((a, b) => b.weight - a.weight);
+
+    if (!rankedWeights.length) {
+      const fallbackKind = Object.keys(TODO_TEMPLATES)[0] as PetTodoKind;
+      return {
+        kind: fallbackKind,
+        weight: 0,
+        rankedWeights: [],
+      };
+    }
+
+    const totalWeight = rankedWeights.reduce((sum, item) => sum + item.weight, 0);
+    let random = Math.random() * totalWeight;
+
+    for (const item of rankedWeights) {
+      random -= item.weight;
+      if (random <= 0) {
+        return {
+          kind: item.kind,
+          weight: item.weight,
+          rankedWeights,
+        };
+      }
+    }
+
+    const selected = rankedWeights[0];
+    return {
+      kind: selected.kind,
+      weight: selected.weight,
+      rankedWeights,
+    };
   }
 
   private async runDailyDecayIfNeeded() {
@@ -959,6 +1163,14 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
       (exists as any).teaEnergyBuffMinutes = 0;
       changed = true;
     }
+    if (typeof (exists as any).gojiHealthBuffMinutes !== 'number') {
+      (exists as any).gojiHealthBuffMinutes = 0;
+      changed = true;
+    }
+    if (typeof (exists as any).gojiEnergyBuffMinutes !== 'number') {
+      (exists as any).gojiEnergyBuffMinutes = 0;
+      changed = true;
+    }
     if (typeof (exists as any).reviveHealthBuffMinutes !== 'number') {
       (exists as any).reviveHealthBuffMinutes = 0;
       changed = true;
@@ -1063,6 +1275,18 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
       .updateMany(
         { petId, teaEnergyBuffMinutes: { $exists: false } },
         { $set: { teaEnergyBuffMinutes: 0 } },
+      )
+      .exec();
+    await this.petTodoModel
+      .updateMany(
+        { petId, gojiHealthBuffMinutes: { $exists: false } },
+        { $set: { gojiHealthBuffMinutes: 0 } },
+      )
+      .exec();
+    await this.petTodoModel
+      .updateMany(
+        { petId, gojiEnergyBuffMinutes: { $exists: false } },
+        { $set: { gojiEnergyBuffMinutes: 0 } },
       )
       .exec();
 
@@ -1185,6 +1409,7 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
         effects: string;
         availablePeriods: TimePeriod[];
         settleEveryMinutes: number;
+        minDurationMinutes?: number;
         skill?: ReturnType<PetService['buildSkillView']>;
       }>;
     }> = [
@@ -1210,6 +1435,7 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
           toActionOption('drink-cold-water', '+35水 +1快乐 -0.2健康 -10冷暖'),
           toActionOption('drink-coffee', '-15元 +60卡 +20水 +20精力'),
           toActionOption('drink-tea', '-12元 +20水 +10精力 +0.1精力(150分钟)'),
+          toActionOption('drink-red-date-goji-tea', '-18元 +50卡 +20水 +10健康 +5精力 +10冷暖 +120分钟健康buff +120分钟精力buff'),
           toActionOption('drink-ice-coconut-water', '-10元 +100卡 +25水 +3快乐'),
           toActionOption('drink-hot-soymilk', '-4元 +250卡 +25水 +10冷暖'),
           toActionOption('drink-ice-cream', '-13元 +500卡 +5饱 +5水 +30快乐 -1健康 -25冷暖'),
@@ -1298,44 +1524,84 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async pickAutoTodoPlan(stats: PetStats): Promise<AutoTodoPlan> {
-    if (this.pickThisTodoKind('hunger', stats.hunger)) {
+    const hungerDecision = this.pickThisTodoKind('hunger', stats.hunger);
+    if (hungerDecision.shouldPick) {
+      const pick = await this.pickFoodTodoKind(stats.petId);
       return {
-        kind: await this.pickFoodTodoKind(stats.petId),
-        reason: `饿了（饱度低于${AUTO_TRIGGER_THRESHOLD.hunger}），开始吃饭`,
+        kind: pick.kind,
+        reason: this.buildDetailedAutoPickReason(
+          '饱度',
+          stats.hunger,
+          hungerDecision.probability,
+          '吃',
+          TODO_TEMPLATES[pick.kind].title,
+          pick.weight,
+          pick.rankedWeights,
+        ),
         pickedBy: 'hunger',
       };
     }
 
-    if (this.pickThisTodoKind('thirst', stats.thirst)) {
+    const thirstDecision = this.pickThisTodoKind('thirst', stats.thirst);
+    if (thirstDecision.shouldPick) {
+      const pick = await this.pickDrinkTodoKind(stats.petId);
       return {
-        kind: await this.pickDrinkTodoKind(stats.petId),
-        reason: `渴了（渴度低于${AUTO_TRIGGER_THRESHOLD.thirst}），开始喝水`,
+        kind: pick.kind,
+        reason: this.buildDetailedAutoPickReason(
+          '渴度',
+          stats.thirst,
+          thirstDecision.probability,
+          '喝',
+          TODO_TEMPLATES[pick.kind].title,
+          pick.weight,
+          pick.rankedWeights,
+        ),
         pickedBy: 'thirst',
       };
     }
 
-    if (this.pickThisTodoKind('energy', stats.energy)) {
-      const kind = await this.pickBySourceWithContinuation(
+    const energyDecision = this.pickThisTodoKind('energy', stats.energy);
+    if (energyDecision.shouldPick) {
+      const pick = await this.pickBySourceWithContinuation(
         stats.petId,
         'energy',
         () => this.pickEnergyTodoKind(),
       );
       return {
-        kind,
-        reason: `累了（精力低于${AUTO_TRIGGER_THRESHOLD.energy}），开始恢复精力`,
+        kind: pick.kind,
+        reason: this.buildDetailedAutoPickReason(
+          '精力',
+          stats.energy,
+          energyDecision.probability,
+          '休息',
+          TODO_TEMPLATES[pick.kind].title,
+          pick.weight,
+          pick.rankedWeights,
+          pick.continued,
+        ),
         pickedBy: 'energy',
       };
     }
 
-    if (this.pickThisTodoKind('happiness', stats.happiness)) {
-      const kind = await this.pickBySourceWithContinuation(
+    const happinessDecision = this.pickThisTodoKind('happiness', stats.happiness);
+    if (happinessDecision.shouldPick) {
+      const pick = await this.pickBySourceWithContinuation(
         stats.petId,
         'happiness',
         () => this.pickHappinessTodoKind(),
       );
       return {
-        kind,
-        reason: `心情低落（快乐低于${AUTO_TRIGGER_THRESHOLD.happiness}），开始放松`,
+        kind: pick.kind,
+        reason: this.buildDetailedAutoPickReason(
+          '快乐',
+          stats.happiness,
+          happinessDecision.probability,
+          '休息',
+          TODO_TEMPLATES[pick.kind].title,
+          pick.weight,
+          pick.rankedWeights,
+          pick.continued,
+        ),
         pickedBy: 'happiness',
       };
     }
@@ -1343,18 +1609,39 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
     const willWork = stats.hunger > 50 && stats.thirst > 50 && stats.energy > 50;
 
     if (willWork) {
+      const pick = await this.pickBySourceWithContinuation(
+        stats.petId,
+        'work',
+        () => this.pickWorkTodoKind(stats.petId),
+      );
       return {
-        kind: await this.pickBySourceWithContinuation(
-          stats.petId,
-          'work',
-          () => this.pickWorkTodoKind(stats.petId),
+        kind: pick.kind,
+        reason: this.buildDetailedAutoPickReason(
+          '工作',
+          stats.hunger,
+          1,
+          '工作',
+          TODO_TEMPLATES[pick.kind].title,
+          pick.weight,
+          pick.rankedWeights,
+          pick.continued,
         ),
         pickedBy: 'work',
       };
     }
 
+    const pick = await this.pickLeisureTodoKind(stats.petId, stats);
     return {
-      kind: await this.pickLeisureTodoKind(stats.petId, stats),
+      kind: pick.kind,
+      reason: this.buildDetailedAutoPickReason(
+        '休息',
+        stats.hunger,
+        1,
+        '休息',
+        TODO_TEMPLATES[pick.kind].title,
+        pick.weight,
+        pick.rankedWeights,
+      ),
       pickedBy: 'leisure',
     };
   }
@@ -1378,9 +1665,9 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
   private async pickBySourceWithContinuation(
     petId: string,
     pickedBy: Extract<AutoPickSource, 'energy' | 'happiness' | 'work'>,
-    fallbackPicker: () => PetTodoKind | Promise<PetTodoKind>,
+    fallbackPicker: () => WeightedPickResult | Promise<WeightedPickResult>,
     currentTodo?: Pick<PetTodo, 'kind' | 'mode' | 'pickedBy' | 'source'> | null,
-  ): Promise<PetTodoKind> {
+  ): Promise<WeightedPickResult> {
     const currentPickedBy = (currentTodo?.pickedBy || null) as AutoPickSource | null;
     const useCurrent =
       !!currentTodo && currentTodo.source === 'auto' && currentPickedBy === pickedBy;
@@ -1401,7 +1688,12 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (this.shouldContinuePrev(prevTodo)) {
-      return prevTodo!.kind as PetTodoKind;
+      return {
+        kind: prevTodo!.kind as PetTodoKind,
+        weight: 0,
+        rankedWeights: [],
+        continued: true,
+      };
     }
 
     return await fallbackPicker();
@@ -1419,24 +1711,25 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
    * 6. 厌倦修正：根据最近5次食物记录应用厌倦系数
    * 7. 选择：从所有正权重食物中随机选择
    */
-  private async pickFoodTodoKind(petId: string = DEFAULT_PET_ID): Promise<PetTodoKind> {
+  private async pickFoodTodoKind(petId: string = DEFAULT_PET_ID): Promise<WeightedPickResult> {
     // ===== 阶段1: 获取食物模板和宠物状态 =====
     const foodTemplates = Object.entries(TODO_TEMPLATES)
       .filter(([, template]) => template.hungerDelta > 0)
       .map(([kind, template]) => ({ kind: kind as PetTodoKind, ...template }));
 
     if (!foodTemplates.length) {
-      return 'eat-luosifen';
+      return { kind: 'eat-luosifen', weight: 0, rankedWeights: [] };
     }
 
     const stats = await this.petStatsModel.findOne({ petId }).exec();
     if (!stats) {
-      return 'eat-luosifen';
+      return { kind: 'eat-luosifen', weight: 0, rankedWeights: [] };
     }
 
     const money = Number(stats.money || 0);
     const hunger = Number(stats.hunger || 0);
     const hungerMax = Number(stats.hungerMax || 100);
+    const thirst = Number(stats.thirst || 0);
     const energy = Number(stats.energy || 0);
     const warmth = Number(stats.warmth || 0);
     const happiness = Number(stats.happiness || 0);
@@ -1449,7 +1742,7 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (!affordableFoods.length) {
-      return 'eat-luosifen';
+      return { kind: 'eat-luosifen', weight: 0, rankedWeights: [] };
     }
 
     // ===== 阶段3: 计算基础权重（基于价格） =====
@@ -1475,52 +1768,35 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
         weightScore += energyDeficit * 0.02;
       }
 
-      // 冷暖系列调整
-      if (warmth < 0) {
-        // 冷暖<0时：每低1的冷暖，加冷暖食物权重+0.02
-        if (food.warmthDelta > 0) {
-          const warmthDeficit = Math.abs(warmth);
-          weightScore += warmthDeficit * 0.02;
+      const warmthDelta = this.getWarmthWeightDelta(warmth, food.warmthDelta);
+      if (warmthDelta) {
+        weightScore += warmthDelta;
+        if (weightScore <= 0) {
+          attributeWeights.set(food.kind, 0);
+          continue;
         }
-      } else if (warmth > 0) {
-        // 冷暖>0时：每高1的冷暖，减冷暖食物权重-0.02
-        if (food.warmthDelta > 0) {
-          const warmthSurplus = warmth;
-          weightScore -= warmthSurplus * 0.02;
+      }
+
+      const caloricDelta = this.getCaloricWeightDelta(weight, food.caloriesDelta, food.hungerDelta);
+      if (caloricDelta) {
+        weightScore += caloricDelta;
+        if (weightScore <= 0) {
+          attributeWeights.set(food.kind, 0);
+          continue;
         }
+      }
+
+      const hungerMultiplier = this.getHungerWeightMultiplier(hunger, food.hungerDelta);
+      weightScore *= hungerMultiplier;
+      if (weightScore <= 0) {
+        attributeWeights.set(food.kind, 0);
+        continue;
       }
 
       // 快乐低于50时：每低1的快乐，加快乐食物权重+0.02
       if (happiness < 50 && food.happinessDelta > 0) {
         const happinessDeficit = 50 - happiness;
         weightScore += happinessDeficit * 0.02;
-      }
-
-      // ===== 阶段4.5: 饱度目标区间加成 =====
-      // 预测吃完后的饱度，并按目标区间给额外奖励
-      const projectedHunger = clamp(hunger + food.hungerDelta, 0, hungerMax);
-      if (projectedHunger >= 80 && projectedHunger <= 90) {
-        weightScore += 1;
-      } else if (
-        (projectedHunger >= 70 && projectedHunger < 80) ||
-        (projectedHunger > 90 && projectedHunger <= 100)
-      ) {
-        weightScore += 0.5;
-      }
-
-      // ===== 阶段4.6: 体重-热量值调整 =====
-      // 热量值公式: (卡路里 / 饱度增量 / 10) - 1
-      // 热量值 > 0 代表偏高热量，< 0 代表偏低热量
-      const calories = Number(food.caloriesDelta || 0);
-      const satietyGain = Number(food.hungerDelta || 0);
-      const caloricScore = satietyGain > 0 ? calories / satietyGain / 10 - 1 : 0;
-
-      if (weight > 55) {
-        // 体重每高1kg，权重减去 caloricScore * 0.1
-        weightScore -= (weight - 55) * caloricScore * 0.1;
-      } else if (weight < 45) {
-        // 体重每低1kg，权重加上 caloricScore * 0.1
-        weightScore += (45 - weight) * caloricScore * 0.1;
       }
 
       attributeWeights.set(food.kind, Math.max(0, weightScore));
@@ -1554,7 +1830,13 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
       const tediumCoefficient = 1 / (1 + Math.exp(1.68 * (appearCount - 2.17)));
       const clampedCoefficient = Math.max(0, Math.min(1, tediumCoefficient));
 
-      finalWeights.set(food.kind, attributeWeight * clampedCoefficient);
+      let finalWeight = attributeWeight * clampedCoefficient;
+      const projectedThirst = thirst + Number(food.thirstDelta || 0);
+      if (projectedThirst > 100) {
+        finalWeight *= 0.9;
+      }
+
+      finalWeights.set(food.kind, finalWeight);
     }
 
     // ===== 阶段7: 随机选择 =====
@@ -1563,20 +1845,11 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
       .sort((a, b) => b[1] - a[1]);
 
     if (!validWeights.length) {
-      return 'eat-luosifen';
+      return { kind: 'eat-luosifen', weight: 0, rankedWeights: [] };
     }
 
-    const totalWeight = validWeights.reduce((sum, [, w]) => sum + w, 0);
-    let random = Math.random() * totalWeight;
-
-    for (const [kind, weightValue] of validWeights) {
-      random -= weightValue;
-      if (random <= 0) {
-        return kind;
-      }
-    }
-
-    return validWeights[0][0];
+    const selected = this.selectWeightedPick(new Map(validWeights));
+    return selected;
   }
 
   /**
@@ -1589,22 +1862,23 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
    * 4. 厌倦修正：根据最近5次饮料记录应用厌倦系数
    * 5. 选择：从所有正权重的饮料中随机选择
    */
-  private async pickDrinkTodoKind(petId: string = DEFAULT_PET_ID): Promise<PetTodoKind> {
+  private async pickDrinkTodoKind(petId: string = DEFAULT_PET_ID): Promise<WeightedPickResult> {
     // ===== 阶段1: 获取饮料模板和宠物状态 =====
     const drinkTemplates = Object.entries(TODO_TEMPLATES)
       .filter(([, template]) => template.thirstDelta > 0)
       .map(([kind, template]) => ({ kind: kind as PetTodoKind, ...template }));
 
     if (!drinkTemplates.length) {
-      return 'drink-water';
+      return { kind: 'drink-water', weight: 0, rankedWeights: [] };
     }
 
     const stats = await this.petStatsModel.findOne({ petId }).exec();
     if (!stats) {
-      return 'drink-water';
+      return { kind: 'drink-water', weight: 0, rankedWeights: [] };
     }
 
     const money = Number(stats.money || 0);
+    const hunger = Number(stats.hunger || 0);
     const energy = Number(stats.energy || 0);
     const warmth = Number(stats.warmth || 0);
     const happiness = Number(stats.happiness || 0);
@@ -1618,7 +1892,7 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
 
     if (!affordableDrinks.length) {
       // 都买不起时，返回最便宜的免费饮料
-      return 'drink-water';
+      return { kind: 'drink-water', weight: 0, rankedWeights: [] };
     }
 
     // ===== 阶段3: 计算基础权重（基于价格） =====
@@ -1647,30 +1921,35 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
         weight += energyDeficit * 0.02;
       }
 
-      // 冷暖系列调整
-      if (warmth < 0) {
-        // 冷暖<0时：每低1的冷暖，加冷暖饮品权重+0.02
-        if (drink.warmthDelta > 0) {
-          const warmthDeficit = Math.abs(warmth);
-          weight += warmthDeficit * 0.02;
+      const warmthDelta = this.getWarmthWeightDelta(warmth, drink.warmthDelta);
+      if (warmthDelta) {
+        weight += warmthDelta;
+        if (weight <= 0) {
+          attributeWeights.set(drink.kind, 0);
+          continue;
         }
-      } else if (warmth > 0) {
-        // 冷暖>0时：每高1的冷暖，减冷暖饮品权重-0.02
-        if (drink.warmthDelta > 0) {
-          const warmthSurplus = warmth;
-          weight -= warmthSurplus * 0.02;
+      }
+
+      const caloricDelta = this.getCaloricWeightDelta(weight, drink.caloriesDelta, drink.hungerDelta);
+      if (caloricDelta) {
+        weight += caloricDelta;
+        if (weight <= 0) {
+          attributeWeights.set(drink.kind, 0);
+          continue;
         }
+      }
+
+      const hungerMultiplier = this.getHungerWeightMultiplier(hunger, drink.hungerDelta);
+      weight *= hungerMultiplier;
+      if (weight <= 0) {
+        attributeWeights.set(drink.kind, 0);
+        continue;
       }
 
       // 快乐低于50时：每低1的快乐，加快乐饮品权重+0.02
       if (happiness < 50 && drink.happinessDelta > 0) {
         const happinessDeficit = 50 - happiness;
         weight += happinessDeficit * 0.02;
-      }
-
-      // 体重大于55时：有卡路里的饮品权重会降低 卡路里*0.002
-      if (stats.weightKg > 55 && (drink.caloriesDelta || 0) > 0) {
-        weight -= (drink.caloriesDelta || 0) * 0.002;
       }
 
       attributeWeights.set(drink.kind, Math.max(0, weight));
@@ -1714,7 +1993,11 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
       const clampedCoefficient = Math.max(0, Math.min(1, tediumCoefficient));
 
       // 最终权重 = 属性权重 * 厌倦系数
-      const finalWeight = attributeWeight * clampedCoefficient;
+      let finalWeight = attributeWeight * clampedCoefficient;
+      const projectedHunger = hunger + Number(drink.hungerDelta || 0);
+      if (projectedHunger > 100) {
+        finalWeight *= 0.9;
+      }
       finalWeights.set(drink.kind, finalWeight);
     }
 
@@ -1726,36 +2009,29 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
 
     if (!validWeights.length) {
       // 如果没有正权重的饮料，降级到免费饮料或随机选择
-      return 'drink-water';
+      return { kind: 'drink-water', weight: 0, rankedWeights: [] };
     }
 
-    // 使用权重进行随机选择
-    const totalWeight = validWeights.reduce((sum, [, weight]) => sum + weight, 0);
-    let random = Math.random() * totalWeight;
-
-    for (const [kind, weight] of validWeights) {
-      random -= weight;
-      if (random <= 0) {
-        return kind;
-      }
-    }
-
-    // 后备方案
-    return validWeights[0][0];
+    return this.selectWeightedPick(new Map(validWeights));
   }
 
-  private pickEnergyTodoKind(): PetTodoKind {
+  private pickEnergyTodoKind(): WeightedPickResult {
     const candidates = Object.values(TODO_TEMPLATES)
       .filter((template) => template.energyDelta > 0)
       .filter((template) => this.isTodoAvailableAt(template.kind))
       .map((template) => template.kind);
     if (!candidates.length) {
-      return this.canSleepNow() ? 'sleep' : 'drink-coffee';
+      const kind = this.canSleepNow() ? 'sleep' : 'drink-coffee';
+      return { kind, weight: 1, rankedWeights: [{ kind, title: TODO_TEMPLATES[kind].title, weight: 1 }] };
     }
-    return candidates[Math.floor(Math.random() * candidates.length)];
+    const weights = new Map<PetTodoKind, number>();
+    for (const kind of candidates) {
+      weights.set(kind, 1);
+    }
+    return this.selectWeightedPick(weights);
   }
 
-  private pickHappinessTodoKind(): PetTodoKind {
+  private async pickHappinessTodoKind(): Promise<WeightedPickResult> {
     const candidates = Object.values(TODO_TEMPLATES)
       .filter((template) =>
         ['sleep', 'watch-short-video', 'play-genshin', 'slow-jog'].includes(template.kind),
@@ -1763,9 +2039,28 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
       .filter((template) => this.isTodoAvailableAt(template.kind))
       .map((template) => template.kind);
     if (!candidates.length) {
-      return 'play-genshin';
+      const kind = 'play-genshin' as PetTodoKind;
+      return { kind, weight: 1, rankedWeights: [{ kind, title: TODO_TEMPLATES[kind].title, weight: 1 }] };
     }
-    return candidates[Math.floor(Math.random() * candidates.length)];
+    const stats = await this.petStatsModel.findOne({ petId: DEFAULT_PET_ID }).lean().exec();
+    const weights = new Map<PetTodoKind, number>();
+    const weightKg = Number(stats?.weightKg || 0);
+    for (const kind of candidates) {
+      const template = TODO_TEMPLATES[kind];
+      let weight = 1;
+      const caloricDelta = this.getCaloricWeightDelta(
+        weightKg,
+        template.caloriesDelta || 0,
+        template.hungerDelta || 0,
+      );
+      if (caloricDelta) {
+        weight += caloricDelta;
+      }
+      if (weight > 0) {
+        weights.set(kind, weight);
+      }
+    }
+    return this.selectWeightedPick(weights);
   }
 
   /**
@@ -1780,7 +2075,7 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
   private async pickLeisureTodoKind(
     petId: string = DEFAULT_PET_ID,
     statsInput?: Pick<PetStats, 'hunger' | 'weightKg'> | null,
-  ): Promise<PetTodoKind> {
+  ): Promise<WeightedPickResult> {
     const candidates = Object.values(TODO_TEMPLATES)
       .filter((template) =>
         ['sleep', 'watch-short-video', 'play-genshin', 'slow-jog'].includes(template.kind),
@@ -1789,12 +2084,14 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
       .map((template) => template.kind);
 
     if (!candidates.length) {
-      return this.canSleepNow() ? 'sleep' : 'watch-short-video';
+      const kind = this.canSleepNow() ? 'sleep' : 'watch-short-video';
+      return { kind, weight: 0, rankedWeights: [] };
     }
 
     const stats = statsInput || (await this.petStatsModel.findOne({ petId }).lean().exec());
     if (!stats) {
-      return this.canSleepNow() ? 'sleep' : 'watch-short-video';
+      const kind = this.canSleepNow() ? 'sleep' : 'watch-short-video';
+      return { kind, weight: 0, rankedWeights: [] };
     }
 
     const hunger = Number(stats.hunger || 0);
@@ -1846,19 +2143,11 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
 
     const validWeights = Array.from(finalWeights.entries()).filter(([, weight]) => weight > 0);
     if (!validWeights.length) {
-      return this.canSleepNow() ? 'sleep' : 'watch-short-video';
+      const kind = this.canSleepNow() ? 'sleep' : 'watch-short-video';
+      return { kind, weight: 0, rankedWeights: [] };
     }
 
-    const totalWeight = validWeights.reduce((sum, [, weight]) => sum + weight, 0);
-    let random = Math.random() * totalWeight;
-    for (const [kind, weight] of validWeights) {
-      random -= weight;
-      if (random <= 0) {
-        return kind;
-      }
-    }
-
-    return validWeights[0][0];
+    return this.selectWeightedPick(new Map(validWeights));
   }
 
   /**
@@ -1869,7 +2158,7 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
    * 2. 按熟练度等级加权：0/+0.2/+0.4/+0.8
    * 3. 对最近进行的 5 个工作应用厌倦系数
    */
-  private async pickWorkTodoKind(petId: string = DEFAULT_PET_ID): Promise<PetTodoKind> {
+  private async pickWorkTodoKind(petId: string = DEFAULT_PET_ID): Promise<WeightedPickResult> {
     const candidates: PetTodoKind[] = ['work-code', 'work-live'];
 
     // 读取每个工作的最新技能经验，用于计算熟练度等级
@@ -1921,19 +2210,11 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
 
     const validWeights = Array.from(finalWeights.entries()).filter(([, w]) => w > 0);
     if (!validWeights.length) {
-      return candidates[Math.floor(Math.random() * candidates.length)];
+      const kind = candidates[Math.floor(Math.random() * candidates.length)];
+      return { kind, weight: 0, rankedWeights: [] };
     }
 
-    const totalWeight = validWeights.reduce((sum, [, w]) => sum + w, 0);
-    let random = Math.random() * totalWeight;
-    for (const [kind, weight] of validWeights) {
-      random -= weight;
-      if (random <= 0) {
-        return kind;
-      }
-    }
-
-    return validWeights[0][0];
+    return this.selectWeightedPick(new Map(validWeights));
   }
 
   async triggerTodo(
@@ -2029,6 +2310,8 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
       skillLevel,
       caloriesDelta: template.caloriesDelta || 0,
       teaEnergyBuffMinutes: template.teaEnergyBuffMinutes || 0,
+      gojiHealthBuffMinutes: template.gojiHealthBuffMinutes || 0,
+      gojiEnergyBuffMinutes: template.gojiEnergyBuffMinutes || 0,
       pickedBy: source === 'auto' ? pickedBy || null : null,
       startedAt: now,
     });
@@ -2037,12 +2320,8 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
       petId,
       type: 'start',
       todoId: todo._id.toString(),
-      message:
-        source === 'auto' && startReason
-          ? `${startReason}（${todo.title}）`
-          : template.mode === 'ongoing'
-            ? `开始${todo.title}`
-            : `${todo.title}`,
+      message: todo.title,
+      reason: source === 'auto' ? `${startReason || ''}` : '',
       happenedAt: now,
     });
 
@@ -2440,6 +2719,7 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
     stats.energy = round2(
       clamp(stats.energy + BASE_EFFECTS_PER_MINUTE.energy, 0, stats.energyMax),
     );
+    stats.health = round2(clamp(stats.health + BASE_EFFECTS_PER_MINUTE.health, 0, stats.healthMax));
 
     if (travel.type !== 'none') {
       stats.hunger = round2(stats.hunger + travel.effects.hungerDelta);
@@ -2485,6 +2765,27 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
         Number((stats as any).reviveHealthBuffMinutes || 0) - 1,
       );
       stats.health = round2(clamp(stats.health + 1, 0, 100));
+    }
+
+    if (Number((stats as any).gojiHealthBuffMinutes || 0) > 0) {
+      (stats as any).gojiHealthBuffMinutes = Math.max(
+        0,
+        Number((stats as any).gojiHealthBuffMinutes || 0) - 1,
+      );
+      stats.health = round2(clamp(stats.health + 0.05, 0, stats.healthMax));
+    }
+
+    if (Number((stats as any).gojiEnergyBuffMinutes || 0) > 0) {
+      (stats as any).gojiEnergyBuffMinutes = Math.max(
+        0,
+        Number((stats as any).gojiEnergyBuffMinutes || 0) - 1,
+      );
+      stats.energy = round2(clamp(stats.energy + 0.02, 0, stats.energyMax));
+    }
+
+    const lowHappinessHealthDelta = this.getLowHappinessHealthDelta(Number(stats.happiness || 0));
+    if (lowHappinessHealthDelta) {
+      stats.health = round2(clamp(stats.health + lowHappinessHealthDelta, 0, stats.healthMax));
     }
 
     const injuryStatuses = this.getInjuryStatuses(stats);
@@ -2543,50 +2844,109 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
       }
 
       let nextPlan: AutoTodoPlan | null = null;
-      if (this.pickThisTodoKind('hunger', stats.hunger)) {
+      const hungerDecision = this.pickThisTodoKind('hunger', stats.hunger);
+      if (hungerDecision.shouldPick) {
+        const pick = await this.pickFoodTodoKind(stats.petId);
         nextPlan = {
-          kind: await this.pickFoodTodoKind(stats.petId),
-          reason: `饿了（饱度低于${AUTO_TRIGGER_THRESHOLD.hunger}），开始吃饭`,
+          kind: pick.kind,
+          reason: this.buildDetailedAutoPickReason(
+            '饱度',
+            stats.hunger,
+            hungerDecision.probability,
+            '吃',
+            TODO_TEMPLATES[pick.kind].title,
+            pick.weight,
+            pick.rankedWeights,
+          ),
           pickedBy: 'hunger',
         };
-      } else if (this.pickThisTodoKind('thirst', stats.thirst)) {
-        nextPlan = {
-          kind: await this.pickDrinkTodoKind(stats.petId),
-          reason: `渴了（渴度低于${AUTO_TRIGGER_THRESHOLD.thirst}），开始喝水`,
-          pickedBy: 'thirst',
-        };
-      } else if (this.pickThisTodoKind('energy', stats.energy)) {
-        nextPlan = {
-          kind: await this.pickBySourceWithContinuation(
-            stats.petId,
-            'energy',
-            () => this.pickEnergyTodoKind(),
-            runningTodo,
-          ),
-          reason: `累了（精力低于${AUTO_TRIGGER_THRESHOLD.energy}），开始恢复精力`,
-          pickedBy: 'energy',
-        };
-      } else if (this.pickThisTodoKind('happiness', stats.happiness)) {
-        nextPlan = {
-          kind: await this.pickBySourceWithContinuation(
-            stats.petId,
-            'happiness',
-            () => this.pickHappinessTodoKind(),
-            runningTodo,
-          ),
-          reason: `心情低落（快乐低于${AUTO_TRIGGER_THRESHOLD.happiness}），开始放松`,
-          pickedBy: 'happiness',
-        };
-      } else if (runningTodo.kind !== 'work-code' && runningTodo.kind !== 'work-live') {
-        nextPlan = {
-          kind: await this.pickBySourceWithContinuation(
-            stats.petId,
-            'work',
-            () => this.pickWorkTodoKind(stats.petId),
-            runningTodo,
-          ),
-          pickedBy: 'work',
-        };
+      } else {
+        const thirstDecision = this.pickThisTodoKind('thirst', stats.thirst);
+        if (thirstDecision.shouldPick) {
+          const pick = await this.pickDrinkTodoKind(stats.petId);
+          nextPlan = {
+            kind: pick.kind,
+            reason: this.buildDetailedAutoPickReason(
+              '渴度',
+              stats.thirst,
+              thirstDecision.probability,
+              '喝',
+              TODO_TEMPLATES[pick.kind].title,
+              pick.weight,
+              pick.rankedWeights,
+            ),
+            pickedBy: 'thirst',
+          };
+        } else {
+          const energyDecision = this.pickThisTodoKind('energy', stats.energy);
+          if (energyDecision.shouldPick) {
+            const pick = await this.pickBySourceWithContinuation(
+              stats.petId,
+              'energy',
+              () => this.pickEnergyTodoKind(),
+              runningTodo,
+            );
+            nextPlan = {
+              kind: pick.kind,
+              reason: this.buildDetailedAutoPickReason(
+                '精力',
+                stats.energy,
+                energyDecision.probability,
+                '休息',
+                TODO_TEMPLATES[pick.kind].title,
+                pick.weight,
+                pick.rankedWeights,
+                pick.continued,
+              ),
+              pickedBy: 'energy',
+            };
+          } else {
+            const happinessDecision = this.pickThisTodoKind('happiness', stats.happiness);
+            if (happinessDecision.shouldPick) {
+              const pick = await this.pickBySourceWithContinuation(
+                stats.petId,
+                'happiness',
+                () => this.pickHappinessTodoKind(),
+                runningTodo,
+              );
+              nextPlan = {
+                kind: pick.kind,
+                reason: this.buildDetailedAutoPickReason(
+                  '快乐',
+                  stats.happiness,
+                  happinessDecision.probability,
+                  '休息',
+                  TODO_TEMPLATES[pick.kind].title,
+                  pick.weight,
+                  pick.rankedWeights,
+                  pick.continued,
+                ),
+                pickedBy: 'happiness',
+              };
+            } else if (runningTodo.kind !== 'work-code' && runningTodo.kind !== 'work-live') {
+              const pick = await this.pickBySourceWithContinuation(
+                stats.petId,
+                'work',
+                () => this.pickWorkTodoKind(stats.petId),
+                runningTodo,
+              );
+              nextPlan = {
+                kind: pick.kind,
+                reason: this.buildDetailedAutoPickReason(
+                  '工作',
+                  stats.hunger,
+                  1,
+                  '工作',
+                  TODO_TEMPLATES[pick.kind].title,
+                  pick.weight,
+                  pick.rankedWeights,
+                  pick.continued,
+                ),
+                pickedBy: 'work',
+              };
+            }
+          }
+        }
       }
 
       if (nextPlan && nextPlan.kind !== runningTodo.kind) {
@@ -2622,6 +2982,20 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
           Number((stats as any).teaEnergyBuffMinutes || 0),
           Number(todo.teaEnergyBuffMinutes || 0),
         );
+      }
+      if (todo.kind === 'drink-red-date-goji-tea') {
+        if (Number(todo.gojiHealthBuffMinutes || 0) > 0) {
+          (stats as any).gojiHealthBuffMinutes = Math.max(
+            Number((stats as any).gojiHealthBuffMinutes || 0),
+            Number(todo.gojiHealthBuffMinutes || 0),
+          );
+        }
+        if (Number(todo.gojiEnergyBuffMinutes || 0) > 0) {
+          (stats as any).gojiEnergyBuffMinutes = Math.max(
+            Number((stats as any).gojiEnergyBuffMinutes || 0),
+            Number(todo.gojiEnergyBuffMinutes || 0),
+          );
+        }
       }
     }
 
@@ -2664,14 +3038,8 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const level = this.getLevelByExp(todo.skillExp || 0);
-    let moneyGain = 0;
-    if (todo.kind === 'work-code') {
-      moneyGain = level === 1 ? 3 : level === 2 ? 4 : 6;
-    }
-    if (todo.kind === 'work-live') {
-      moneyGain = level === 1 ? 1 : level === 2 ? 1.5 : 3;
-    }
+    let moneyGain = this.getWorkMoneyBasePerMinute(todo);
+    moneyGain = round2(moneyGain * this.getWorkMoneyMultiplier(stats));
 
     stats.happiness = clamp(
       stats.happiness + todo.happinessDelta,
@@ -2748,6 +3116,12 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
     }
     if (typeof todo.teaEnergyBuffMinutes !== 'number') {
       todo.teaEnergyBuffMinutes = 0;
+    }
+    if (typeof todo.gojiHealthBuffMinutes !== 'number') {
+      todo.gojiHealthBuffMinutes = 0;
+    }
+    if (typeof todo.gojiEnergyBuffMinutes !== 'number') {
+      todo.gojiEnergyBuffMinutes = 0;
     }
   }
 
@@ -2892,7 +3266,7 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
   }
 
   private buildStatusEffects(
-    stats: Pick<PetStats, 'warmth'> | null | undefined,
+    stats: Pick<PetStats, 'warmth' | 'happiness' | 'energy' | 'health'> | null | undefined,
     currentTodo: any,
     travel: TravelInfo,
     injuries: InjuryStatus[],
@@ -2912,7 +3286,9 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
       energy: [
         { source: '默认代谢', deltaPerMinute: BASE_EFFECTS_PER_MINUTE.energy },
       ],
-      health: [],
+      health: [
+        { source: '默认代谢', deltaPerMinute: BASE_EFFECTS_PER_MINUTE.health },
+      ],
       warmth: [],
       money: [],
     };
@@ -2942,20 +3318,9 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
       addReason('warmth', source, warmthDelta);
 
       if (currentTodo.hasSkill && (currentTodo.kind === 'work-code' || currentTodo.kind === 'work-live')) {
-        const level = this.getLevelByExp(Number(currentTodo.skillExp || 0));
-        const moneyPerSettle =
-          currentTodo.kind === 'work-code'
-            ? level === 1
-              ? 3
-              : level === 2
-                ? 4
-                : 6
-            : level === 1
-              ? 1
-              : level === 2
-                ? 1.5
-                : 3;
-        addReason('money', source, moneyPerSettle * ratio);
+        const baseMoneyPerMinute = this.getWorkMoneyBasePerMinute(currentTodo);
+        const multiplier = this.getWorkMoneyMultiplier(stats as Pick<PetStats, 'energy' | 'health'>);
+        addReason('money', source, baseMoneyPerMinute * multiplier * ratio);
       } else {
         addReason('money', source, Number(currentTodo.moneyDelta || 0) * ratio);
       }
@@ -2965,8 +3330,21 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
       addReason('energy', '喝茶余韵', 0.1);
     }
 
+    if (Number((stats as any)?.gojiHealthBuffMinutes || 0) > 0) {
+      addReason('health', '红枣枸杞茶余韵', 0.05);
+    }
+
+    if (Number((stats as any)?.gojiEnergyBuffMinutes || 0) > 0) {
+      addReason('energy', '红枣枸杞茶余韵', 0.02);
+    }
+
     if (Number((stats as any)?.reviveHealthBuffMinutes || 0) > 0) {
       addReason('health', '复活药水余效', 1);
+    }
+
+    const lowHappinessHealthDelta = this.getLowHappinessHealthDelta(Number((stats as any)?.happiness || 0));
+    if (lowHappinessHealthDelta) {
+      addReason('health', '快乐低于30', lowHappinessHealthDelta);
     }
 
     if (travel.type !== 'none') {
