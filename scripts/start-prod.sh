@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# 这个脚本用于在本地或服务器上启动 forvera 的生产服务。
+# 1. 计算项目根目录和运行目录。
+# 2. 检查 Node.js 版本、配置 npm 镜像并准备运行目录。
+# 3. 停止旧进程、安装依赖并构建前后端。
+# 4. 后台启动 server 和 app，并等待健康检查通过。
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_DIR="$ROOT_DIR/app"
 SERVER_DIR="$ROOT_DIR/server"
 RUNTIME_DIR="$ROOT_DIR/.runtime"
 LOG_DIR="$RUNTIME_DIR/logs"
 PID_DIR="$RUNTIME_DIR/pids"
+CONTROL_DIR="$RUNTIME_DIR/control"
+SERVER_STOP_FILE="$CONTROL_DIR/server.stop"
 
 APP_PORT="${APP_PORT:-10000}"
 SERVER_PORT="${SERVER_PORT:-3000}"
@@ -37,10 +45,20 @@ export npm_config_sharp_dist_base_url="$SHARP_LIBVIPS_HOST"
 export SHARP_DIST_BASE_URL="$SHARP_LIBVIPS_HOST"
 
 mkdir -p "$LOG_DIR" "$PID_DIR"
+mkdir -p "$CONTROL_DIR"
 mkdir -p "$ROOT_DIR/../assets"
 
+clear_stop_flags() {
+  rm -f "$SERVER_STOP_FILE" "$CONTROL_DIR/app.stop"
+}
+
+clear_stop_flags
+
 echo "[pre] Stopping existing services before start..."
-"$ROOT_DIR/stop-prod.sh" || true
+"$ROOT_DIR/scripts/stop-prod.sh" || true
+
+# stop-prod intentionally leaves stop flags behind; clear them again before starting.
+clear_stop_flags
 
 # Force-kill any remaining processes still holding the ports
 force_kill_port() {
@@ -90,6 +108,59 @@ stop_if_running() {
   fi
 }
 
+run_with_restart() {
+  local name="$1"
+  local workdir="$2"
+  local log_file="$3"
+  local stop_file="$4"
+  shift 4
+
+  (
+    set -uo pipefail
+
+    child_pid=""
+    cleanup() {
+      if [[ -n "${child_pid}" ]] && kill -0 "$child_pid" 2>/dev/null; then
+        kill "$child_pid" 2>/dev/null || true
+        wait "$child_pid" 2>/dev/null || true
+      fi
+    }
+
+    trap cleanup INT TERM EXIT
+
+    while true; do
+      if [[ -f "$stop_file" ]]; then
+        echo "[$name] stop flag detected, supervisor exits" >> "$log_file"
+        break
+      fi
+
+      echo "[$name] starting at $(date '+%F %T')" >> "$log_file"
+      (
+        cd "$workdir"
+        "$@"
+      ) >> "$log_file" 2>&1 &
+      child_pid=$!
+
+      if wait "$child_pid"; then
+        exit_code=0
+      else
+        exit_code=$?
+      fi
+      child_pid=""
+
+      if [[ -f "$stop_file" ]]; then
+        echo "[$name] stop flag detected after exit, supervisor exits" >> "$log_file"
+        break
+      fi
+
+      echo "[$name] exited with code $exit_code, restarting in 3s" >> "$log_file"
+      sleep 3
+    done
+  ) &
+
+  echo $! > "$PID_DIR/${name}.pid"
+}
+
 wait_for_http() {
   local name="$1"
   local url="$2"
@@ -115,6 +186,20 @@ wait_for_http() {
 }
 
 echo "[1/4] Installing dependencies..."
+if ! command -v zip >/dev/null 2>&1; then
+  echo "[pre] zip not found, installing zip package..."
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update
+    apt-get install -y zip
+  elif command -v apt >/dev/null 2>&1; then
+    apt update
+    apt install -y zip
+  else
+    echo "[pre] Error: apt/apt-get not found, please install zip manually."
+    exit 1
+  fi
+fi
+
 cd "$SERVER_DIR"
 npm install
 cd "$APP_DIR"
@@ -133,8 +218,7 @@ stop_if_running "app"
 
 echo "[4/4] Starting services in background..."
 cd "$SERVER_DIR"
-nohup npm run start:prod > "$LOG_DIR/server.log" 2>&1 &
-echo $! > "$PID_DIR/server.pid"
+run_with_restart "server" "$SERVER_DIR" "$LOG_DIR/server.log" "$SERVER_STOP_FILE" npm run start:prod
 
 cd "$APP_DIR"
 APP_PORT="$APP_PORT" \

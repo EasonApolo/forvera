@@ -11,7 +11,22 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
     <link rel="manifest" href="/site.webmanifest">
     
-    <meta name=theme-color content=#f6f6f6>
+    <meta name="theme-color" content="#f6f6f6">
+    <script>
+      (function () {
+        var lightColor = '#f6f6f6'
+        var darkColor = '#181818'
+        var mode = localStorage.getItem('themeMode') || localStorage.getItem('theme') || 'system'
+        var isDark = mode === 'dark' || (mode !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+        var meta = document.querySelector('meta[name="theme-color"]')
+        if (!meta) {
+          meta = document.createElement('meta')
+          meta.setAttribute('name', 'theme-color')
+          document.head.appendChild(meta)
+        }
+        meta.setAttribute('content', isDark ? darkColor : lightColor)
+      })()
+    </script>
   </head>
   <body>
     <div id="app"></div>

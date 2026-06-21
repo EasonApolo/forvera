@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { nextTick, ref, watch } from 'vue'
 
 const props = withDefaults(
   defineProps<{
@@ -25,6 +25,7 @@ const emit = defineEmits<{
 
 const editing = ref(false)
 const draft = ref(props.modelValue || '')
+const inputRef = ref<HTMLInputElement | null>(null)
 
 watch(
   () => props.modelValue,
@@ -39,6 +40,10 @@ const startEdit = () => {
   if (props.disabled) return
   editing.value = true
   draft.value = props.modelValue || ''
+  void nextTick(() => {
+    inputRef.value?.focus()
+    inputRef.value?.select()
+  })
 }
 
 const submit = () => {
@@ -65,6 +70,7 @@ const cancel = () => {
     {{ modelValue || placeholder }}
   </span>
   <input
+    ref="inputRef"
     v-else
     class="editable-input"
     :class="{ inline: inline }"
@@ -87,14 +93,16 @@ const cancel = () => {
 
 .editable-text {
   cursor: text;
-  border-bottom: 1px dashed var(--border-light);
+  border: none;
+  padding: 0;
+  background: transparent;
 }
 
 .editable-input {
   border: 1px solid var(--border-light);
   border-radius: 4px;
   padding: 0.1rem 0.25rem;
-  background: transparent;
+  background: var(--card-bg);
   outline: none;
 }
 

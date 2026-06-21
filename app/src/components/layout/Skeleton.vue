@@ -9,9 +9,9 @@
 div {
   background-image: linear-gradient(
     90deg,
-    #f6f6f6 25%,
-    #eaeaea 37%,
-    #f6f6f6 63%
+    var(--skeleton-base) 25%,
+    var(--skeleton-highlight) 37%,
+    var(--skeleton-base) 63%
   );
   background-size: 400% 100%;
   background-position: 100% 50%;
@@ -23,14 +23,17 @@ div {
 .title {
   width: 8rem;
   height: 1rem;
+  border-radius: 0.25rem;
 }
 .long {
   width: 100%;
   height: 0.8rem;
+  border-radius: 0.25rem;
 }
 .short {
   width: 70%;
   height: 0.6rem;
+  border-radius: 0.25rem;
 }
 
 @keyframes skeleton-loading {

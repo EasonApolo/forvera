@@ -218,6 +218,18 @@ export class TwitService {
   async deleteTwit(twitId: string) {
     const twit = await this.twitModel.findById(twitId);
     if (!twit) return null;
+
+    // Collect all twit ids in this thread to clean up their files.
+    const allTwits = await this.twitModel
+      .find({ $or: [{ _id: twitId }, { ancestor: twitId }, { parent: twitId }] })
+      .select('_id')
+      .lean()
+      .exec();
+
+    for (const t of allTwits) {
+      await this.fileService.removeFilesByPost('', `${t._id}`);
+    }
+
     await this.twitModel.deleteMany({ ancestor: twitId }).exec();
     await this.twitModel.deleteMany({ parent: twitId }).exec();
     await this.twitModel.deleteOne({ _id: twitId }).exec();

@@ -1,24 +1,28 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import io from 'socket.io-client'
 import { ip } from '../config'
 import Card from '../components/Card.vue'
 import Btn from '../components/Btn.vue'
 import Input from '../components/Input.vue'
+import EditableInput from '../components/EditableInput.vue'
 import { useToastStore } from '../store/toast'
 import PokerCard from './Playground/holdem/PokerCard.vue'
 
 const route = useRoute()
+const router = useRouter()
 const roomId = route.params.id as string
-const userId = (route.params.userId as string) || '1' // 默认用户 ID 为 1
+let userId = (route.params.userId as string) || '' // will ensure per-room id exists before connecting
 const toastStore = useToastStore()
 let socket: any
 
 const roomStatus = ref<'waiting' | 'playing'>('waiting')
 const users = ref<any[]>([])
+const pendingUsers = ref<any[]>([])
 const hostId = ref('')
 const loading = ref(true)
+const joinError = ref('')
 const round = ref(1)
 const smallBlind = ref(5)
 const bigBlind = ref(10)
@@ -30,19 +34,61 @@ const winnerIds = ref<string[]>([])
 const messages = ref<any[]>([])
 const chatInput = ref('')
 const chatVisible = ref(false)
+const chatMessagesRef = ref<HTMLElement | null>(null)
+const lastPreview = ref('')
+let previewTimer: number | null = null
 const results = ref<any[]>([])
 const resultsVisible = ref(false)
 const stats = ref<any>({ users: [] })
 const statsVisible = ref(false)
-const userActions = ref<Record<string, { action: string; amount?: number; timestamp: number }>>({})
+const userActions = ref<Record<string, { action: string; amount?: number; totalAmount?: number; timestamp: number }>>({})
+const chipActionPending = ref(false)
+let chipActionPendingTimer: number | null = null
+
+const clearChipActionPending = () => {
+  chipActionPending.value = false
+  if (chipActionPendingTimer) {
+    clearTimeout(chipActionPendingTimer)
+    chipActionPendingTimer = null
+  }
+}
+
+const setChipActionPending = () => {
+  clearChipActionPending()
+  chipActionPending.value = true
+  chipActionPendingTimer = window.setTimeout(() => {
+    chipActionPending.value = false
+    chipActionPendingTimer = null
+    toastStore.showToast({ content: '网络较慢，已恢复操作，请再确认当前筹码状态', type: '!' })
+  }, 5000)
+}
 
 const isActivePlayer = computed(() => {
-  return currentPlayerId.value === userId
+  const uid = (route.params.userId as string) || userId
+  return currentPlayerId.value === uid
 })
 
 const meUser = computed(() => {
-  return users.value.find(user => user.id === userId)
+  const uid = (route.params.userId as string) || userId
+  return users.value.find(user => user.id === uid)
 })
+
+const selfUser = computed(() => {
+  const uid = (route.params.userId as string) || userId
+  return users.value.find(user => user.id === uid) || pendingUsers.value.find(user => user.id === uid)
+})
+
+// keep userId variable in sync if route param is added/changed
+watch(
+  () => route.params.userId,
+  (v) => {
+    if (v) {
+      userId = v as string
+    }
+  }
+)
+
+const getUid = () => ((route.params.userId as string) || userId)
 
 const showAdvancedButtons = ref(false)
 
@@ -73,16 +119,40 @@ const getUserBetSum = (user: any) =>
     0
   )
 
+const hasBetChips = (user: any) =>
+  Array.isArray(user?.betChips) && user.betChips.some((chip: { count: number }) => chip.count > 0)
+
 const hasNewBet = (user: any) => {
   const betSum = getUserBetSum(user)
   return betSum > (user.betSum || 0)
 }
 
-const editingUserId = ref<string | null>(null)
 const editingName = ref<string>('')
 const lastSyncTimestamp = ref<number>(0)
 
+watch(
+  () => selfUser.value?.name,
+  (name) => {
+    if (name) {
+      editingName.value = name
+    }
+  },
+  { immediate: true }
+)
+
+const getResultPlayer = (result: any, targetUserId: string) => {
+  return Array.isArray(result?.players)
+    ? result.players.find((player: { userId: string }) => player.userId === targetUserId)
+    : undefined
+}
+
 onMounted(() => {
+  if (!userId) {
+    joinError.value = '缺少用户ID，请使用带用户ID的链接进入'
+    loading.value = false
+    return
+  }
+
   console.log('Room ID:', roomId)
   console.log('User ID:', userId)
 
@@ -94,37 +164,62 @@ onMounted(() => {
     timeout: 5000, // 5秒超时
   })
 
-  // 监听连接成功事件
-  socket.on('connect', () => {
-    const joinData = {
-      roomId,
-      userId,
+  socket.on('connect_error', (error: any) => {
+    if (loading.value) {
+      loading.value = false
     }
-    socket.emit('joinRoom', joinData)
+    joinError.value = error?.message || '连接失败'
   })
 
-  // 监听用户加入事件
-  socket.on('syncRoomStatus', (data: any) => {
+  // 监听连接成功事件
+  socket.on('connect', () => {
+    const uid = (route.params.userId as string) || userId
+    const joinData = {
+      roomId,
+      userId: uid,
+    }
+    socket.emit('joinRoom', joinData, (resp: any) => {
+      if (resp && resp.success === false) {
+        joinError.value = resp.message || '该用户已占用'
+        loading.value = false
+        toastStore.showToast({ content: joinError.value, type: '!' })
+        socket.disconnect()
+        return
+      }
+      loading.value = false
+    })
+  })
+
+  const syncRoomStatus = (data: any) => {
     // 比较 timestamp，只有当新数据晚于已接收的数据时才更新
     if (data.timestamp < lastSyncTimestamp.value) {
       console.log('Ignoring outdated message:', data.timestamp, 'Last:', lastSyncTimestamp.value)
       return
     }
     lastSyncTimestamp.value = data.timestamp
+    clearChipActionPending()
 
     if (loading.value) {
       loading.value = false
     }
+    joinError.value = ''
     console.log('Room status synced:', data)
     communityCards.value = data.communityCards
     roomStatus.value = data.status
     hostId.value = data.hostId
-    users.value = data.users
+    users.value = Array.isArray(data.users) ? data.users : []
+    pendingUsers.value = Array.isArray(data.pendingUsers) ? data.pendingUsers : []
     currentPlayerId.value = data.currentPlayerId
     round.value = data.round
     winnerIds.value = data.winnerIds
     gamePhase.value = data.gamePhase
-  })
+    if (Array.isArray(data.messages)) {
+      messages.value = data.messages
+    }
+  }
+
+  // 监听房间状态事件
+  socket.on('syncRoomStatus', syncRoomStatus)
 
   // 监听游戏开始事件
   socket.on('gameStarted', (data: any) => {
@@ -138,74 +233,53 @@ onMounted(() => {
     dealerPosition.value = data.dealerPosition
     communityCards.value = data.communityCards
     gamePhase.value = data.gamePhase
-  })
+    })
 
-  // 监听当前玩家变更事件
-  socket.on('currentPlayerChanged', (data: any) => {
+    // 监听当前玩家变更事件
+    socket.on('currentPlayerChanged', (data: any) => {
     console.log('Current player changed:', data)
     currentPlayerId.value = data.currentPlayerId
-  })
+    })
 
-  // 监听新消息事件
-  socket.on('newMessage', (data: any) => {
+    // 监听新消息事件
+    socket.on('newMessage', (data: any) => {
     console.log('New message received:', data)
     messages.value = [...messages.value, ...data]
-  })
+    })
 
-  // 监听同步结果事件
-  socket.on('syncResults', (data: any) => {
+  // Keep messages array order as oldest -> newest; UI will auto-scroll via watcher
+
+  // auto-scroll handled by watcher below
+
+    // 监听同步结果事件
+    socket.on('syncResults', (data: any) => {
     console.log('Results synced:', data)
     results.value = data
-  })
+    })
 
-  // 监听同步统计事件
-  socket.on('syncStats', (data: any) => {
+    // 监听同步统计事件
+    socket.on('syncStats', (data: any) => {
     console.log('Stats synced:', data)
     stats.value = data
-  })
+    })
 
-  // 监听同步用户状态事件
-  socket.on('syncUserStatus', (data: any) => {
+    // 监听同步用户状态事件
+    socket.on('syncUserStatus', (data: any) => {
     console.log('User status synced:', data)
     // 更新用户的readyStatus
     users.value = users.value.map(user => {
       const statusData = data.find((d: any) => d.id === user.id)
       return statusData ? { ...user, readyStatus: statusData.readyStatus } : user
     })
-  })
+    })
 
-  // 监听用户动作事件
-  socket.on('syncUserAction', (data: any) => {
+    // 监听用户动作事件
+    socket.on('syncUserAction', (data: any) => {
     console.log('User action received:', data)
     handleUserAction(data)
-  })
+    })
 
-  // 监听同步房间状态事件中的消息
-  socket.on('syncRoomStatus', (data: any) => {
-    // 比较 timestamp，只有当新数据晚于已接收的数据时才更新
-    if (data.timestamp < lastSyncTimestamp.value) {
-      console.log('Ignoring outdated message:', data.timestamp, 'Last:', lastSyncTimestamp.value)
-      return
-    }
-    lastSyncTimestamp.value = data.timestamp
-
-    if (loading.value) {
-      loading.value = false
-    }
-    console.log('Room status synced:', data)
-    communityCards.value = data.communityCards
-    roomStatus.value = data.status
-    hostId.value = data.hostId
-    users.value = data.users
-    currentPlayerId.value = data.currentPlayerId
-    round.value = data.round
-    winnerIds.value = data.winnerIds
-    gamePhase.value = data.gamePhase
-    // 同步消息
-    if (data.messages) {
-      messages.value = data.messages
-    }
-  })
+  // no catch needed; initialization errors should surface to Vue/error overlay during development
 })
 
 onUnmounted(() => {
@@ -214,6 +288,10 @@ onUnmounted(() => {
     console.log('Disconnecting WebSocket...')
     socket.disconnect()
   }
+  if (previewTimer) {
+    clearTimeout(previewTimer)
+    previewTimer = null
+  }
 })
 
 // 开始游戏
@@ -221,12 +299,21 @@ const startGame = () => {
   socket.emit('startGame', { roomId })
 }
 
+const restartGame = () => {
+  if (!confirm('确定会重启整局游戏。')) {
+    return
+  }
+  socket.emit('restartGame', { roomId }, wsErrorHandler)
+}
+
 const quitBet = () => {
+  const me = meUser.value || {}
+  // Only prohibit fold for blinds during the initial preflop forced round
   if (
-    (meUser.value.isSmallBlind && meUser.value.betSum < 5) ||
-    (meUser.value.isBigBlind && meUser.value.betSum < 10)
+    (me.isSmallBlind && gamePhase.value === 'preflop' && (me.betSum || 0) < smallBlind.value) ||
+    (me.isBigBlind && gamePhase.value === 'preflop' && (me.betSum || 0) < bigBlind.value)
   ) {
-    toastStore.showToast({ content: '小盲和大盲不能弃牌', type: '!' })
+    toastStore.showToast({ content: '小盲和大盲在首轮不能弃牌', type: '!' })
     return
   }
   // 确认弃牌操作
@@ -252,32 +339,46 @@ const allIn = () => {
 
 // 找零
 const exchangeToSmallChips = () => {
-  socket.emit('exchangeToSmallChips', { userId }, wsErrorHandler)
+  socket.emit('exchangeToSmallChips', { userId: getUid() }, wsErrorHandler)
 }
 
 // 化整
 const exchangeToLargeChips = () => {
-  socket.emit('exchangeToLargeChips', { userId }, wsErrorHandler)
+  socket.emit('exchangeToLargeChips', { userId: getUid() }, wsErrorHandler)
 }
 
 // 贷款
 const loan = () => {
-  socket.emit('loan', { userId }, wsErrorHandler)
+  socket.emit('loan', { userId: getUid() }, wsErrorHandler)
 }
 
 // 还款
 const repay = () => {
-  socket.emit('repay', { userId }, wsErrorHandler)
+  socket.emit('repay', { userId: getUid() }, wsErrorHandler)
 }
 
 // 添加筹码到下注区
 const addChip = (chipValue: number, userId: string) => {
-  socket.emit('addChip', { chipValue, userId })
+  if (chipActionPending.value) return
+  setChipActionPending()
+  socket.emit('addChip', { chipValue, userId }, (response: any) => {
+    clearChipActionPending()
+    if (response?.success === false) {
+      toastStore.showToast({ content: response.message || '加筹码失败', type: '!' })
+    }
+  })
 }
 
 // 从下注区移除筹码
 const removeChip = (chipValue: number, userId: string) => {
-  socket.emit('removeChip', { chipValue, userId })
+  if (chipActionPending.value) return
+  setChipActionPending()
+  socket.emit('removeChip', { chipValue, userId }, (response: any) => {
+    clearChipActionPending()
+    if (response?.success === false) {
+      toastStore.showToast({ content: response.message || '移除筹码失败', type: '!' })
+    }
+  })
 }
 
 // 发送消息
@@ -296,6 +397,19 @@ const sendMessage = () => {
 // 切换聊天框显示/隐藏
 const toggleChat = () => {
   chatVisible.value = !chatVisible.value
+  if (chatVisible.value) {
+    // opened: scroll to bottom
+    nextTick(() => {
+      if (chatMessagesRef.value) {
+        chatMessagesRef.value.scrollTop = chatMessagesRef.value.scrollHeight
+      }
+    })
+    lastPreview.value = ''
+    if (previewTimer) {
+      clearTimeout(previewTimer)
+      previewTimer = null
+    }
+  }
 }
 
 const wsErrorHandler = (error: any) => {
@@ -305,31 +419,35 @@ const wsErrorHandler = (error: any) => {
   }
 }
 
-const startEditName = (user: any) => {
-  if (user.id !== userId) return
-  editingUserId.value = user.id
-  editingName.value = user.name
-}
-
-const finishEditName = () => {
-  if (editingUserId.value) {
-    const trimmedName = editingName.value.trim()
-    if (trimmedName.length < 1 || trimmedName.length > 16) {
-      toastStore.showToast({ content: '名称需要1-16字符', type: '!' })
+const finishEditName = (nextName?: string) => {
+  const trimmedName = (nextName ?? editingName.value).trim()
+  if (trimmedName.length < 1 || trimmedName.length > 16) {
+    toastStore.showToast({ content: '名称需要1-16字符', type: '!' })
+    return
+  }
+  const currentUser = selfUser.value
+  if (!currentUser) {
+    return
+  }
+  if (currentUser.name === trimmedName) {
+    editingName.value = trimmedName
+    return
+  }
+  socket.emit('updateUserName', {
+    userId: currentUser.id,
+    newName: trimmedName,
+  }, (response: any) => {
+    if (response?.success === false) {
+      toastStore.showToast({ content: response.message || '改名失败', type: '!' })
+      editingName.value = currentUser.name
       return
     }
-    socket.emit('updateUserName', {
-      userId: editingUserId.value,
-      newName: trimmedName,
-    }, (response: any) => {
-      if (response?.success === false) {
-        toastStore.showToast({ content: response.message || '改名失败', type: '!' })
-        return
-      }
-    })
-  }
-  editingUserId.value = null
-  editingName.value = ''
+    editingName.value = trimmedName
+  })
+}
+
+const cancelEditName = () => {
+  editingName.value = selfUser.value?.name || ''
 }
 
 // 计算用户总收益
@@ -342,14 +460,14 @@ const getTotalProfit = (userId: string) => {
 
 // 设置用户状态（准备或结束）
 const setUserStatus = (status: 'ready' | 'end') => {
-  socket.emit('setUserStatus', { userId, status }, wsErrorHandler)
+  socket.emit('setUserStatus', { userId: getUid(), status }, wsErrorHandler)
 }
 
 // 处理用户动作
 const handleUserAction = (actionData: any) => {
-  const { userId, action, amount, timestamp } = actionData
+  const { userId, action, amount, totalAmount, timestamp } = actionData
   // 添加动作到用户动作记录
-  userActions.value[userId] = { action, amount, timestamp }
+  userActions.value[userId] = { action, amount, totalAmount, timestamp }
   // 5秒后自动移除动作
   setTimeout(() => {
     if (userActions.value[userId]?.timestamp === timestamp) {
@@ -358,17 +476,42 @@ const handleUserAction = (actionData: any) => {
   }, 5000)
 }
 
+// watch messages for new items: auto-scroll or show preview when collapsed
+watch(messages, (newVal, oldVal) => {
+  if (!Array.isArray(newVal) || newVal.length === 0) return
+  if (!oldVal || newVal.length <= oldVal.length) return
+  const latest = newVal[newVal.length - 1]
+  if (chatVisible.value) {
+    nextTick(() => {
+      if (chatMessagesRef.value) {
+        chatMessagesRef.value.scrollTop = chatMessagesRef.value.scrollHeight
+      }
+    })
+  } else {
+    const name = latest?.userName || latest?.user || ''
+    const text = latest?.content || latest?.message || ''
+    lastPreview.value = name ? `${name}: ${text}` : text
+    if (previewTimer) {
+      clearTimeout(previewTimer)
+    }
+    previewTimer = window.setTimeout(() => {
+      lastPreview.value = ''
+      previewTimer = null
+    }, 5000)
+  }
+})
+
 // 获取动作文本
-const getActionText = (action: string, amount?: number) => {
+const getActionText = (action: string, amount?: number, totalAmount?: number) => {
   switch (action) {
     case 'fold':
       return '弃牌'
     case 'call':
-      return '跟注'
+      return '跟'
     case 'raise':
-      return `加注 ${amount}`
+      return amount ? `加${amount}${totalAmount ? `，共${totalAmount}` : ''}` : '加'
     case 'all-in':
-      return `全押 ${amount}`
+      return totalAmount ? `梭哈，共${totalAmount}` : '梭哈'
     default:
       return action
   }
@@ -377,8 +520,12 @@ const getActionText = (action: string, amount?: number) => {
 
 <template>
   <div class="holdem-room-container">
-    <div v-if="loading" class="loading">
+    <div v-if="loading && !joinError" class="loading">
       <p>加载中...</p>
+    </div>
+
+    <div v-else-if="joinError" class="error">
+      <p>{{ joinError }}</p>
     </div>
 
     <div v-else class="room-content">
@@ -394,9 +541,14 @@ const getActionText = (action: string, amount?: number) => {
               winnerIds.map(id => users.find(u => u.id === id)?.name || id).join(', ')
             }}</span
           >
-          <span v-else-if="currentPlayerId === ''">已开牌，即将开始下一轮下注...</span>
+          <span v-else-if="currentPlayerId === ''">
+            已开牌，即将开始下一轮下注...
+          </span>
           <span v-else>阶段:{{ gamePhaseText }}</span>
         </template>
+        <div class="header-actions">
+          <Btn v-if="userId === hostId" :small="true" type="danger" @click="restartGame">重启</Btn>
+        </div>
       </div>
       <div class="community-cards" v-if="roomStatus === 'playing'">
         <div v-for="(card, index) in communityCards" :key="index" class="card-item">
@@ -421,22 +573,16 @@ const getActionText = (action: string, amount?: number) => {
           <div class="user-info">
             <div class="user-name-section">
               <div class="status-indicator" :class="user.connectStatus"></div>
-              <span
-                v-if="editingUserId !== user.id"
-                class="user-name"
-                :class="{ editable: user.id === userId }"
-                @click="startEditName(user)"
-              >
-                {{ user.name }}
-              </span>
-              <Input
-                v-else
+              <EditableInput
+                v-if="user.id === getUid()"
                 v-model="editingName"
-                class="user-name-input"
-                @blur="finishEditName"
-                @keyup.enter="finishEditName"
-                autofocus
+                :maxLength="16"
+                class="user-name editable"
+                placeholder="请输入用户名"
+                @submit="finishEditName"
+                @cancel="cancelEditName"
               />
+              <span v-else class="user-name">{{ user.name }}</span>
               <span v-if="roomStatus === 'waiting' && user.id === hostId" class="host-badge"
                 >房主</span
               >
@@ -480,7 +626,13 @@ const getActionText = (action: string, amount?: number) => {
               <div v-if="userActions[user.id]" class="user-action-bubble">
                 <div class="bubble-arrow"></div>
                 <div class="bubble-content">
-                  {{ getActionText(userActions[user.id].action, userActions[user.id].amount) }}
+                  {{
+                    getActionText(
+                      userActions[user.id].action,
+                      userActions[user.id].amount,
+                      userActions[user.id].totalAmount,
+                    )
+                  }}
                 </div>
               </div>
               <!-- 获胜者badge -->
@@ -500,11 +652,13 @@ const getActionText = (action: string, amount?: number) => {
                 class="chip-item"
                 :class="{
                   clickable: currentPlayerId === user.id && user.id === userId && chip.count > 0,
+                  disabled: chipActionPending,
                 }"
                 @click="
                   currentPlayerId === user.id &&
                     user.id === userId &&
                     chip.count > 0 &&
+                    !chipActionPending &&
                     addChip(chip.value, user.id)
                 "
               >
@@ -520,7 +674,7 @@ const getActionText = (action: string, amount?: number) => {
               </div>
             </div>
 
-            <div class="divider"></div>
+            <div v-if="hasBetChips(user)" class="divider"></div>
 
             <!-- 右侧：回合内出的筹码堆 -->
             <div class="bet-chips" v-if="user.betChips">
@@ -530,11 +684,13 @@ const getActionText = (action: string, amount?: number) => {
                 class="chip-item"
                 :class="{
                   clickable: currentPlayerId === user.id && user.id === userId && chip.count > 0,
+                  disabled: chipActionPending,
                 }"
                 @click="
                   currentPlayerId === user.id &&
                     user.id === userId &&
                     chip.count > 0 &&
+                    !chipActionPending &&
                     removeChip(chip.value, user.id)
                 "
               >
@@ -576,22 +732,47 @@ const getActionText = (action: string, amount?: number) => {
               <!-- 正常游戏时显示操作按钮 -->
               <template v-else-if="isActivePlayer">
                 <template v-if="showAdvancedButtons">
-                  <Btn :small="true" @click="toggleAdvancedButtons"> ⇄ </Btn>
+                  <Btn :small="true" @click="toggleAdvancedButtons">返回</Btn>
+                  <div class="button-divider"></div>
                   <Btn :small="true" @click="exchangeToSmallChips">找零</Btn>
                   <Btn :small="true" @click="exchangeToLargeChips">化整</Btn>
+                  <div class="button-divider"></div>
                   <Btn :small="true" @click="loan">贷款</Btn>
                   <Btn :small="true" @click="repay">还款</Btn>
                 </template>
                 <template v-else>
-                  <Btn :small="true" @click="toggleAdvancedButtons"> ⇄ </Btn>
+                  <Btn :small="true" @click="toggleAdvancedButtons">访问银行🏦</Btn>
+                  <div class="button-divider"></div>
                   <Btn :small="true" v-if="hasNewBet(user)" @click="takeBackBetChips">拿回</Btn>
                   <Btn :small="true" @click="allIn">梭哈</Btn>
-                  <Btn :small="true" @click="quitBet">弃牌</Btn>
-                  <Btn :small="true" @click="confirmBet">确认</Btn>
+                  <div class="button-divider"></div>
+                  <Btn :small="true" type="danger" @click="quitBet">弃牌</Btn>
+                  <Btn :small="true" type="primary" @click="confirmBet">确认</Btn>
                 </template>
               </template>
             </div>
           </div>
+        </div>
+        <div v-if="pendingUsers.length" class="pending-group">
+          <div class="pending-title">等待中</div>
+          <Card v-for="p in pendingUsers" :key="p.id" class="pending-card user-item pending-user">
+            <div class="user-info">
+              <div class="user-name-section">
+                <EditableInput
+                  v-if="p.id === getUid()"
+                  v-model="editingName"
+                  :maxLength="16"
+                  class="user-name editable"
+                  placeholder="请输入用户名"
+                  @submit="finishEditName"
+                  @cancel="cancelEditName"
+                />
+                <span v-else class="user-name">{{ p.name }}</span>
+                <span v-if="p.id === userId" class="me-badge">我</span>
+                <span class="pending-badge current-action-badge">等待中</span>
+              </div>
+            </div>
+          </Card>
         </div>
       </div>
 
@@ -619,13 +800,13 @@ const getActionText = (action: string, amount?: number) => {
                 <td class="player-name">{{ user.name }}</td>
                 <td v-for="result in results" :key="result.round" class="profit-cell">
                   <span 
-                    v-if="result.players.find(p => p.userId === user.id)"
+                    v-if="getResultPlayer(result, user.id)"
                     :class="{
-                      'profit-positive': result.players.find(p => p.userId === user.id)?.profit > 0,
-                      'profit-negative': result.players.find(p => p.userId === user.id)?.profit < 0
+                      'profit-positive': getResultPlayer(result, user.id)?.profit > 0,
+                      'profit-negative': getResultPlayer(result, user.id)?.profit < 0
                     }"
                   >
-                    {{ result.players.find(p => p.userId === user.id)?.profit > 0 ? '+' : '' }}{{ result.players.find(p => p.userId === user.id)?.profit || 0 }}
+                    {{ getResultPlayer(result, user.id)?.profit > 0 ? '+' : '' }}{{ getResultPlayer(result, user.id)?.profit || 0 }}
                   </span>
                   <span v-else>0</span>
                 </td>
@@ -708,7 +889,7 @@ const getActionText = (action: string, amount?: number) => {
 
       <div v-if="roomStatus === 'waiting' && userId === hostId" class="host-controls">
         <Btn @click="startGame" :disabled="users.length < 2">
-          {{ users.length < 2 ? '至少需要 2 名玩家' : '开始游戏' }}
+          {{ users.length < 2 ? '至少需要 2 名玩家开始游戏' : '开始游戏' }}
         </Btn>
       </div>
 
@@ -718,13 +899,15 @@ const getActionText = (action: string, amount?: number) => {
           <div class="chat-toggle">
             {{ chatVisible ? '−' : '+' }}
           </div>
-          <div class="chat-title">聊天</div>
+          <div class="chat-title">聊天
+            <span class="chat-latest" v-if="lastPreview && !chatVisible">{{ lastPreview }}</span>
+          </div>
         </div>
 
         <div v-if="chatVisible" class="chat-body">
-          <div class="chat-messages">
+          <div class="chat-messages" ref="chatMessagesRef">
             <div
-              v-for="message in messages.slice().reverse()"
+              v-for="message in messages"
               :key="message.id"
               class="chat-message"
               :class="message.type"
@@ -772,7 +955,7 @@ h2 {
   text-align: center;
   margin-bottom: 30px;
   font-size: 16px;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .loading,
@@ -805,7 +988,7 @@ h2 {
 .round-info {
   margin-top: 10px;
   font-size: 16px;
-  color: #666;
+  color: var(--text-secondary);
   display: flex;
   flex-direction: column;
   gap: 5px;
@@ -836,26 +1019,25 @@ h2 {
   display: flex;
   flex-direction: column;
   padding: 4px;
-  background-color: #ececec;
+  background-color: var(--card-bg);
   border-radius: 6px;
   transition: all 0.3s ease;
   box-sizing: border-box;
 }
 
 .user-item.current-player {
-  border: 1px solid #1890ff;
+  border: 1px solid var(--accent-color);
 }
 .user-item.current-player-is-me {
-  background-color: #e6f7ff;
-  box-shadow: 0 4px 12px rgba(24, 144, 255, 0.3);
+  box-shadow: var(--reply-shadow);
 }
 
 .user-item.all-in {
-  background-color: #fffbe6;
+  background-color: rgba(255, 235, 59, 0.06);
 }
 
 .user-item.quit-bet {
-  background-color: #dfdfdf;
+  background-color: rgba(0,0,0,0.03);
 }
 
 .user-info {
@@ -887,7 +1069,7 @@ h2 {
 }
 
 .status-indicator.disconnected {
-  background-color: #d9d9d9;
+  background-color: var(--border-light);
 }
 
 .user-name {
@@ -903,21 +1085,32 @@ h2 {
 }
 
 .user-name.editable:hover {
-  background-color: #f0f0f0;
+  background-color: var(--quote-bg);
 }
 
-.user-name-input {
-  font-weight: bold;
-  font-size: 16px;
-  padding: 2px 4px;
-  border: 1px solid var(--border);
-  border-radius: 2px;
-  outline: none;
+.pending-group {
+  margin-top: 8px;
+}
 
-  &:hover,
-  &:focus {
-    border-color: var(--accent-color);
-  }
+.pending-title {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  text-align: left;
+}
+
+.pending-card {
+  margin-bottom: 6px;
+}
+
+.pending-user {
+  opacity: 0.96;
+  box-shadow: var(--reply-shadow);
+}
+
+.pending-badge {
+  font-size: 11px;
+  color: white;
 }
 
 .user-status {
@@ -1009,7 +1202,7 @@ h2 {
   display: inline-block;
   margin-left: 8px;
 
-  .bubble-content {
+    .bubble-content {
     background-color: rgba(0, 0, 0, 0.8);
     color: white;
     padding: 4px 8px;
@@ -1033,8 +1226,8 @@ h2 {
 
 .user-item.winner {
   border: 1px solid #ff4d4f;
-  box-shadow: 0 4px 12px rgba(255, 77, 79, 0.3);
-  background-color: rgba(255, 77, 79, 0.1);
+  box-shadow: 0 4px 12px rgba(255, 77, 79, 0.06);
+  background-color: rgba(255, 77, 79, 0.06);
 }
 
 .winner-badge {
@@ -1059,7 +1252,7 @@ h2 {
   width: 100%;
   .divider {
     width: 1px;
-    background-color: #eaeaea;
+    background-color: var(--border-light);
     margin: 8px 4px 0px;
     min-height: 12px;
     align-self: stretch;
@@ -1143,7 +1336,7 @@ h2 {
 
 .chip-count {
   font-size: 10px;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 /* 牌和确定按钮行 */
@@ -1187,12 +1380,21 @@ h2 {
 .game-status {
   text-align: center;
   font-size: 14px;
-  color: #666;
+  color: var(--text-secondary);
   display: flex;
+  align-items: center;
   gap: 8px;
-  justify-content: left;
+  justify-content: space-between;
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+  }
+
   .divider {
-    color: #aaa;
+    color: var(--text-muted);
   }
 }
 
@@ -1204,39 +1406,59 @@ h2 {
   transform: translateX(-50%);
   width: 90%;
   max-width: 600px;
-  border: 1px solid #e8e8e8;
+  border: 1px solid var(--border-light);
   border-radius: 8px;
   overflow: hidden;
-  background-color: white;
+  background-color: var(--card-bg);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   z-index: 1000;
 }
 
-.chat-header {
-  display: flex;
-  align-items: center;
-  padding: 8px 12px;
-  background-color: #f0f0f0;
-  cursor: pointer;
-  transition: background-color 0.2s ease;
-
-  &:hover {
-    background-color: #e0e0e0;
-  }
-
-  .chat-toggle {
-    font-size: 18px;
-    font-weight: bold;
-    margin-right: 8px;
-    width: 20px;
-    text-align: center;
-  }
-
-  .chat-title {
-    font-size: 14px;
-    font-weight: bold;
-  }
+.button-divider {
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+  background-color: var(--border-light);
+  align-self: center;
+  flex-shrink: 0;
 }
+
+  .chat-header {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    background-color: var(--quote-bg);
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+
+    &:hover {
+      background-color: var(--toc-toggle-bg);
+    }
+
+    .chat-toggle {
+      font-size: 18px;
+      font-weight: bold;
+      margin-right: 8px;
+      width: 20px;
+      text-align: center;
+    }
+
+    .chat-title {
+      font-size: 14px;
+      font-weight: bold;
+    }
+  }
+
+  .chat-latest {
+    font-size: 13px;
+    font-weight: normal;
+    color: var(--text-muted);
+    margin-left: 8px;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 
 .chat-body {
   display: flex;
@@ -1244,11 +1466,11 @@ h2 {
   max-height: 200px; /* 大约5行的高度 */
 }
 
-.chat-messages {
+  .chat-messages {
   flex: 1;
-  padding: 12px;
+  padding: 8px;
   overflow-y: auto;
-  background-color: rgba(255, 255, 255, 0.2); /* 0.2透明度 */
+  background-color: rgba(var(--card-bg-rgb), 0.06);
 
   .chat-message {
     margin-bottom: 8px;
@@ -1257,15 +1479,19 @@ h2 {
     font-size: 14px;
 
     &.chat {
-      background-color: rgba(230, 247, 255, 0.8);
+      background-color: var(--quote-bg);
       align-self: flex-start;
     }
 
     &.system {
-      background-color: rgba(245, 245, 245, 0.8);
+      background-color: var(--quote-bg);
       align-self: center;
       font-style: italic;
-      color: #666;
+      color: var(--text-secondary);
+    }
+
+    &:last-child {
+      margin-bottom: 0;
     }
 
     .message-content {
@@ -1276,7 +1502,7 @@ h2 {
     .message-username {
       font-weight: bold;
       margin-right: 6px;
-      color: #1890ff;
+      color: var(--accent-color);
     }
   }
 }
@@ -1284,13 +1510,13 @@ h2 {
 .chat-input-area {
   display: flex;
   padding: 8px;
-  background-color: #f0f0f0;
-  border-top: 1px solid #e8e8e8;
+  background-color: var(--quote-bg);
+  border-top: 1px solid var(--border-light);
 
   .chat-input {
     flex: 1;
     padding: 6px 10px;
-    border: 1px solid #d9d9d9;
+    border: 1px solid var(--border);
     border-radius: 4px;
     font-size: 14px;
     outline: none;
@@ -1308,20 +1534,20 @@ h2 {
   .chat-send-btn {
     margin-left: 8px;
     padding: 6px 16px;
-    background-color: #1890ff;
+    background-color: var(--accent-color);
     color: white;
     border: none;
     border-radius: 4px;
     font-size: 14px;
     cursor: pointer;
-    transition: background-color 0.2s ease;
+    transition: opacity 0.2s ease;
 
     &:hover:not(:disabled) {
-      background-color: #40a9ff;
+      opacity: 0.92;
     }
 
     &:disabled {
-      background-color: #d9d9d9;
+      background-color: var(--border-light);
       cursor: not-allowed;
     }
   }
@@ -1331,20 +1557,20 @@ h2 {
 .results-container {
   border-radius: 8px;
   overflow: hidden;
-  background-color: white;
+  background-color: var(--card-bg);
 }
 
 .results-header {
   display: flex;
   align-items: center;
   padding: 12px 16px;
-  background-color: #f0f0f0;
+  background-color: var(--quote-bg);
   cursor: pointer;
   transition: background-color 0.2s ease;
 
-  &:hover {
-    background-color: #e0e0e0;
-  }
+    &:hover {
+      background-color: var(--toc-toggle-bg);
+    }
 
   .results-toggle {
     font-size: 18px;
@@ -1374,12 +1600,12 @@ h2 {
   th, td {
     padding: 8px 12px;
     text-align: center;
-    border-bottom: 1px solid #e8e8e8;
+    border-bottom: 1px solid var(--border-light);
     white-space: nowrap;
   }
 
   th {
-    background-color: #fafafa;
+    background-color: var(--card-bg);
     font-weight: bold;
     position: sticky;
     top: 0;
@@ -1390,12 +1616,12 @@ h2 {
   td:first-child {
     position: sticky;
     left: 0;
-    background-color: white;
+    background-color: var(--card-bg);
     z-index: 2;
   }
 
   th:first-child {
-    background-color: #fafafa;
+    background-color: var(--card-bg);
   }
 
   .player-name {
@@ -1421,11 +1647,11 @@ h2 {
   }
 
   tr:hover {
-    background-color: #f5f5f5;
+    background-color: var(--quote-bg);
   }
 
   tr:hover td:first-child {
-    background-color: #f5f5f5;
+    background-color: var(--quote-bg);
   }
 }
 
@@ -1433,20 +1659,20 @@ h2 {
 .stats-container {
   border-radius: 8px;
   overflow: hidden;
-  background-color: white;
+  background-color: var(--card-bg);
 }
 
 .stats-header {
   display: flex;
   align-items: center;
   padding: 12px 16px;
-  background-color: #f0f0f0;
+  background-color: var(--quote-bg);
   cursor: pointer;
   transition: background-color 0.2s ease;
 
-  &:hover {
-    background-color: #e0e0e0;
-  }
+    &:hover {
+      background-color: var(--toc-toggle-bg);
+    }
 
   .stats-toggle {
     font-size: 18px;
@@ -1476,12 +1702,12 @@ h2 {
   th, td {
     padding: 8px 12px;
     text-align: center;
-    border-bottom: 1px solid #e8e8e8;
+    border-bottom: 1px solid var(--border-light);
     white-space: nowrap;
   }
 
   th {
-    background-color: #fafafa;
+    background-color: var(--card-bg);
     font-weight: bold;
     position: sticky;
     top: 0;
@@ -1492,12 +1718,12 @@ h2 {
   td:first-child {
     position: sticky;
     left: 0;
-    background-color: white;
+    background-color: var(--card-bg);
     z-index: 2;
   }
 
   th:first-child {
-    background-color: #fafafa;
+    background-color: var(--card-bg);
   }
 
   .player-name {
@@ -1506,11 +1732,11 @@ h2 {
   }
 
   tr:hover {
-    background-color: #f5f5f5;
+    background-color: var(--quote-bg);
   }
 
   tr:hover td:first-child {
-    background-color: #f5f5f5;
+    background-color: var(--quote-bg);
   }
 }
 </style>

@@ -65,6 +65,18 @@ const onInput = (event: Event) => {
     background: var(--card-bg);
   }
 
+  &:autofill,
+  &:-webkit-autofill,
+  &:-webkit-autofill:hover,
+  &:-webkit-autofill:focus,
+  &:-webkit-autofill:active {
+    -webkit-text-fill-color: var(--text);
+    box-shadow: 0 0 0 1000px var(--card-bg) inset;
+    caret-color: var(--text);
+    background-color: var(--card-bg) !important;
+    transition: background-color 9999s ease-out 0s;
+  }
+
   &.small {
     padding: 0.45rem 0.6rem;
     border-radius: 0.6rem;

@@ -14,8 +14,8 @@ const props = withDefaults(
   {
     size: 32,
     fontSize: 18,
-    mobileSize: 36,
-    mobileFontSize: 20,
+    mobileSize: undefined,
+    mobileFontSize: undefined,
     variant: 'muted',
     icon: undefined,
     ariaLabel: '',
@@ -25,8 +25,8 @@ const props = withDefaults(
 const styleVars = computed(() => ({
   '--circle-btn-size': `${props.size}px`,
   '--circle-btn-font-size': `${props.fontSize}px`,
-  '--circle-btn-mobile-size': `${props.mobileSize}px`,
-  '--circle-btn-mobile-font-size': `${props.mobileFontSize}px`,
+  '--circle-btn-mobile-size': `${props.mobileSize ?? props.size}px`,
+  '--circle-btn-mobile-font-size': `${props.mobileFontSize ?? props.fontSize}px`,
 }))
 </script>
 
@@ -94,13 +94,22 @@ const styleVars = computed(() => ({
 }
 
 .circle-btn--muted {
-  background: #f1f1f1;
-  color: #666;
+  background: var(--btn-bg);
+  color: var(--text-secondary);
+
+  &:hover {
+    background: var(--btn-hover);
+  }
 }
 
 .circle-btn--overlay {
-  background: rgba(255, 255, 255, 0.9);
-  color: #333;
+  background: var(--card-bg);
+  color: var(--text-color);
+  box-shadow: 0 2px 8px var(--nav-shadow);
+
+  &:hover {
+    background: var(--btn-bg);
+  }
 }
 
 @media (max-width: 768px) {

@@ -27,7 +27,7 @@ class BackupService {
   }
 
   private get backupScriptPath(): string {
-    return join(this.projectRoot, 'backup-monthly.sh');
+    return join(this.projectRoot, 'scripts', 'backup-monthly.sh');
   }
 
   async listBackupFiles(): Promise<{ name: string; path: string; mtimeMs: number }[]> {

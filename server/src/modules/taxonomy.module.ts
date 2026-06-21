@@ -17,11 +17,8 @@ import { InjectModel, MongooseModule } from '@nestjs/mongoose';
 import { Document, Model, Schema, Types } from 'mongoose';
 import { Public } from 'src/guards/jwt-auth.guard';
 import { ValidateObjectId } from 'src/shared/validate-object-id.pipes';
-import { promises as fs } from 'fs';
-import { join } from 'path';
 import * as https from 'https';
-import { staticPath } from 'src/shared/staticPath';
-import { File as SavedFile, FileSchema } from './file.module';
+import { FileModule, FileService } from './file.module';
 
 export interface TaxonomyNode extends Document {
   title: string;
@@ -69,7 +66,7 @@ export const TaxonomySchema = new Schema({
 export class TaxonomyService {
   constructor(
     @InjectModel('Taxonomy') private readonly taxonomyModel: Model<TaxonomyNode>,
-    @InjectModel('File') private readonly fileModel: Model<SavedFile>,
+    private readonly fileService: FileService,
   ) {}
 
   private async backfillUpdatedTime() {
@@ -163,6 +160,9 @@ export class TaxonomyService {
   }
 
   async update(nodeId: string, dto: UpdateTaxonomyDto): Promise<TaxonomyNode> {
+    const current = await this.taxonomyModel.findById(nodeId).exec();
+    if (!current) throw new NotFoundException('Taxonomy node not found');
+
     const payload: Partial<TaxonomyNode> = {
       updated_time: new Date(),
     };
@@ -183,11 +183,17 @@ export class TaxonomyService {
       payload.defaultOpen = dto.defaultOpen;
     }
 
+    const removedImages = Array.isArray(dto.images)
+      ? (current.images || []).filter(url => !dto.images!.includes(url))
+      : [];
+
     const updated = await this.taxonomyModel
       .findByIdAndUpdate(nodeId, payload, { new: true })
       .exec();
 
     if (!updated) throw new NotFoundException('Taxonomy node not found');
+
+    await this.fileService.removeFilesByUrls('', `taxonomy-${nodeId}`, removedImages);
     return updated;
   }
 
@@ -231,7 +237,6 @@ export class TaxonomyService {
     if (!root) throw new NotFoundException('Taxonomy node not found');
 
     const idsToDelete = [nodeId];
-    const nodesToDelete: TaxonomyNode[] = [root];
     for (let cursor = 0; cursor < idsToDelete.length; cursor++) {
       const currentId = idsToDelete[cursor];
       const children = await this.taxonomyModel
@@ -239,38 +244,13 @@ export class TaxonomyService {
         .exec();
       children.forEach(child => {
         idsToDelete.push(`${child._id}`);
-        nodesToDelete.push(child);
       });
     }
 
     await this.taxonomyModel.deleteMany({ _id: { $in: idsToDelete } }).exec();
 
     const postIds = idsToDelete.map(id => `taxonomy-${id}`);
-    await this.fileModel.deleteMany({ post: { $in: postIds } }).exec();
-
-    await Promise.all(
-      postIds.map(postId =>
-        fs.rm(join(staticPath, postId), { recursive: true, force: true }),
-      ),
-    );
-
-    const imagePaths = nodesToDelete.flatMap(node => node.images || []);
-    const toThumb = (url: string) => {
-      const dotIndex = url.lastIndexOf('.');
-      if (dotIndex === -1) {
-        return `${url}_thumb`;
-      }
-      return `${url.slice(0, dotIndex)}_thumb${url.slice(dotIndex)}`;
-    };
-    await Promise.all(
-      imagePaths.flatMap(url => {
-        const relativeUrl = url.startsWith('/') ? url.slice(1) : url;
-        return [
-          fs.rm(join(staticPath, relativeUrl), { force: true }),
-          fs.rm(join(staticPath, toThumb(relativeUrl)), { force: true }),
-        ];
-      }),
-    );
+    await Promise.all(postIds.map(postId => this.fileService.removeFilesByPost('', postId)));
 
     const parentId = root.parent ? `${root.parent}` : null;
     await this.normalizeChildren(parentId);
@@ -334,9 +314,9 @@ export class TaxonomyController {
 
 @Module({
   imports: [
+    FileModule,
     MongooseModule.forFeature([
       { name: 'Taxonomy', schema: TaxonomySchema },
-      { name: 'File', schema: FileSchema },
     ]),
   ],
   controllers: [TaxonomyController],

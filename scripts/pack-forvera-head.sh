@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# 这个脚本用于把当前工作树打成可分发的 forvera.zip。
+# 1. 准备临时 staging 目录。
+# 2. 用 `rsync` 复制工作树并排除不需要的文件。
+# 3. 使用 `zip` 打包成发布压缩包。
+# 4. 清理临时目录并输出生成结果。
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 OUT_ZIP="${OUT_ZIP:-$ROOT_DIR/../forvera.zip}"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/forvera-worktree.XXXXXX")"
 STAGE_DIR="$TMP_DIR/forvera"

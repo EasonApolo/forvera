@@ -943,6 +943,10 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
     rankedWeights: WeightedPickItem[],
     continued = false,
   ) {
+    if (metricLabel === '工作') {
+      return '进行工作';
+    }
+
     const metricValue = round2(Number(value || 0));
     const probabilityText = `${round2(Math.max(0, Math.min(1, probability)) * 100)}%`;
     if (continued) {
@@ -1262,12 +1266,24 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
     await this.petTodoModel
       .updateMany({ petId, skillLevel: { $exists: false } }, { $set: { skillLevel: 1 } })
       .exec();
-    await this.petTodoModel
-      .updateMany(
-        { petId, minDurationMinutes: { $exists: false } },
-        { $set: { minDurationMinutes: 0 } },
-      )
-      .exec();
+    const ongoingTodoKinds: PetTodoKind[] = ['sleep', 'watch-short-video', 'play-genshin', 'slow-jog', 'work-code', 'work-live'];
+    for (const kind of ongoingTodoKinds) {
+      const minDurationMinutes = Number(TODO_TEMPLATES[kind]?.minDurationMinutes || 0);
+      await this.petTodoModel
+        .updateMany(
+          {
+            petId,
+            kind,
+            $or: [{ minDurationMinutes: { $exists: false } }, { minDurationMinutes: 0 }],
+          },
+          {
+            $set: {
+              minDurationMinutes,
+            },
+          },
+        )
+        .exec();
+    }
     await this.petTodoModel
       .updateMany({ petId, caloriesDelta: { $exists: false } }, { $set: { caloriesDelta: 0 } })
       .exec();
@@ -1394,6 +1410,7 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
         effects,
         availablePeriods: template.availablePeriods || [],
         settleEveryMinutes: template.settleEveryMinutes || 1,
+        minDurationMinutes: template.minDurationMinutes || 0,
         skill,
       };
     };
@@ -1681,7 +1698,7 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
       prevTodo = currentTodo as Pick<PetTodo, 'kind' | 'mode'>;
     } else {
       prevTodo = (await this.petTodoModel
-        .findOne({ petId, pickedBy, status: { $in: ['done', 'cancelled'] } })
+        .findOne({ petId, status: { $in: ['done', 'cancelled'] } })
         .sort({ createdAt: -1 })
         .lean()
         .exec()) as { kind?: PetTodoKind; mode?: PetTodoMode } | null;
@@ -3080,8 +3097,11 @@ export class PetService implements OnModuleInit, OnModuleDestroy {
     if (typeof todo.settleEveryMinutes !== 'number') {
       todo.settleEveryMinutes = 1;
     }
-    if (typeof todo.minDurationMinutes !== 'number') {
-      todo.minDurationMinutes = Number(TODO_TEMPLATES[todo.kind]?.minDurationMinutes || 0);
+    const templateMinDuration = Number(TODO_TEMPLATES[todo.kind]?.minDurationMinutes || 0);
+    if (templateMinDuration > 0 && (!Number.isFinite(todo.minDurationMinutes) || Number(todo.minDurationMinutes || 0) <= 0)) {
+      todo.minDurationMinutes = templateMinDuration;
+    } else if (typeof todo.minDurationMinutes !== 'number') {
+      todo.minDurationMinutes = templateMinDuration;
     }
     if (typeof todo.healthDelta !== 'number') {
       todo.healthDelta = todo.kind === 'slow-jog' ? 0.1 : 0;

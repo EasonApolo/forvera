@@ -1,6 +1,5 @@
 import { defineStore } from 'pinia'
 import { request } from '../utils/request'
-import { useToastStore } from './toast'
 
 export const useUserStore = defineStore('user', {
   state: () => ({

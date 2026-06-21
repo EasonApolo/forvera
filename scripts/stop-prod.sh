@@ -1,9 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# 这个脚本用于停止 forvera 的生产进程。
+# 1. 读取运行目录和 PID 文件目录。
+# 2. 优先按 PID 文件停止 server 和 app。
+# 3. 如果 PID 文件不可用，则按端口和进程特征兜底查找并停止。
+# 4. 清理 fallback 端口上的残留进程。
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 RUNTIME_DIR="$ROOT_DIR/.runtime"
 PID_DIR="$RUNTIME_DIR/pids"
+CONTROL_DIR="$RUNTIME_DIR/control"
+SERVER_STOP_FILE="$CONTROL_DIR/server.stop"
+APP_STOP_FILE="$CONTROL_DIR/app.stop"
 
 APP_PORT="${APP_PORT:-10000}"
 SERVER_PORT="${SERVER_PORT:-3000}"
@@ -100,6 +109,9 @@ stop_by_pattern() {
 }
 
 mkdir -p "$PID_DIR"
+mkdir -p "$CONTROL_DIR"
+
+touch "$SERVER_STOP_FILE" "$APP_STOP_FILE"
 
 echo "Stopping forvera services..."
 

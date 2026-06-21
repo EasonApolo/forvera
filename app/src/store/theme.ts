@@ -3,6 +3,9 @@ import { ref } from 'vue'
 
 type ThemeMode = 'light' | 'dark' | 'system'
 
+const THEME_LIGHT_COLOR = '#f6f6f6'
+const THEME_DARK_COLOR = '#181818'
+
 export const useThemeStore = defineStore('theme', () => {
   const getInitialMode = (): ThemeMode => {
     const savedMode = localStorage.getItem('themeMode')
@@ -29,6 +32,17 @@ export const useThemeStore = defineStore('theme', () => {
   const media = window.matchMedia('(prefers-color-scheme: dark)')
   let mediaBound = false
 
+  const syncThemeColor = (nextMode: ThemeMode) => {
+    const desiredColor = resolveDarkByMode(nextMode) ? THEME_DARK_COLOR : THEME_LIGHT_COLOR
+    let meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null
+    if (!meta) {
+      meta = document.createElement('meta')
+      meta.name = 'theme-color'
+      document.head.appendChild(meta)
+    }
+    meta.content = desiredColor
+  }
+
   const applyTheme = (dark: boolean) => {
     document.documentElement.classList.toggle('dark', dark)
     isDark.value = dark
@@ -36,12 +50,13 @@ export const useThemeStore = defineStore('theme', () => {
 
   const applyMode = (nextMode: ThemeMode) => {
     mode.value = nextMode
+    syncThemeColor(nextMode)
     applyTheme(resolveDarkByMode(nextMode))
   }
 
   const handleSystemChange = () => {
     if (mode.value === 'system') {
-      applyTheme(resolveDarkByMode('system'))
+      applyMode('system')
     }
   }
 

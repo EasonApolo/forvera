@@ -19,7 +19,7 @@ themeStore.init()
     </keep-alive>
   </router-view>
   <transition name="toast-slide">
-    <Toast class="toast" />
+    <Toast />
   </transition>
   <ImageViewer></ImageViewer>
 </template>
@@ -50,10 +50,16 @@ themeStore.init()
   --toc-toggle-color: #555555;
   --hidden-post-bg: #eeeeee;
   --accent-color: #42b983;
+  --skeleton-base: #ececec;
+  --skeleton-highlight: #f7f7f7;
   --toast-bg: #ffffff;
   --toast-border: transparent;
   --toast-text: var(--text);
+  --toast-shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
+  --toast-accent: rgba(66, 185, 131, 0.9);
+  --reply-shadow: 1px 2px 6px 1px rgba(0, 0, 0, 0.08);
   --toc-shadow: 0 12px 36px rgba(0, 0, 0, 0.22);
+  --card-font: var(--text);
 }
 
 /* ── Dark mode variables ── */
@@ -81,10 +87,17 @@ themeStore.init()
   --toc-toggle-color: #aaaaaa;
   --hidden-post-bg: #333333;
   --accent-color: #42b983;
+  --skeleton-base: #2f2f2f;
+  --skeleton-highlight: #3a3a3a;
   --toast-bg: rgba(52, 52, 52, 1);
   --toast-border: transparent;
   --toast-text: #ccc;
+  --toast-shadow: 0 16px 36px rgba(0, 0, 0, 0.45);
+  --toast-accent: rgba(66, 185, 131, 0.95);
+  --reply-shadow: 0 8px 18px rgba(0, 0, 0, 0.45);
   --toc-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
+  /* Card text should remain dark even in dark mode since cards are white */
+  --card-font: #111111;
 }
 
 body {
@@ -171,12 +184,6 @@ textarea {
   display: block;
   resize: vertical;
   font-family: Avenir, Helvetica, Arial, sans-serif;
-}
-
-.toast-wrapper {
-  .toast {
-    margin-top: 24px;
-  }
 }
 
 .toast-slide-enter-active,

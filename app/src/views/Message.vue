@@ -356,7 +356,8 @@ watch(
       margin: 0 1rem 0.75rem 0;
       padding: 0.25rem 0.5rem;
       border-radius: 0.5rem;
-      box-shadow: 1px 2px 6px 1px rgba(0, 0, 0, 0.08);
+      box-shadow: var(--reply-shadow);
+      background: var(--card-bg);
 
       .name {
         font-size: 12px;

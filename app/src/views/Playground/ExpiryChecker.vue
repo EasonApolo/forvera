@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import List from '@/components/layout/List.vue'
 import Btn from '@/components/Btn.vue'
+import Checkbox from '@/components/Checkbox.vue'
 import Input from '@/components/Input.vue'
 import BottomNavBar from '@/components/layout/BottomNavBar.vue'
 import StepperFilter from '@/components/StepperFilter.vue'
@@ -419,7 +420,7 @@ const submit = async () => {
 }
 
 onMounted(() => {
-  loadItems()
+  void loadItems()
 })
 
 const handleNavSelect = (key: string) => {
@@ -460,11 +461,7 @@ const handleNavSelect = (key: string) => {
               <template v-else-if="entry.freshness.expired">已过期</template>
               <template v-else>新鲜度 {{ Math.round(entry.freshness.ratio * 100) }}%</template>
             </div>
-            <Btn
-              small
-              :type="entry.item.completed ? 'primary' : undefined"
-              @click.stop="completeItem(entry.item)"
-            >✓</Btn>
+            <Checkbox :model-value="!!entry.item.completed" @update:modelValue="completeItem(entry.item)" />
           </div>
         </div>
 
@@ -488,11 +485,7 @@ const handleNavSelect = (key: string) => {
           </div>
           <div class="right">
             <div class="freshness">已完成</div>
-            <Btn
-              small
-              :type="entry.item.completed ? 'primary' : undefined"
-              @click.stop="completeItem(entry.item)"
-            >✓</Btn>
+            <Checkbox :model-value="!!entry.item.completed" @update:modelValue="completeItem(entry.item)" />
           </div>
         </div>
       </div>
@@ -625,6 +618,7 @@ const handleNavSelect = (key: string) => {
 
     .left {
       text-align: left;
+      justify-content: flex-start;
 
       .name {
         font-size: 14px;

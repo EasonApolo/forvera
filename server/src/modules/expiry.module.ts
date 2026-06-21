@@ -30,6 +30,11 @@ export interface ExpiryItem extends Document {
   updated_time: Date;
 }
 
+export interface ExpirySoonItem extends ExpiryItem {
+  freshnessPercent: number;
+  freshnessRatio: number;
+}
+
 export class CreateExpiryDto {
   name: string;
   expires_time: string;
@@ -64,12 +69,37 @@ export const ExpirySchema = new Schema({
 export class ExpiryService {
   constructor(@InjectModel('Expiry') private readonly expiryModel: Model<ExpiryItem>) {}
 
+  private toDateStart(date: Date) {
+    const next = new Date(date);
+    next.setHours(0, 0, 0, 0);
+    return next;
+  }
+
   private parseDateOrThrow(input?: string) {
     const date = input ? new Date(input) : null;
     if (!date || Number.isNaN(date.getTime())) {
       throw new BadRequestException('Invalid expires_time');
     }
     return date;
+  }
+
+  private getFreshness(item: ExpiryItem) {
+    const today = this.toDateStart(new Date()).getTime();
+    const created = this.toDateStart(new Date(item.created_time)).getTime();
+    const expires = this.toDateStart(new Date(item.expires_time)).getTime();
+
+    if (today > expires) {
+      return { expired: true, freshnessRatio: 0, freshnessPercent: 0 };
+    }
+
+    const total = Math.max(1, expires - created);
+    const remain = Math.max(0, expires - today);
+    const freshnessRatio = Math.max(0, Math.min(1, remain / total));
+    return {
+      expired: false,
+      freshnessRatio,
+      freshnessPercent: freshnessRatio * 100,
+    };
   }
 
   async getByCreator(creatorId: string, includeCompleted: boolean) {
@@ -81,6 +111,43 @@ export class ExpiryService {
       .find(filter)
       .sort({ expires_time: 1, created_time: -1 })
       .exec();
+  }
+
+  async getSoonByCreator(creatorId: string, percent = 20) {
+    const threshold = Number(percent);
+    if (!Number.isFinite(threshold) || threshold < 0 || threshold > 100) {
+      throw new BadRequestException('Invalid percent');
+    }
+
+    const items = await this.expiryModel
+      .find({
+        creator: creatorId,
+        completed: false,
+      })
+      .sort({ expires_time: 1, created_time: -1 })
+      .exec();
+
+    const soonItems = items
+      .map((item) => {
+        const freshness = this.getFreshness(item);
+        return {
+          item,
+          freshness,
+        };
+      })
+      .filter(({ freshness }) => !freshness.expired && freshness.freshnessPercent <= threshold)
+      .sort((a, b) => a.freshness.freshnessPercent - b.freshness.freshnessPercent)
+      .map(({ item, freshness }) => ({
+        ...item.toObject(),
+        freshnessPercent: freshness.freshnessPercent,
+        freshnessRatio: freshness.freshnessRatio,
+      })) as ExpirySoonItem[];
+
+    return {
+      count: soonItems.length,
+      items: soonItems,
+      percent: threshold,
+    };
   }
 
   private normalizeMode(mode?: string): 'shelf' | 'date' {
@@ -192,6 +259,11 @@ export class ExpiryController {
   async getMine(@Request() req, @Query('include_completed') includeCompleted = '0') {
     const flag = `${includeCompleted}` === '1' || `${includeCompleted}`.toLowerCase() === 'true';
     return await this.expiryService.getByCreator(req.user.userId, flag);
+  }
+
+  @Get('/soon')
+  async getSoon(@Request() req, @Query('percent') percent = '20') {
+    return await this.expiryService.getSoonByCreator(req.user.userId, Number(percent));
   }
 
   @Get('/suggest')

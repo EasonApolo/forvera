@@ -59,7 +59,7 @@ const preview = reactive({
 
 const nodes = computed(() => taxonomyStore.nodes)
 
-const rootNodeCount = computed(() => nodes.value.filter(node => !node.parent).length)
+const leafNodeCount = computed(() => nodes.value.filter(node => !childMap.value.has(node._id)).length)
 
 const orderNodeCount = computed(() => nodes.value.filter(node => node.title.endsWith('目')).length)
 
@@ -559,7 +559,7 @@ onMounted(() => {
           </a>
           ，可能略有出入。
         </div>
-        <div class="summary-line">已发现64个目中的{{ orderNodeCount }}个，共{{ rootNodeCount }}种植物。</div>
+        <div class="summary-line">已发现64个目中的{{ orderNodeCount }}个，共{{ leafNodeCount }}种植物。</div>
         <div class="summary-line">
           最近更新：{{ latestUpdateSummary.timeText }} {{ latestUpdateSummary.chainText }}
         </div>
@@ -1032,6 +1032,9 @@ onMounted(() => {
 
       .preview-description {
         margin-top: 0.4rem;
+        padding: 0.5rem 0;
+        max-height: 320px;
+        overflow: auto;
         text-align: left;
         font-size: 13px;
         color: var(--text-secondary);

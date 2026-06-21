@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# 这个脚本用于生成 forvera 的备份压缩包，并可选发送到 Gmail。
+# 1. 收集项目资产目录。
+# 2. 使用 `mongodump` 导出 MongoDB 数据库。
+# 3. 将资产和数据库导出打包成 zip。
+# 4. 如果配置了 Gmail 信息，则把备份文件作为附件发送。
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ASSETS_DIR="${ASSETS_DIR:-$ROOT_DIR/../assets}"
 BACKUP_DIR="${BACKUP_DIR:-$ROOT_DIR/../backup}"
 DB_NAME="${DB_NAME:-forvera}"

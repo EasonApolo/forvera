@@ -51,6 +51,14 @@ const parseParagraph = (context: ParseContext) => {
   return { content, next }
 }
 
+const escapeHtml = (content: string) => {
+  return content
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
 const parseInlineMarkdown = (content: string) => {
   return content
     .replace(/\*\*([^\n]+?)\*\*/g, '<strong>$1</strong>')
@@ -153,13 +161,31 @@ const makeQuote = (context: ParseContext) => {
   if (matched?.length) {
     const nextP = matched[0].length
     const level = getIndentLevel(matched[0])
-    context.text = text.slice(nextP)
-    context.index += nextP
-    const { content, next } = parseParagraph(context)
-    const quoteContent = `<blockquote class="quote${level}">${content}</blockquote>`
-    context.res.push(quoteContent)
-    context.text = text.slice(nextP + next)
-    context.index += next
+    const lines: string[] = []
+
+    while (text.match(/^(\s*)>\s?/)) {
+      const lineMatch = text.match(/^(\s*)>\s?/)!
+      const linePrefixLength = lineMatch[0].length
+      const lineEnd = text.indexOf('\n')
+      const rawLine = lineEnd >= 0 ? text.slice(linePrefixLength, lineEnd) : text.slice(linePrefixLength)
+      lines.push(rawLine)
+      text = lineEnd >= 0 ? text.slice(lineEnd + 1) : ''
+      if (!text || !text.match(/^(\s*)>\s?/)) break
+    }
+
+    const content = lines
+      .map(line => parseInlineMarkdown(appendImageDescription(escapeHtml(line.trim()))))
+      .filter(line => line.trim().length > 0)
+      .join('<br>')
+
+    if (content) {
+      const quoteContent = `<blockquote class="quote${level}"><p>${content}</p></blockquote>`
+      context.res.push(quoteContent)
+    }
+
+    const consumed = context.text.length - text.length
+    context.text = text
+    context.index += consumed
     return true
   }
   return false

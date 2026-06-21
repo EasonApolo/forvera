@@ -2,6 +2,7 @@ import {
   Module,
   Controller,
   Get,
+  BadRequestException,
   NotFoundException,
   Param,
   Body,
@@ -16,6 +17,9 @@ import { MongooseModule, InjectModel } from '@nestjs/mongoose';
 import { Schema, Model, Document } from 'mongoose';
 import { Public } from 'src/guards/jwt-auth.guard';
 import { ValidateObjectId } from '../shared/validate-object-id.pipes';
+import { extname } from 'path';
+import sharp = require('sharp');
+import { FileModule, FileService } from './file.module';
 
 // DTO
 export class EditPostDTO {
@@ -25,6 +29,10 @@ export class EditPostDTO {
   category: Array<string>;
   time: string;
   status: number;
+}
+
+export class ImportYuqueDTO {
+  text: string;
 }
 
 // Interface
@@ -54,7 +62,146 @@ export const PostSchema = new Schema({
 // Service
 @Injectable()
 export class PostService {
-  constructor(@InjectModel('Post') private readonly postModel: Model<Post>) {}
+  constructor(
+    @InjectModel('Post') private readonly postModel: Model<Post>,
+    private readonly fileService: FileService,
+  ) {}
+
+  private parseImgAttributes(tag: string) {
+    const attrs: Record<string, string> = {};
+    const re = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g;
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(tag))) {
+      const key = `${match[1] || ''}`.toLowerCase();
+      const value = `${match[2] ?? match[3] ?? match[4] ?? ''}`;
+      attrs[key] = value;
+    }
+    return attrs;
+  }
+
+  private parseCrop(cropRaw: string | undefined) {
+    const fallback: [number, number, number, number] = [0, 0, 1, 1];
+    if (!cropRaw) return fallback;
+    const nums = cropRaw
+      .split(',')
+      .map(item => Number(item.trim()))
+      .filter(item => Number.isFinite(item));
+    if (nums.length !== 4) return fallback;
+    const [x, y, w, h] = nums;
+    if (w <= 0 || h <= 0) return fallback;
+    return [Math.max(0, x), Math.max(0, y), Math.min(1, w), Math.min(1, h)] as [number, number, number, number];
+  }
+
+  private async maybeCrop(buffer: Buffer, cropRaw?: string) {
+    const [x, y, w, h] = this.parseCrop(cropRaw);
+    const isIdentity = x === 0 && y === 0 && w === 1 && h === 1;
+    if (isIdentity) return buffer;
+
+    const meta = await sharp(buffer).metadata();
+    const srcWidth = meta.width || 0;
+    const srcHeight = meta.height || 0;
+    if (!srcWidth || !srcHeight) return buffer;
+
+    const left = Math.max(0, Math.min(srcWidth - 1, Math.round(x * srcWidth)));
+    const top = Math.max(0, Math.min(srcHeight - 1, Math.round(y * srcHeight)));
+    const width = Math.max(1, Math.min(srcWidth - left, Math.round(w * srcWidth)));
+    const height = Math.max(1, Math.min(srcHeight - top, Math.round(h * srcHeight)));
+
+    return await sharp(buffer).extract({ left, top, width, height }).toBuffer();
+  }
+
+  private normalizeLineBreaks(raw: string) {
+    return raw
+      .replace(/\r\n/g, '\n')
+      .replace(/\n{2,}/g, '\n')
+      .replace(/^(\s*)\+/gm, '$1-');
+  }
+
+  private getExtFromUrl(url: string, mimeType: string) {
+    const urlExt = extname(new URL(url).pathname || '').toLowerCase();
+    if (urlExt) return urlExt;
+    if (mimeType.includes('png')) return '.png';
+    if (mimeType.includes('webp')) return '.webp';
+    if (mimeType.includes('gif')) return '.gif';
+    return '.jpg';
+  }
+
+  async importArticleFromYuque(postId: string, userId: string, origin: string, rawText: string) {
+    const input = `${rawText || ''}`.trim();
+    if (!input) {
+      throw new BadRequestException('text is required');
+    }
+
+    // Clear old article content and images before import processing.
+    await this.postModel.findByIdAndUpdate(postId, {
+      content: '',
+      updated_time: new Date(),
+    });
+    await this.fileService.removeFilesByPost(userId, postId);
+
+    const normalized = this.normalizeLineBreaks(input);
+    const imgRe = /<img\b[^>]*>/gi;
+    const matches: Array<{ start: number; end: number; tag: string }> = [];
+    let matched: RegExpExecArray | null;
+    while ((matched = imgRe.exec(normalized))) {
+      matches.push({ start: matched.index, end: imgRe.lastIndex, tag: matched[0] });
+    }
+
+    let output = '';
+    let cursor = 0;
+    for (const item of matches) {
+      output += normalized.slice(cursor, item.start);
+      cursor = item.end;
+
+      const attrs = this.parseImgAttributes(item.tag);
+      const src = `${attrs.src || ''}`.trim();
+      if (!src) {
+        output += item.tag;
+        continue;
+      }
+
+      try {
+        const response = await fetch(src);
+        if (!response.ok) {
+          output += item.tag;
+          continue;
+        }
+        const raw = Buffer.from(await response.arrayBuffer());
+        const cropped = await this.maybeCrop(raw, attrs.crop);
+        const mimeType = `${response.headers.get('content-type') || ''}`.toLowerCase() || 'image/jpeg';
+        const ext = this.getExtFromUrl(src, mimeType);
+
+        const savedFile = await this.fileService.saveFile(
+          userId,
+          postId,
+          {
+            originalname: `yuque_import${ext}`,
+            encoding: '7bit',
+            mimetype: mimeType,
+            size: cropped.byteLength,
+            buffer: cropped,
+          },
+          true,
+        );
+
+        const uploadedUrl = `${origin}${savedFile.url}`;
+        const width = `${attrs.width || 'auto'}`;
+        const description = `${attrs.title || ''}`.replace(/"/g, '&quot;');
+        output += `<img src="${uploadedUrl}" width="${width}" description="${description}">`;
+      } catch {
+        output += item.tag;
+      }
+    }
+
+    output += normalized.slice(cursor);
+
+    await this.postModel.findByIdAndUpdate(postId, {
+      content: output,
+      updated_time: new Date(),
+    });
+
+    return await this.getPost(postId);
+  }
 
   async getPostsMeta(): Promise<Post[]> {
     const posts = await this.postModel
@@ -116,7 +263,8 @@ export class PostService {
     return post.author == userId;
   }
 
-  async deletePost(postId): Promise<any> {
+  async deletePost(userId: string, postId: string): Promise<any> {
+    await this.fileService.removeFilesByPost(userId, postId);
     const deletedPost = await this.postModel.findByIdAndRemove(postId);
     return deletedPost;
   }
@@ -178,6 +326,22 @@ export class PostController {
     return { data: newPost };
   }
 
+  @Post('/:postId/import-yuque')
+  async importFromYuque(
+    @Request() req,
+    @Param('postId', new ValidateObjectId()) postId: string,
+    @Body() dto: ImportYuqueDTO,
+  ) {
+    const isAdmin = Number(req.user.role) === 3;
+    const isAuthor = await this.postService.validateAuthor(req.user.userId, postId);
+    if (!isAuthor && !isAdmin) {
+      throw new UnauthorizedException(`${req.user.username} is not the author of ${postId}.`);
+    }
+    const origin = `${req.protocol}://${req.get('host')}/`;
+    const data = await this.postService.importArticleFromYuque(postId, req.user.userId, origin, dto.text);
+    return { data };
+  }
+
   @Delete('/:postId')
   async deletePost(
     @Request() req,
@@ -193,7 +357,7 @@ export class PostController {
         `${req.user.username} is not the author of ${postId}.`,
       );
     }
-    const newPost = await this.postService.deletePost(postId);
+    const newPost = await this.postService.deletePost(req.user.userId, postId);
     if (!newPost) throw new NotFoundException('Post does not exist!');
     return;
   }
@@ -201,7 +365,10 @@ export class PostController {
 
 // Module
 @Module({
-  imports: [MongooseModule.forFeature([{ name: 'Post', schema: PostSchema }])],
+  imports: [
+    MongooseModule.forFeature([{ name: 'Post', schema: PostSchema }]),
+    FileModule,
+  ],
   controllers: [PostController],
   providers: [PostService],
 })

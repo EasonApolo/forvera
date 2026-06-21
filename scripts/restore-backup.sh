@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# 这个脚本用于从备份 zip 恢复 forvera 的资产和数据库。
+# 1. 确认备份文件来源，默认取 `../backup` 中最新的 zip。
+# 2. 解压备份并校验内容结构。
+# 3. 覆盖恢复 assets 目录和 MongoDB 数据库。
+# 4. 完成后输出恢复结果。
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BACKUP_SEARCH_DIR="${BACKUP_SEARCH_DIR:-$ROOT_DIR/../backup}"
 ASSETS_DIR="${ASSETS_DIR:-$ROOT_DIR/../assets}"
 DB_NAME="${DB_NAME:-forvera}"

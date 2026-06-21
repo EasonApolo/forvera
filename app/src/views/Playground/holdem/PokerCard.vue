@@ -41,7 +41,7 @@ defineProps<{
 .poker-card {
   width: 33px;
   height: 44px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border-light);
   border-radius: 4px;
   display: flex;
   flex-direction: column;
@@ -50,6 +50,7 @@ defineProps<{
   font-size: 14px;
   font-weight: bold;
   background-color: #fff;
+  color: var(--card-font);
   transition: all 0.3s ease;
   &.facedown {
     background-color: #333;

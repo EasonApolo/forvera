@@ -1,4 +1,4 @@
-import { Module, Controller, Delete, Get, Param } from '@nestjs/common';
+import { Module, Controller, Delete, Get, Param, Post } from '@nestjs/common';
 import {
   WebSocketGateway,
   WebSocketServer,
@@ -113,6 +113,7 @@ interface Room {
   id: string;
   status: 'waiting' | 'playing';
   users: User[];
+  pendingUsers?: User[];
   hostId: string;
   round: number;
   currentPlayerId: string;
@@ -131,6 +132,54 @@ interface Room {
   stats: {
     users: UserStats[];
   };
+}
+
+function createUserStats(userId: string, userName: string): UserStats {
+  return {
+    userId,
+    userName,
+    winCount: 0,
+    maxSingleWin: 0,
+    maxSingleLoss: 0,
+    allInCount: 0,
+    quitBetCount: 0,
+    loanCount: 0,
+    straightFlushCount: 0,
+    fourOfKindCount: 0,
+    fullHouseCount: 0,
+    flushCount: 0,
+    straightCount: 0,
+    threeOfKindCount: 0,
+    twoPairCount: 0,
+    onePairCount: 0,
+    highCardCount: 0,
+    highestTotalProfit: 0,
+    lowestTotalProfit: 0,
+    currentTotalProfit: 0,
+  };
+}
+
+function createInitialUserState(user: User): User {
+  return {
+    ...user,
+    chips: initializeChips(),
+    betChips: [],
+    cards: [],
+    isAsked: false,
+    isQuitBet: false,
+    isAllIn: false,
+    betSum: 0,
+    isSmallBlind: false,
+    isBigBlind: false,
+    readyStatus: null,
+  };
+}
+
+function clearBlindFlags(room: Room) {
+  room.users.forEach((user) => {
+    user.isSmallBlind = false;
+    user.isBigBlind = false;
+  });
 }
 
 // 初始化筹码堆
@@ -217,7 +266,7 @@ function shuffleDeck(deck: Card[]): Card[] {
 })
 export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
-  server: Server;
+  server!: Server;
 
   rooms: Map<string, Room> = new Map();
   socketToRoom: Map<string, string> = new Map();
@@ -240,6 +289,20 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (roomId) {
       const room = this.rooms.get(roomId);
       if (room) {
+        if (room.status === 'waiting') {
+          const nextUsers = room.users.filter((u) => u.id !== user.id);
+          room.users = nextUsers;
+          room.pendingUsers = (room.pendingUsers || []).filter((u) => u.id !== user.id);
+          room.stats.users = room.stats.users.filter((stat) => stat.userId !== user.id);
+          if (room.hostId === user.id && room.users.length > 0) {
+            room.hostId = room.users[0].id;
+          }
+          this.socketToRoom.delete(client.id);
+          this.socketToUser.delete(client.id);
+          this.syncRoomStatus(roomId);
+          return;
+        }
+
         const disconnectMessage: Message = {
           id:
             Date.now().toString() + Math.random().toString(36).substring(2, 9),
@@ -260,15 +323,58 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
     }
 
-    this.syncRoomStatus(roomId);
+    if (roomId) {
+      this.syncRoomStatus(roomId);
+    }
+  }
+
+  resetRoomToWaiting(room: Room) {
+    room.status = 'waiting';
+    room.round = 0;
+    room.currentPlayerId = '';
+    room.communityCards = [];
+    room.gamePhase = 'waiting';
+    room.winnerIds = [];
+    room.pendingUsers = [];
+    room.results = [];
+    room.messages = [];
+    room.users = room.users.map((user) => {
+      const resetUser = createInitialUserState(user);
+      resetUser.connectStatus = user.connectStatus;
+      resetUser.clientId = user.clientId;
+      resetUser.name = user.name;
+      return resetUser;
+    });
+    room.stats.users = room.users.map((user) => createUserStats(user.id, user.name));
+
+    if (room.users.length > 0) {
+      room.hostId = room.users[0].id;
+    } else {
+      room.hostId = '';
+    }
+  }
+
+  requireRoom(roomId: string | undefined): Room | null {
+    if (!roomId) {
+      return null;
+    }
+    return this.rooms.get(roomId) || null;
   }
 
   broadcast(roomId: string, event: string, payload: any) {
     this.server.to(roomId).emit(event, payload);
   }
 
+  getRoomMembers(room: Room): User[] {
+    return [...room.users, ...(room.pendingUsers || [])];
+  }
+
+  findRoomMember(room: Room, userId: string) {
+    return this.getRoomMembers(room).find((member) => member.id === userId);
+  }
+
   // 广播用户动作
-  broadcastUserAction(roomId: string, userId: string, action: string, amount?: number) {
+  broadcastUserAction(roomId: string, userId: string, action: string, amount?: number, totalAmount?: number) {
     const room = this.rooms.get(roomId);
     if (!room) {
       return;
@@ -282,6 +388,7 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
       userName: user.name,
       action,
       amount,
+      totalAmount,
       timestamp: Date.now()
     });
   }
@@ -293,7 +400,7 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
 
-    const user = room.users.find((u) => u.id === userId);
+    const user = this.getRoomMembers(room).find((u) => u.id === userId);
     if (!user) {
       console.error('User not found in room:', userId);
       return;
@@ -310,8 +417,8 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
 
-    // Send status to each player individually
-    for (const user of room.users) {
+    // Send status to each connected room member individually, including pending users
+    for (const user of this.getRoomMembers(room)) {
       // Process community cards
       const processedCommunityCards = room.communityCards.map((card) => {
         if (card.isFacedown) {
@@ -373,6 +480,11 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
         round: room.round,
         status: room.status,
         users: processedUsers,
+        pendingUsers: (room.pendingUsers || []).map((u) => ({
+          id: u.id,
+          name: u.name,
+          connectStatus: u.connectStatus,
+        })),
         communityCards: processedCommunityCards,
         hostId: room.hostId,
         currentPlayerId: room.currentPlayerId,
@@ -388,11 +500,12 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async joinRoom(
     @MessageBody() data: { roomId: string; userId: string },
     @ConnectedSocket() client: Socket,
+    ack?: (response: { success: boolean; message?: string }) => void,
   ) {
     console.log('joinRoom method called:', data);
 
     const { roomId, userId } = data;
-    let room: Room;
+    let room: Room | undefined;
 
     // Check if room exists
     room = this.rooms.get(roomId);
@@ -403,6 +516,7 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
           id: roomId,
           status: 'waiting',
           users: [],
+          pendingUsers: [],
           hostId: userId, // First user is host
           round: 0,
           currentPlayerId: '',
@@ -418,8 +532,22 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.rooms.set(roomId, room);
     }
 
-    // Check if user exists in room
-    let user = room.users.find((u) => u.id === userId);
+    // Check if user exists in room or pending list
+    let user = this.findRoomMember(room, userId);
+    const isPendingMember = room.status === 'playing' && room.pendingUsers?.some((u) => u.id === userId);
+    // If an active seated user is already connected from another client, reject.
+    // Pending users are allowed to take over on refresh so they do not get stuck loading.
+    if (user && user.connectStatus === 'connected' && user.clientId !== client.id && !isPendingMember) {
+      const response = { success: false, message: '该用户已占用' };
+      if (ack) {
+        ack(response);
+      } else {
+        client.emit('joinRoom_response', response);
+      }
+      client.disconnect(true);
+      return response;
+    }
+
     if (!user) {
       const randomName =
         'Player_' + Math.random().toString(36).substring(2, 10);
@@ -439,36 +567,75 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
         betSum: 0,
         readyStatus: null,
       };
-      room.users.push(user);
-      sortUsers(room.users);
-      if (room.users.length === 1) {
-        room.hostId = userId;
+      // If the room is currently playing, add new users to pendingUsers
+      if (room.status === 'playing') {
+        room.pendingUsers = room.pendingUsers || [];
+        room.pendingUsers.push(user);
+        // initialize minimal stats entry for pending user
+        room.stats.users.push({
+          userId: user.id,
+          userName: user.name,
+          winCount: 0,
+          maxSingleWin: 0,
+          maxSingleLoss: 0,
+          allInCount: 0,
+          quitBetCount: 0,
+          loanCount: 0,
+          straightFlushCount: 0,
+          fourOfKindCount: 0,
+          fullHouseCount: 0,
+          flushCount: 0,
+          straightCount: 0,
+          threeOfKindCount: 0,
+          twoPairCount: 0,
+          onePairCount: 0,
+          highCardCount: 0,
+          highestTotalProfit: 0,
+          lowestTotalProfit: 0,
+          currentTotalProfit: 0,
+        });
+      } else {
+        room.users.push(user);
+        sortUsers(room.users);
+        if (room.users.length === 1) {
+          room.hostId = userId;
+        }
+        // Initialize user stats
+        room.stats.users.push({
+          userId: user.id,
+          userName: user.name,
+          winCount: 0,
+          maxSingleWin: 0,
+          maxSingleLoss: 0,
+          allInCount: 0,
+          quitBetCount: 0,
+          loanCount: 0,
+          straightFlushCount: 0,
+          fourOfKindCount: 0,
+          fullHouseCount: 0,
+          flushCount: 0,
+          straightCount: 0,
+          threeOfKindCount: 0,
+          twoPairCount: 0,
+          onePairCount: 0,
+          highCardCount: 0,
+          highestTotalProfit: 0,
+          lowestTotalProfit: 0,
+          currentTotalProfit: 0,
+        });
       }
-      
-      // Initialize user stats
-      room.stats.users.push({
-        userId: user.id,
-        userName: user.name,
-        winCount: 0,
-        maxSingleWin: 0,
-        maxSingleLoss: 0,
-        allInCount: 0,
-        quitBetCount: 0,
-        loanCount: 0,
-        straightFlushCount: 0,
-        fourOfKindCount: 0,
-        fullHouseCount: 0,
-        flushCount: 0,
-        straightCount: 0,
-        threeOfKindCount: 0,
-        twoPairCount: 0,
-        onePairCount: 0,
-        highCardCount: 0,
-        highestTotalProfit: 0,
-        lowestTotalProfit: 0,
-        currentTotalProfit: 0,
-      });
     } else {
+      user.clientId = client.id;
+      user.connectStatus = 'connected';
+    }
+
+    // If a reconnecting user is in pendingUsers, keep them pending without duplicating stats.
+    if (isPendingMember) {
+      room.pendingUsers = (room.pendingUsers || []).map((pendingUser) =>
+        pendingUser.id === userId
+          ? { ...pendingUser, clientId: client.id, connectStatus: 'connected' }
+          : pendingUser,
+      );
       user.clientId = client.id;
       user.connectStatus = 'connected';
     }
@@ -476,6 +643,13 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.socketToRoom.set(client.id, roomId);
     this.socketToUser.set(client.id, user);
     client.join(roomId);
+
+    const successResponse = { success: true };
+    if (ack) {
+      ack(successResponse);
+    } else {
+      client.emit('joinRoom_response', successResponse);
+    }
 
     // Send latest 5 messages to the new user
     if (room.messages.length > 0) {
@@ -509,14 +683,20 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('startGame')
   async startGame(@MessageBody() data: any, @ConnectedSocket() client: Socket) {
     const roomId = this.socketToRoom.get(client.id);
+    if (!roomId) {
+      return;
+    }
     const room = this.rooms.get(roomId);
+    if (!room) {
+      return;
+    }
 
     /** 校验 */
     const user = this.socketToUser.get(client.id);
     if (user?.id !== room.hostId) {
       return;
     }
-    if (room?.users.length < 2) {
+    if (room.users.length < 2) {
       return;
     }
 
@@ -524,6 +704,7 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
     room.status = 'playing';
     room.round = 1;
     room.gamePhase = 'preflop';
+    clearBlindFlags(room);
 
     /** 初始化用户状态 */
     room.currentPlayerId = room.users[0].id; // 默认第一个玩家先行动
@@ -561,26 +742,52 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async addChip(
     @MessageBody() data: { chipValue: number; userId: string },
     @ConnectedSocket() client: Socket,
+    ack?: (response: { success: boolean; message?: string }) => void,
   ) {
     const roomId = this.socketToRoom.get(client.id);
+    if (!roomId) {
+      const response = { success: false, message: 'Room not found' };
+      if (ack) ack(response);
+      return response;
+    }
     const room = this.rooms.get(roomId);
     if (!room) {
-      return;
+      const response = { success: false, message: 'Room not found' };
+      if (ack) ack(response);
+      return response;
     }
 
     const user = room.users.find((u) => u.id === data.userId);
     if (!user) {
-      return;
+      const response = { success: false, message: 'User not found' };
+      if (ack) ack(response);
+      return response;
     }
 
     if (room.currentPlayerId !== user.id) {
-      return;
+      const response = { success: false, message: '当前不是你的回合' };
+      if (ack) ack(response);
+      return response;
     }
 
     // Find the chip in user's chips
     const chip = user.chips.find((c) => c.value === data.chipValue);
     if (!chip || chip.count <= 0) {
-      return;
+      const response = { success: false, message: '筹码数量不足' };
+      if (ack) ack(response);
+      return response;
+    }
+
+    const nextBetSum = this.getUserBetSum(user) + data.chipValue;
+    const isSmallBlindOpeningBet =
+      room.gamePhase === 'preflop' && user.isSmallBlind && user.betSum === 0;
+    if (isSmallBlindOpeningBet && nextBetSum > 10) {
+      const response = {
+        success: false,
+        message: '小盲第一次下注总额不能超过10',
+      };
+      if (ack) ack(response);
+      return response;
     }
 
     // Move chip from user's chips to betChips
@@ -598,26 +805,41 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
     user.betChips.sort((a, b) => a.value - b.value);
 
     this.syncRoomStatus(roomId);
+    const response = { success: true };
+    if (ack) ack(response);
+    return response;
   }
 
   @SubscribeMessage('removeChip')
   async removeChip(
     @MessageBody() data: { chipValue: number; userId: string },
     @ConnectedSocket() client: Socket,
+    ack?: (response: { success: boolean; message?: string }) => void,
   ) {
     const roomId = this.socketToRoom.get(client.id);
+    if (!roomId) {
+      const response = { success: false, message: 'Room not found' };
+      if (ack) ack(response);
+      return response;
+    }
     const room = this.rooms.get(roomId);
     if (!room) {
-      return;
+      const response = { success: false, message: 'Room not found' };
+      if (ack) ack(response);
+      return response;
     }
 
     const user = room.users.find((u) => u.id === data.userId);
     if (!user) {
-      return;
+      const response = { success: false, message: 'User not found' };
+      if (ack) ack(response);
+      return response;
     }
 
     if (room.currentPlayerId !== user.id) {
-      return;
+      const response = { success: false, message: '当前不是你的回合' };
+      if (ack) ack(response);
+      return response;
     }
 
     // Find the chip in user's betChips
@@ -643,6 +865,9 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
     user.betChips.sort((a, b) => a.value - b.value);
 
     this.syncRoomStatus(roomId);
+    const response = { success: true };
+    if (ack) ack(response);
+    return response;
   }
 
   @SubscribeMessage('updateUserName')
@@ -651,13 +876,17 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
   ) {
     const roomId = this.socketToRoom.get(client.id);
+    if (!roomId) {
+      client.emit('updateUserName_response', { success: false, message: 'Room not found' });
+      return { success: false, message: 'Room not found' };
+    }
     const room = this.rooms.get(roomId);
     if (!room) {
       client.emit('updateUserName_response', { success: false, message: 'Room not found' });
       return { success: false, message: 'Room not found' };
     }
 
-    const user = room.users.find((u) => u.id === data.userId);
+    const user = this.getRoomMembers(room).find((u) => u.id === data.userId);
     if (!user) {
       client.emit('updateUserName_response', { success: false, message: 'User not found' });
       return { success: false, message: 'User not found' };
@@ -671,6 +900,10 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     const oldName = user.name;
     user.name = trimmedName;
+    const statUser = room.stats.users.find((item) => item.userId === user.id);
+    if (statUser) {
+      statUser.userName = trimmedName;
+    }
     
     // Add system message for name change
     const nameChangeMessage: Message = {
@@ -804,7 +1037,7 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
     while (true) {
       const isAsked = room.users[nextPlayerIndex].isAsked;
       if (isAsked) {
-        return null;
+        return '';
       }
       // 如果玩家弃牌、全押或者断线了，就跳过他
       const shouldSkipThis =
@@ -820,7 +1053,11 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('confirmBet')
-  async confirmBet(@MessageBody() data: {}, @ConnectedSocket() client: Socket) {
+  async confirmBet(
+    @MessageBody() data: {},
+    @ConnectedSocket() client: Socket,
+    ack?: (response: { success: boolean; message?: string }) => void,
+  ) {
     const roomId = this.socketToRoom.get(client.id);
     if (!roomId) {
       return;
@@ -836,20 +1073,35 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     // 校验下注金额
     const betSum = this.getUserBetSum(user);
-    if ((user.isSmallBlind && betSum < 5) || (user.isBigBlind && betSum < 10)) {
-      return {
+    const isSmallBlindOpeningBet =
+      room.gamePhase === 'preflop' && user.isSmallBlind && user.betSum === 0;
+    if (isSmallBlindOpeningBet && betSum > 10) {
+      const response = {
         success: false,
-        message: user.isSmallBlind
-          ? '小盲注至少需要下注5'
-          : '大盲注至少需要下注10',
+        message: '小盲第一次下注总额不能超过10',
       };
+      if (ack) ack(response);
+      return response;
+    }
+    const requiredBet = user.isBigBlind ? 10 : user.isSmallBlind ? 5 : 0;
+    if (requiredBet > 0 && betSum < requiredBet) {
+      const response = {
+        success: false,
+        message: requiredBet === 10 ? '大盲注至少需要下注10' : '小盲注至少需要下注5',
+      };
+      if (ack) ack(response);
+      return response;
     }
     if (betSum < this.getMaxBet(room, user.id)) {
-      return {
+      const response = {
         success: false,
         message: `需要至少跟注${this.getMaxBet(room, user.id)}，当前你的下注总额${betSum}`,
       };
+      if (ack) ack(response);
+      return response;
     }
+
+    const actionDelta = betSum - (user.betSum || 0);
 
     if (betSum > this.getMaxBet(room, user.id)) {
       // 加注，需要重新问询所有玩家
@@ -857,15 +1109,17 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
         u.isAsked = false;
       });
       user.isAsked = true;
-      user.betSum = betSum;
       // 广播加注动作
-      this.broadcastUserAction(roomId, user.id, 'raise', betSum);
+      this.broadcastUserAction(roomId, user.id, 'raise', actionDelta, betSum);
     } else {
       // 平注
       user.isAsked = true;
       // 广播跟注动作
-      this.broadcastUserAction(roomId, user.id, 'call', betSum);
+      this.broadcastUserAction(roomId, user.id, 'call', actionDelta, betSum);
     }
+
+    // 记录本轮已经确认的下注基线，后续“拿回”只会回退这轮新增的部分
+    user.betSum = betSum;
 
     // 如果确认下注后，用户的筹码已为0，则标记为allIn
     const remainingChips = user.chips.reduce(
@@ -875,7 +1129,7 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (remainingChips === 0) {
       user.isAllIn = true;
       // 广播全押动作
-      this.broadcastUserAction(roomId, user.id, 'all-in', betSum);
+      this.broadcastUserAction(roomId, user.id, 'all-in', actionDelta, betSum);
     }
 
     this.gotoNextPhase(room);
@@ -990,6 +1244,9 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
   ) {
     const roomId = this.socketToRoom.get(client.id);
+    if (!roomId) {
+      return { success: false, message: 'Room not found' };
+    }
     const room = this.rooms.get(roomId);
     if (!room) {
       return { success: false, message: 'Room not found' };
@@ -1084,6 +1341,9 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
   ) {
     const roomId = this.socketToRoom.get(client.id);
+    if (!roomId) {
+      return { success: false, message: 'Room not found' };
+    }
     const room = this.rooms.get(roomId);
     if (!room) {
       return { success: false, message: 'Room not found' };
@@ -1194,6 +1454,9 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
   ) {
     const roomId = this.socketToRoom.get(client.id);
+    if (!roomId) {
+      return { success: false, message: 'Room not found' };
+    }
     const room = this.rooms.get(roomId);
     if (!room) {
       return { success: false, message: 'Room not found' };
@@ -1260,6 +1523,9 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
   ) {
     const roomId = this.socketToRoom.get(client.id);
+    if (!roomId) {
+      return { success: false, message: 'Room not found' };
+    }
     const room = this.rooms.get(roomId);
     if (!room) {
       return { success: false, message: 'Room not found' };
@@ -1319,6 +1585,9 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
   ) {
     const roomId = this.socketToRoom.get(client.id);
+    if (!roomId) {
+      return { success: false, message: 'Room not found' };
+    }
     const room = this.rooms.get(roomId);
     if (!room) {
       return { success: false, message: 'Room not found' };
@@ -1341,13 +1610,20 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // Check if all users are ready
     const allReady = room.users.every((u) => u.readyStatus === 'ready');
     if (allReady) {
+      // Move pending users into users before starting next round
+      if (room.pendingUsers && room.pendingUsers.length > 0) {
+        for (const pu of room.pendingUsers) {
+          room.users.push(pu);
+        }
+        room.pendingUsers = [];
+        sortUsers(room.users);
+      }
       // Start next round
       const smallBlindIndex = room.users.findIndex((u) => u.isSmallBlind);
       const bigBlindIndex = room.users.findIndex((u) => u.isBigBlind);
 
       // 清除旧的盲注标记
-      room.users[smallBlindIndex].isSmallBlind = false;
-      room.users[bigBlindIndex].isBigBlind = false;
+      clearBlindFlags(room);
 
       // 轮换盲注：大盲变小盲，小盲的下一个位置变大盲
       room.users[bigBlindIndex].isSmallBlind = true;
@@ -1357,6 +1633,9 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
       room.communityCards = [];
       room.users.forEach((u) => {
         u.cards = [];
+        u.betChips = [];
+        u.betSum = 0;
+        u.isAsked = false;
         u.isQuitBet = false;
         u.isAllIn = false;
         u.readyStatus = null;
@@ -1380,6 +1659,31 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.syncRoomStatus(room.id);
     }
 
+    return { success: true };
+  }
+
+  @SubscribeMessage('restartGame')
+  async restartGame(
+    @MessageBody() data: { roomId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    const roomId = this.socketToRoom.get(client.id) || data.roomId;
+    if (!roomId) {
+      return { success: false, message: 'Room not found' };
+    }
+
+    const room = this.rooms.get(roomId);
+    if (!room) {
+      return { success: false, message: 'Room not found' };
+    }
+
+    const user = this.socketToUser.get(client.id);
+    if (!user || user.id !== room.hostId) {
+      return { success: false, message: 'Only host can restart the game' };
+    }
+
+    this.resetRoomToWaiting(room);
+    this.syncRoomStatus(roomId);
     return { success: true };
   }
 
@@ -1413,11 +1717,6 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
     user.chips = [];
     user.betChips.sort((a, b) => a.value - b.value);
     
-    // 计算全押金额
-    const betSum = this.getUserBetSum(user);
-    // 广播全押动作
-    this.broadcastUserAction(roomId, user.id, 'all-in', betSum);
-
     this.syncRoomStatus(room.id);
   }
 
@@ -1742,59 +2041,82 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   gotoNextPhase(room: Room) {
+    const liveUsers = room.users.filter((u) => !u.isQuitBet && u.connectStatus !== 'disconnected');
+    if (liveUsers.length > 0 && liveUsers.every((u) => u.isAllIn)) {
+      room.currentPlayerId = '';
+      room.gamePhase = 'showdown';
+      room.communityCards.forEach((card) => {
+        card.isFacedown = false;
+      });
+      room.users.forEach((user) => {
+        user.cards.forEach((card) => {
+          card.isFacedown = false;
+        });
+      });
+      const winResult = this.checkWin(room);
+      if (winResult && winResult.users.length > 0) {
+        this.finishRound(room, { ...winResult, isCheckWinPre: false });
+      }
+      return;
+    }
+
     // 如果只剩一人未弃牌，则直接获胜
     const winPreResult = this.checkWinPre(room);
-    if (winPreResult?.users.length > 0) {
+    if (winPreResult && winPreResult.users.length > 0) {
       this.finishRound(room, winPreResult);
       return;
     }
-    const nextPlayerId = this.getNextPlayerId(room);
-    if (nextPlayerId !== null) {
-      // 还有要下注的玩家
-      room.currentPlayerId = nextPlayerId;
-      this.syncRoomStatus(room.id);
-    } else {
-      room.currentPlayerId = '';
-      if (room.gamePhase === 'river') {
-        // 最后一圈结束，结算
-        room.gamePhase = 'showdown';
-        // 开牌：只有未弃牌的玩家的牌会显示出来
-        room.users.forEach((user) => {
-          if (!user.isQuitBet) {
-            user.cards.forEach((card) => {
-              card.isFacedown = false;
-            });
-          }
-        });
-        const winResult = this.checkWin(room);
-        if (winResult?.users.length > 0) {
-          this.finishRound(room, { ...winResult, isCheckWinPre: false });
-        }
-        return;
-      } else {
-        // 进入下一圈
-        if (room.gamePhase === 'preflop') {
-          room.gamePhase = 'flop';
-          room.communityCards
-            .slice(0, 3)
-            .forEach((c) => (c.isFacedown = false));
-        } else if (room.gamePhase === 'flop') {
-          room.gamePhase = 'turn';
-          room.communityCards[3].isFacedown = false;
-        } else if (room.gamePhase === 'turn') {
-          room.gamePhase = 'river';
-          room.communityCards[4].isFacedown = false;
-        }
+    const bettingRoundComplete = this.stopBet(room);
+    if (!bettingRoundComplete) {
+      const nextPlayerId = this.getNextPlayerId(room);
+      if (nextPlayerId) {
+        // 还有要下注的玩家
+        room.currentPlayerId = nextPlayerId;
         this.syncRoomStatus(room.id);
-        // 下一圈下注
-        setTimeout(() => {
-          room.users.forEach((u) => {
-            u.isAsked = false;
-          });
-          room.currentPlayerId = this.getNextPlayerId(room);
-          this.syncRoomStatus(room.id);
-        }, 5000);
+        return;
       }
+    }
+
+    room.currentPlayerId = '';
+    if (room.gamePhase === 'river') {
+      // 最后一圈结束，结算
+      room.gamePhase = 'showdown';
+      // 开牌：只有未弃牌的玩家的牌会显示出来
+      room.users.forEach((user) => {
+        if (!user.isQuitBet) {
+          user.cards.forEach((card) => {
+            card.isFacedown = false;
+          });
+        }
+      });
+      const winResult = this.checkWin(room);
+      if (winResult && winResult.users.length > 0) {
+        this.finishRound(room, { ...winResult, isCheckWinPre: false });
+      }
+      return;
+    } else {
+      // 进入下一圈
+      if (room.gamePhase === 'preflop') {
+        room.gamePhase = 'flop';
+        room.communityCards
+          .slice(0, 3)
+          .forEach((c) => (c.isFacedown = false));
+      } else if (room.gamePhase === 'flop') {
+        room.gamePhase = 'turn';
+        room.communityCards[3].isFacedown = false;
+      } else if (room.gamePhase === 'turn') {
+        room.gamePhase = 'river';
+        room.communityCards[4].isFacedown = false;
+      }
+      this.syncRoomStatus(room.id);
+      // 下一圈下注
+      setTimeout(() => {
+        room.users.forEach((u) => {
+          u.isAsked = false;
+        });
+        room.currentPlayerId = this.getNextPlayerId(room);
+        this.syncRoomStatus(room.id);
+      }, 5000);
     }
   }
 
@@ -2067,12 +2389,16 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   stopBet(room: Room): boolean {
-    const activeUsers = room.users.filter((u) => !u.isQuitBet && !u.isAllIn);
+    const activeUsers = room.users.filter(
+      (u) => !u.isQuitBet && !u.isAllIn && u.connectStatus !== 'disconnected',
+    );
     if (activeUsers.length === 0) {
       return true;
     }
     const betSum = this.getUserBetSum(activeUsers[0]);
-    return activeUsers.every((u) => this.getUserBetSum(u) === betSum);
+    return activeUsers.every(
+      (u) => this.getUserBetSum(u) === betSum && u.isAsked,
+    );
   }
 
   // 关闭房间
@@ -2110,6 +2436,79 @@ export class HoldemController {
       messageCount: room.messages.length,
     }));
     return { success: true, rooms };
+  }
+
+  // 管理员创建房间
+  @Post('rooms')
+  @Roles(3)
+  async createRoom() {
+    // generate simple room id
+    const roomId = Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
+    const room: Room = {
+      id: roomId,
+      status: 'waiting',
+      users: [],
+      pendingUsers: [],
+      hostId: '',
+      round: 0,
+      currentPlayerId: '',
+      communityCards: [],
+      gamePhase: 'waiting',
+      winnerIds: [],
+      messages: [],
+      results: [],
+      stats: { users: [] },
+    };
+    this.holdemGateway.rooms.set(roomId, room);
+    return { success: true, roomId };
+  }
+
+  // Public: assign a room for a visitor (reuse waiting rooms or create new)
+  @Get('assign')
+  @Public()
+  async assignRoom() {
+    // try to find a waiting room with fewer than 9 users
+    for (const [id, room] of this.holdemGateway.rooms.entries()) {
+      if (room.status === 'waiting' && room.users.length < 9) {
+        return { success: true, roomId: id };
+      }
+    }
+    // none found, create new
+    const roomId = Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
+    const room: Room = {
+      id: roomId,
+      status: 'waiting',
+      users: [],
+      pendingUsers: [],
+      hostId: '',
+      round: 0,
+      currentPlayerId: '',
+      communityCards: [],
+      gamePhase: 'waiting',
+      winnerIds: [],
+      messages: [],
+      results: [],
+      stats: { users: [] },
+    };
+    this.holdemGateway.rooms.set(roomId, room);
+    return { success: true, roomId };
+  }
+
+  // Public: check whether a room/user combination is already occupied
+  @Get('occupied/:roomId/:userId')
+  @Public()
+  async checkOccupied(
+    @Param('roomId') roomId: string,
+    @Param('userId') userId: string,
+  ) {
+    const room = this.holdemGateway.rooms.get(roomId);
+    if (!room) {
+      return { success: true, occupied: false };
+    }
+
+    const user = this.holdemGateway.getRoomMembers(room).find((member) => member.id === userId);
+    const occupied = !!user && user.connectStatus === 'connected';
+    return { success: true, occupied };
   }
 
   // 管理员关闭房间

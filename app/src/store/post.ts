@@ -27,6 +27,9 @@ export const usePostStore = defineStore('post', {
       let res = await request(`post/${postId}`, 'PUT', JSON.stringify(payload))
       return res
     },
+    async importFromYuque(postId: string, text: string) {
+      return await request(`post/${postId}/import-yuque`, 'POST', JSON.stringify({ text }))
+    },
     async uploadSingleImage(postId: string, file: File, keepOriginalRatio = false) {
       const fd = await request(
         `file/uploadSingle/${postId}`,
@@ -38,6 +41,9 @@ export const usePostStore = defineStore('post', {
     },
     async fetchImagesOfPost(postId: string) {
       return await request(`file/post/${postId}`, 'POST')
+    },
+    async deleteImage(fileId: string) {
+      return await request(`file/${fileId}`, 'DELETE')
     },
     async deletePost(postId: string) {
       let res = await request(`post/${postId}`, 'DELETE')

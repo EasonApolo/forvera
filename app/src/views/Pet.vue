@@ -324,11 +324,11 @@ const moneyGainByLevel = (kind: TodoKind, level: number) => {
 
 const getActionDurationText = (option: ActionCategory['options'][number]) => {
   if (option.mode === 'ongoing' || option.totalMinutes <= 0) {
-    const settleText = `每${Math.max(1, option.settleEveryMinutes || 1)}分钟结算`
     const minDurationText = option.minDurationMinutes && option.minDurationMinutes > 0
-      ? `，最短${option.minDurationMinutes}分钟`
-      : ''
-    return `${settleText}${minDurationText}`
+      ? `最短${option.minDurationMinutes}分钟`
+      : '不限时长'
+    const settleText = `每${Math.max(1, option.settleEveryMinutes || 1)}分钟结算`
+    return `${minDurationText}，${settleText}`
   }
   return `${option.totalMinutes}分钟`
 }
@@ -350,24 +350,9 @@ const getActionSummary = (option: ActionCategory['options'][number]) => {
   return option.effects
 }
 
-const getActionMissingFieldsText = (option: ActionCategory['options'][number]) => {
-  const missingFields: string[] = []
-  if (option.mode === 'ongoing' && !option.minDurationMinutes) {
-    missingFields.push('最短时长')
-  }
-  if (option.mode === 'ongoing' && !option.settleEveryMinutes) {
-    missingFields.push('结算周期')
-  }
-  if (option.kind.startsWith('work-') && !option.skill) {
-    missingFields.push('技能信息')
-  }
-  return missingFields.length ? `未填写项：${missingFields.join('、')}` : '未填写项：无'
-}
-
 const getActionPopoverContent = (option: ActionCategory['options'][number]) => {
   const lines = [
     `时长：${getActionDurationText(option)}`,
-    getActionMissingFieldsText(option),
     `效果：${option.effects}`,
   ]
 

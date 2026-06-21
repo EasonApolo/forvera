@@ -538,6 +538,12 @@ p,
   background: var(--quote-bg);
 }
 
+.quote1 p,
+.quote2 p,
+.quote3 p {
+  margin: 0;
+}
+
 .quote2 {
   margin-left: 1rem;
 }

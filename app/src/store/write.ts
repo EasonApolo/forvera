@@ -67,6 +67,12 @@ export const useWriteStore = defineStore('write', {
       await usePostStore().uploadSingleImage(this.postId, image, true)
       this.initUploadedImages()
     },
+    async importArticleFromYuque(text: string) {
+      const postStore = usePostStore()
+      await postStore.importFromYuque(this.postId, text)
+      await this.init(this.postId)
+      await this.initUploadedImages()
+    },
     async initUploadedImages() {
       const postStore = usePostStore()
       const files = (await postStore.fetchImagesOfPost(
@@ -76,6 +82,11 @@ export const useWriteStore = defineStore('write', {
         f.url = f.url.replaceAll('\\', '/')
       })
       this.files = files
+    },
+    async deleteImage(fileId: string) {
+      const postStore = usePostStore()
+      await postStore.deleteImage(fileId)
+      await this.initUploadedImages()
     },
   },
 })

@@ -1,13 +1,12 @@
 <script setup lang="ts">
-import { useRouter } from 'vue-router'
 import { computed, onMounted, ref } from 'vue'
 import { useUserStore } from '../store/user'
 import { storeToRefs } from 'pinia'
 import { request } from '../utils/request'
+import Card from '../components/Card.vue'
 import Btn from '../components/Btn.vue'
 import GreyText from '../components/GreyText.vue'
 
-const router = useRouter()
 const userStore = useUserStore()
 const { userInfo } = storeToRefs(userStore)
 
@@ -38,6 +37,38 @@ const fetchRooms = async () => {
   }
 }
 
+const createRoom = async () => {
+  if (!isAdmin.value) return
+  loading.value = true
+  try {
+    const res = await request('holdem/rooms', 'POST')
+    if (res?.roomId) {
+      await fetchRooms()
+    }
+  } finally {
+    loading.value = false
+  }
+}
+
+const genShareUserId = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `u${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
+}
+
+const copyLink = async (roomId: string) => {
+  const shareUserId = genShareUserId()
+  const link = `${window.location.origin}/holdem/${roomId}/${shareUserId}`
+  try {
+    await navigator.clipboard.writeText(link)
+    alert('已复制分享链接: ' + link)
+  } catch (e) {
+    console.error('copy failed', e)
+    alert('复制分享链接失败，请手动复制: ' + link)
+  }
+}
+
 const closeRoom = async (roomId: string) => {
   if (!isAdmin.value) return
   if (!confirm(`确认关闭房间 ${roomId} 吗？`)) return
@@ -52,20 +83,21 @@ const closeRoom = async (roomId: string) => {
 
 onMounted(async () => {
   await userStore.getUserInfo()
-  await fetchRooms()
+  if (isAdmin.value) {
+    await fetchRooms()
+  }
 })
 </script>
 
 <template>
   <div class="holdem-container">
-      <div class="info-text">
-        <p>在链接后加上 <code>/roomId/userId</code> 进入房间</p>
-      </div>
-
-      <div v-if="isAdmin" class="admin-panel">
+      <Card v-if="isAdmin" class="admin-panel">
         <div class="header-row">
           <GreyText>房间列表（管理员）</GreyText>
-          <Btn small @click="fetchRooms" :loading="loading">刷新</Btn>
+          <div style="display:flex;gap:8px;align-items:center">
+            <Btn small @click="fetchRooms" :loading="loading">刷新</Btn>
+            <Btn small type="primary" @click="createRoom">创建房间</Btn>
+          </div>
         </div>
 
         <div v-if="loading" class="empty">加载中...</div>
@@ -83,17 +115,20 @@ onMounted(async () => {
                 <span>消息：{{ room.messageCount }}</span>
               </div>
             </div>
-            <Btn
-              type="danger"
-              small
-              :loading="closingRoomId === room.id"
-              @click="closeRoom(room.id)"
-            >
-              关闭
-            </Btn>
+            <div style="display:flex;gap:8px;align-items:center">
+              <Btn small @click="copyLink(room.id)">分享</Btn>
+              <Btn
+                type="danger"
+                small
+                :loading="closingRoomId === room.id"
+                @click="closeRoom(room.id)"
+              >
+                关闭
+              </Btn>
+            </div>
           </div>
         </div>
-      </div>
+      </Card>
   </div>
 </template>
 
@@ -103,9 +138,8 @@ onMounted(async () => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 80vh;
   padding: 20px;
-  text-align: center;
+  text-align: left;
 }
 
 h2 {
@@ -116,22 +150,22 @@ h2 {
 
 p {
   font-size: 16px;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 
 .info-text {
   margin-top: 20px;
   padding: 10px;
-  background-color: #f5f5f5;
+  background-color: var(--quote-bg);
   border-radius: 4px;
   text-align: center;
   font-size: 14px;
-  color: #666;
+  color: var(--text-secondary);
 
-  code {
+    code {
     display: inline;
-    background-color: #e8e8e8;
+    background-color: var(--code-bg);
     padding: 2px 4px;
     border-radius: 2px;
     font-family: monospace;
@@ -141,11 +175,6 @@ p {
 .admin-panel {
   width: 100%;
   max-width: 720px;
-  margin-top: 1rem;
-  padding: 0.75rem;
-  border-radius: 0.5rem;
-  background: var(--card-bg);
-  transition: background-color 0.25s ease;
 
   .header-row {
     display: flex;

@@ -2,41 +2,52 @@ import { defineStore } from 'pinia'
 
 const DEFAULT_TIMEOUT = 2000
 
-const ICONS = {
-  '?': 'https://pt-starimg.didistatic.com/static/starimg/img/KY7KIe3Q4q1639999226185.png',
-  '!': 'https://pt-starimg.didistatic.com/static/starimg/img/jGg8Oue4V41639999416168.png',
-  OK: 'https://pt-starimg.didistatic.com/static/starimg/img/iHBDA1efzF1637660245957.png',
-  ERR: 'https://pt-starimg.didistatic.com/static/starimg/img/lbgKE9Icl91639038730163.png',
-  LOADING: ''
+type Type = '?' | '!' | 'OK' | 'ERR' | 'loading'
+
+type ToastEntry = {
+  id: number
+  content: string
+  type: Type
+  timer?: ReturnType<typeof setTimeout>
 }
 
-type Type = keyof typeof ICONS
+let nextToastId = 0
 
 export const useToastStore = defineStore('toast', {
   state: () => {
     return {
-      show: false,
-      type: '',
-      icon: '',
-      content: '',
-      timer: 0 as any
+      toasts: [] as ToastEntry[],
     }
   },
   actions: {
     showToast({ content, type, timeout = DEFAULT_TIMEOUT }: { content: string, type: Type, timeout?: number }) {
       if (!content) return
-      if (this.show) {
-        clearTimeout(this.timer)
+
+      const toast: ToastEntry = {
+        id: ++nextToastId,
+        content,
+        type,
       }
-      this.content = content
-      this.type = type
-      this.icon = ICONS[type]
-      this.show = true
-      this.timer = setTimeout(this.clear, timeout)
+      toast.timer = setTimeout(() => {
+        this.clearToast(toast.id)
+      }, timeout)
+      this.toasts.push(toast)
+    },
+    clearToast(id: number) {
+      const index = this.toasts.findIndex(item => item.id === id)
+      if (index < 0) return
+      const [toast] = this.toasts.splice(index, 1)
+      if (toast?.timer) {
+        clearTimeout(toast.timer)
+      }
     },
     clear() {
-      this.show = false
-      this.content = ''
+      this.toasts.forEach(item => {
+        if (item.timer) {
+          clearTimeout(item.timer)
+        }
+      })
+      this.toasts = []
     }
   }
 })

@@ -6,6 +6,18 @@ import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { staticPath } from './shared/staticPath';
 
+const appIndexPath = join(__dirname, '..', '..', 'app', 'dist', 'index.html');
+
+process.on('uncaughtException', (error) => {
+  console.error('[fatal] uncaughtException', error);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[fatal] unhandledRejection', reason);
+  process.exit(1);
+});
+
 async function bootstrap() {
   const certPath = process.env.SSL_CERT_PATH || '/etc/letsencrypt/live/eason-s.life/fullchain.pem';
   const keyPath = process.env.SSL_KEY_PATH || '/etc/letsencrypt/live/eason-s.life/privkey.pem';
@@ -23,6 +35,7 @@ async function bootstrap() {
         }
       : undefined,
   );
+  app.enableShutdownHooks();
   app.useWebSocketAdapter(new IoAdapter(app));
   const allowOriginSet = new Set(corsDomains.map((origin) => origin.replace(/\/$/, '')));
   app.enableCors({
@@ -70,9 +83,13 @@ async function bootstrap() {
     const isResourcePath = path.startsWith('resource/');
 
     if (req.method === 'GET' && wantsHtml && !isStaticAsset && !isApiPath && !isResourcePath) {
-      const indexPath = join(staticPath, 'index.html');
-      if (existsSync(indexPath)) {
-        return res.sendFile(indexPath);
+      if (existsSync(appIndexPath)) {
+        return res.sendFile(appIndexPath);
+      }
+
+      const fallbackIndexPath = join(staticPath, 'index.html');
+      if (existsSync(fallbackIndexPath)) {
+        return res.sendFile(fallbackIndexPath);
       }
     }
     next();
@@ -81,4 +98,7 @@ async function bootstrap() {
   await app.listen(3000, '0.0.0.0');
   console.log(`[bootstrap] API listening on ${enableHttps ? 'https' : 'http'}://0.0.0.0:3000`);
 }
-bootstrap();
+bootstrap().catch((error) => {
+  console.error('[fatal] bootstrap failed', error);
+  process.exit(1);
+});

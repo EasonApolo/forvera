@@ -2,6 +2,7 @@ import {
   Module,
   Controller,
   Body,
+  Delete,
   Get,
   Param,
   Post,
@@ -139,6 +140,42 @@ export class FileService {
       .exec();
     return files;
   }
+
+  async removeFile(userId: string, fileId: string) {
+    const filter: Record<string, any> = { _id: fileId };
+    if (userId) filter.user = userId;
+    const target = await this.fileModel.findOne(filter).exec();
+    if (!target) return null;
+    await this.removeFilesByTargets(filter);
+    return { _id: fileId };
+  }
+
+  async removeFilesByPost(userId: string, postId: string) {
+    const filter: Record<string, any> = { post: postId };
+    if (userId) filter.user = userId;
+    return await this.removeFilesByTargets(filter);
+  }
+
+  async removeFilesByUrls(userId: string, postId: string, urls: string[]) {
+    const uniqueUrls = [...new Set(urls.filter(Boolean))];
+    if (!uniqueUrls.length) return { deletedCount: 0 };
+
+    const filter: Record<string, any> = { post: postId, url: { $in: uniqueUrls } };
+    if (userId) filter.user = userId;
+    return await this.removeFilesByTargets(filter);
+  }
+
+  private async removeFilesByTargets(filter: Record<string, any>) {
+    const targets = await this.fileModel.find(filter).exec();
+    for (const target of targets) {
+      const filePath = join(staticPath, `${target.url || ''}`.replace(/\\/g, '/'));
+      const thumbPath = join(staticPath, `${target.thumb || ''}`.replace(/\\/g, '/'));
+      await fs.unlink(filePath).catch(() => null);
+      await fs.unlink(thumbPath).catch(() => null);
+    }
+    await this.fileModel.deleteMany(filter).exec();
+    return { deletedCount: targets.length };
+  }
 }
 
 // Controller
@@ -182,6 +219,12 @@ export class FileController {
   ) {
     let userId = req.user.userId;
     return await this.fileService.getByPostId(postId);
+  }
+
+  @Delete('/:fileId')
+  async removeById(@Param('fileId') fileId: string, @Req() req) {
+    const userId = req.user.userId;
+    return await this.fileService.removeFile(userId, fileId);
   }
 }
 
