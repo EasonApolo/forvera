@@ -15,6 +15,8 @@ const BOARD_SIZE = 15
 
 type GomokuColor = 'black' | 'white'
 
+type BlackSelectionMode = 'random' | 'loser'
+
 type ConnectStatus = 'connected' | 'disconnected'
 
 type RoomStatus = 'waiting' | 'playing' | 'settlement'
@@ -49,6 +51,7 @@ interface GomokuRoom {
   status: RoomStatus
   users: GomokuUser[]
   hostId: string
+  blackSelectionMode: BlackSelectionMode
   round: number
   currentPlayerId: string
   blackUserId: string
@@ -81,6 +84,7 @@ function createRoom(roomId: string, hostId: string): GomokuRoom {
     status: 'waiting',
     users: [],
     hostId,
+    blackSelectionMode: 'loser',
     round: 0,
     currentPlayerId: '',
     blackUserId: '',
@@ -138,6 +142,10 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server
 
+  constructor() {
+    this.server = {} as Server
+  }
+
   rooms = new Map<string, GomokuRoom>()
   socketToRoom = new Map<string, string>()
   socketToUser = new Map<string, GomokuUser>()
@@ -186,7 +194,34 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
     })
   }
 
-  private beginNextRound(room: GomokuRoom) {
+  private assignBlackWhite(room: GomokuRoom, forceRandomBlack = false, previousWinnerId = '') {
+    if (room.users.length < 2) return
+
+    const [firstUser, secondUser] = shuffleTwo(room.users)
+    let blackUser = firstUser
+    let whiteUser = secondUser
+
+    if (!forceRandomBlack && room.blackSelectionMode === 'loser' && previousWinnerId) {
+      const winnerUser = this.getUser(room, previousWinnerId)
+      const loserUser = room.users.find((user) => user.id !== previousWinnerId)
+      if (winnerUser && loserUser) {
+        blackUser = loserUser
+        whiteUser = winnerUser
+      }
+    }
+
+    room.users.forEach((user) => {
+      user.color = ''
+    })
+    blackUser.color = 'black'
+    whiteUser.color = 'white'
+    room.blackUserId = blackUser.id
+    room.whiteUserId = whiteUser.id
+  }
+
+  private beginNextRound(room: GomokuRoom, forceRandomBlack = false) {
+    const previousWinnerId = room.winnerId
+    this.assignBlackWhite(room, forceRandomBlack, previousWinnerId)
     room.board = createBoard()
     room.moves = []
     room.winnerId = ''
@@ -240,6 +275,7 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
       status: room.status,
       users: room.users,
       hostId: room.hostId,
+      blackSelectionMode: room.blackSelectionMode,
       round: room.round,
       currentPlayerId: room.currentPlayerId,
       blackUserId: room.blackUserId,
@@ -258,6 +294,7 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   private broadcast(roomId: string, event: string, payload: any) {
+    if (!this.server) return
     this.server.to(roomId).emit(event, payload)
   }
 
@@ -346,17 +383,7 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return response
     }
 
-    const [blackUser, whiteUser] = shuffleTwo(room.users)
-    room.users.forEach((user) => {
-      user.color = ''
-    })
-    blackUser.color = 'black'
-    whiteUser.color = 'white'
-    room.blackUserId = blackUser.id
-    room.whiteUserId = whiteUser.id
-    this.beginNextRound(room)
-    room.currentPlayerId = blackUser.id
-    room.status = 'playing'
+    this.beginNextRound(room, true)
 
     this.syncRoomStatus(roomId)
     const response = { success: true }
@@ -371,7 +398,15 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
     ack?: (response: { success: boolean; message?: string }) => void,
   ) {
     const roomId = this.socketToRoom.get(client.id)
-    const room = roomId ? this.rooms.get(roomId) : undefined
+    if (!roomId) {
+      const response = { success: false, message: 'Room not found' }
+      if (ack) ack(response)
+      return response
+    }
+
+    const roomIdSafe: string = roomId
+
+    const room = this.rooms.get(roomIdSafe)
     const user = this.socketToUser.get(client.id)
     if (!room || !user) {
       const response = { success: false, message: 'Room not found' }
@@ -379,19 +414,22 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return response
     }
 
-    if (room.status !== 'playing') {
+    const roomSafe = room as GomokuRoom
+    const userSafe = user as GomokuUser
+
+    if (roomSafe.status !== 'playing') {
       const response = { success: false, message: '游戏尚未开始' }
       if (ack) ack(response)
       return response
     }
 
-    if (room.currentPlayerId !== user.id) {
+    if (roomSafe.currentPlayerId !== userSafe.id) {
       const response = { success: false, message: '当前不是你的回合' }
       if (ack) ack(response)
       return response
     }
 
-    const color = room.blackUserId === user.id ? 'black' : room.whiteUserId === user.id ? 'white' : ''
+    const color = roomSafe.blackUserId === userSafe.id ? 'black' : roomSafe.whiteUserId === userSafe.id ? 'white' : ''
     if (!color) {
       const response = { success: false, message: '当前玩家未分配棋色' }
       if (ack) ack(response)
@@ -405,41 +443,41 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return response
     }
 
-    if (room.board[y][x]) {
+    if (roomSafe.board[y][x]) {
       const response = { success: false, message: '这里已经有棋子了' }
       if (ack) ack(response)
       return response
     }
 
-    room.board[y][x] = color
-    room.moves.push({ x, y, userId: user.id, color, timestamp: Date.now() })
-    room.lastMoveDurations[user.id] = Math.max(0, Date.now() - room.turnStartedAt)
+    roomSafe.board[y][x] = color
+    roomSafe.moves.push({ x, y, userId: userSafe.id, color, timestamp: Date.now() })
+    roomSafe.lastMoveDurations[userSafe.id] = Math.max(0, Date.now() - roomSafe.turnStartedAt)
 
-    if (hasFiveInRow(room.board, x, y, color)) {
-      room.winnerId = user.id
-      room.status = 'settlement'
-      room.records.push({
-        round: room.round,
-        winnerId: user.id,
-        winnerName: user.name,
+    if (hasFiveInRow(roomSafe.board, x, y, color)) {
+      roomSafe.winnerId = userSafe.id
+      roomSafe.status = 'settlement'
+      roomSafe.records.push({
+        round: roomSafe.round,
+        winnerId: userSafe.id,
+        winnerName: userSafe.name,
         color,
         timestamp: Date.now(),
       })
-      room.currentPlayerId = ''
-      room.turnStartedAt = 0
-      this.resetReadyStatus(room)
-      this.broadcast(roomId, 'gameResult', {
-        winnerId: user.id,
-        winnerName: user.name,
-        round: room.round,
+      roomSafe.currentPlayerId = ''
+      roomSafe.turnStartedAt = 0
+      this.resetReadyStatus(roomSafe)
+      this.broadcast(roomIdSafe, 'gameResult', {
+        winnerId: userSafe.id,
+        winnerName: userSafe.name,
+        round: roomSafe.round,
         color,
       })
     } else {
-      room.currentPlayerId = room.currentPlayerId === room.blackUserId ? room.whiteUserId : room.blackUserId
-      room.turnStartedAt = Date.now()
+      roomSafe.currentPlayerId = roomSafe.currentPlayerId === roomSafe.blackUserId ? roomSafe.whiteUserId : roomSafe.blackUserId
+      roomSafe.turnStartedAt = Date.now()
     }
 
-    this.syncRoomStatus(roomId)
+    this.syncRoomStatus(roomIdSafe)
     const response = { success: true }
     if (ack) ack(response)
     return response
@@ -452,42 +490,81 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
     ack?: (response: { success: boolean; message?: string }) => void,
   ) {
     const roomId = this.socketToRoom.get(client.id)
-    const room = roomId ? this.rooms.get(roomId) : undefined
+    if (!roomId) {
+      const response = { success: false, message: 'Room not found' }
+      if (ack) ack(response)
+      return response
+    }
+
+    const roomIdSafe: string = roomId
+
+    const room = this.rooms.get(roomIdSafe)
     if (!room) {
       const response = { success: false, message: 'Room not found' }
       if (ack) ack(response)
       return response
     }
 
-    if (room.status !== 'settlement') {
-      const response = { success: false, message: '当前不在结算阶段' }
-      if (ack) ack(response)
-      return response
-    }
+    const roomSafe = room as GomokuRoom
 
-    const user = this.getUser(room, data.userId)
+    const user = this.getUser(roomSafe, data.userId)
     if (!user) {
       const response = { success: false, message: 'User not found' }
       if (ack) ack(response)
       return response
     }
 
-    user.readyStatus = data.status
-    this.syncRoomStatus(roomId)
-
-    const allReady = room.users.every((member) => member.readyStatus === 'ready')
-    if (allReady && room.users.length >= 2 && room.blackUserId && room.whiteUserId) {
-      this.beginNextRound(room)
-      this.syncRoomStatus(roomId)
+    if (data.status === 'end' && roomSafe.status === 'playing') {
+      user.readyStatus = 'end'
+      const winnerUser = roomSafe.users.find((member) => member.id !== user.id)
+      if (winnerUser) {
+        const winnerColor: GomokuColor = winnerUser.color === 'black' ? 'black' : 'white'
+        roomSafe.winnerId = winnerUser.id
+        roomSafe.status = 'settlement'
+        roomSafe.currentPlayerId = ''
+        roomSafe.turnStartedAt = 0
+        roomSafe.records.push({
+          round: roomSafe.round,
+          winnerId: winnerUser.id,
+          winnerName: winnerUser.name,
+          color: winnerColor,
+          timestamp: Date.now(),
+        })
+        this.broadcast(roomIdSafe, 'gameResult', {
+          winnerId: winnerUser.id,
+          winnerName: winnerUser.name,
+          round: roomSafe.round,
+          color: winnerColor,
+        })
+      }
+      this.syncRoomStatus(roomIdSafe)
       const response = { success: true }
       if (ack) ack(response)
       return response
     }
 
-    const allEnd = room.users.every((member) => member.readyStatus === 'end')
+    if (roomSafe.status !== 'settlement') {
+      const response = { success: false, message: '当前不在结算阶段' }
+      if (ack) ack(response)
+      return response
+    }
+
+    user.readyStatus = data.status
+    this.syncRoomStatus(roomIdSafe)
+
+    const allReady = roomSafe.users.every((member) => member.readyStatus === 'ready')
+    if (allReady && roomSafe.users.length >= 2 && roomSafe.blackUserId && roomSafe.whiteUserId) {
+      this.beginNextRound(roomSafe)
+      this.syncRoomStatus(roomIdSafe)
+      const response = { success: true }
+      if (ack) ack(response)
+      return response
+    }
+
+    const allEnd = roomSafe.users.every((member) => member.readyStatus === 'end')
     if (allEnd) {
-      this.returnToWaiting(room)
-      this.syncRoomStatus(roomId)
+      this.returnToWaiting(roomSafe)
+      this.syncRoomStatus(roomIdSafe)
     }
 
     const response = { success: true }
@@ -524,6 +601,35 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return response
   }
 
+  @SubscribeMessage('updateGameSettings')
+  async updateGameSettings(
+    @MessageBody() data: { roomId: string; blackSelectionMode: BlackSelectionMode },
+    @ConnectedSocket() client: Socket,
+    ack?: (response: { success: boolean; message?: string }) => void,
+  ) {
+    const roomId = this.socketToRoom.get(client.id) || data.roomId
+    const room = roomId ? this.rooms.get(roomId) : undefined
+    if (!room) {
+      const response = { success: false, message: 'Room not found' }
+      if (ack) ack(response)
+      return response
+    }
+
+    const requester = this.socketToUser.get(client.id)
+    if (!requester || requester.id !== room.hostId) {
+      const response = { success: false, message: '只有房主可以修改设置' }
+      if (ack) ack(response)
+      return response
+    }
+
+    room.blackSelectionMode = data.blackSelectionMode === 'random' ? 'random' : 'loser'
+    this.syncRoomStatus(roomId)
+
+    const response = { success: true }
+    if (ack) ack(response)
+    return response
+  }
+
   @SubscribeMessage('renameUser')
   async renameUser(
     @MessageBody() data: { userId: string; newName: string },
@@ -531,7 +637,15 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
     ack?: (response: { success: boolean; message?: string }) => void,
   ) {
     const roomId = this.socketToRoom.get(client.id)
-    const room = roomId ? this.rooms.get(roomId) : undefined
+    if (!roomId) {
+      const response = { success: false, message: 'Room not found' }
+      if (ack) ack(response)
+      return response
+    }
+
+    const roomIdSafe: string = roomId
+
+    const room = this.rooms.get(roomIdSafe)
     if (!room) {
       const response = { success: false, message: 'Room not found' }
       if (ack) ack(response)
@@ -553,7 +667,7 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     user.name = trimmedName
-    this.syncRoomStatus(roomId)
+    this.syncRoomStatus(roomIdSafe)
     const response = { success: true }
     if (ack) ack(response)
     return response

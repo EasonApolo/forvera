@@ -1,17 +1,22 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import io from 'socket.io-client'
 import { ip } from '../config'
 import Card from '../components/Card.vue'
 import Btn from '../components/Btn.vue'
 import Badge from '../components/Badge.vue'
+import Modal from '../components/Modal.vue'
+import StepperFilter from '../components/StepperFilter.vue'
 import RecordTable from '../components/RecordTable.vue'
 import Input from '../components/Input.vue'
 import EditableInput from '../components/EditableInput.vue'
 import { useToastStore } from '../store/toast'
 
 type GomokuColor = 'black' | 'white'
+type BlackSelectionMode = 'random' | 'loser'
+
+const blackSelectionOptions: string[] = ['随机', '败者']
 
 const route = useRoute()
 const router = useRouter()
@@ -33,14 +38,22 @@ const blackUserName = ref('')
 const whiteUserName = ref('')
 const boardSize = ref(15)
 const board = ref<string[][]>([])
+const moves = ref<any[]>([])
 const records = ref<any[]>([])
 const winnerId = ref('')
 const winnerName = ref('')
+const blackSelectionMode = ref<BlackSelectionMode>('loser')
 const editingName = ref('')
 const pendingMove = ref<{ x: number; y: number; color: GomokuColor } | null>(null)
 const turnStartedAt = ref(0)
 const lastMoveDurations = ref<Record<string, number>>({})
 const boardViewportRef = ref<HTMLElement | null>(null)
+
+const settingsModal = reactive({
+  show: false,
+  saving: false,
+  blackSelectionMode: 'loser' as BlackSelectionMode,
+})
 
 const scale = ref(1)
 const offsetX = ref(0)
@@ -54,6 +67,13 @@ const panOriginY = ref(0)
 const pointerDownTarget = ref<HTMLElement | null>(null)
 const pointerDownX = ref(0)
 const pointerDownY = ref(0)
+const activePointers = new Map<number, { x: number; y: number }>()
+const pinchStartDistance = ref(0)
+const pinchStartScale = ref(1)
+const pinchStartOffsetX = ref(0)
+const pinchStartOffsetY = ref(0)
+const pinchCenterX = ref(0)
+const pinchCenterY = ref(0)
 
 let tickTimer: number | null = null
 let boardResizeHandler: (() => void) | null = null
@@ -67,6 +87,7 @@ const whitePlayer = computed(() => users.value.find(user => user.id === whiteUse
 const gomokuPlayers = computed(() => [blackPlayer.value, whitePlayer.value].filter(Boolean))
 const isHost = computed(() => hostId.value === currentUid())
 const isActivePlayer = computed(() => currentPlayerId.value === currentUid())
+const blackSelectionModeLabel = computed(() => (blackSelectionMode.value === 'random' ? '随机' : '败者'))
 
 watch(
   () => route.params.userId,
@@ -130,6 +151,10 @@ const transformStyle = computed(() => ({
   transform: `translate(${offsetX.value}px, ${offsetY.value}px) scale(${scale.value})`,
 }))
 const showBoard = computed(() => roomStatus.value !== 'waiting')
+const latestMove = computed(() => (moves.value.length ? moves.value[moves.value.length - 1] : null))
+const showBoardViewportHighlight = computed(() =>
+  roomStatus.value === 'playing' && currentPlayerId.value === currentUid() && !pendingMove.value
+)
 
 const scheduleBoardFit = () => {
   if (boardFitFrame !== null) {
@@ -156,6 +181,7 @@ const syncRoomStatus = (data: any) => {
   roomStatus.value = data.status
   users.value = Array.isArray(data.users) ? data.users : []
   hostId.value = data.hostId || ''
+  blackSelectionMode.value = data.blackSelectionMode === 'random' ? 'random' : 'loser'
   round.value = data.round || 0
   currentPlayerId.value = data.currentPlayerId || ''
   blackUserId.value = data.blackUserId || ''
@@ -164,6 +190,7 @@ const syncRoomStatus = (data: any) => {
   whiteUserName.value = data.whiteUserName || ''
   boardSize.value = data.boardSize || 15
   board.value = Array.isArray(data.board) ? data.board : []
+  moves.value = Array.isArray(data.moves) ? data.moves : []
   records.value = Array.isArray(data.records) ? data.records : []
   winnerId.value = data.winnerId || ''
   winnerName.value = data.winnerName || ''
@@ -204,6 +231,8 @@ const onWheel = (event: WheelEvent) => {
 }
 
 const onPointerDown = (event: PointerEvent) => {
+  event.preventDefault()
+  activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
   pointerDownTarget.value = event.target as HTMLElement
   pointerDownX.value = event.clientX
   pointerDownY.value = event.clientY
@@ -214,9 +243,49 @@ const onPointerDown = (event: PointerEvent) => {
   isPanning.value = false
   const currentTarget = event.currentTarget as HTMLElement | null
   currentTarget?.setPointerCapture?.(event.pointerId)
+
+  if (activePointers.size === 2) {
+    const viewport = boardViewportRef.value
+    if (!viewport) return
+    const rect = viewport.getBoundingClientRect()
+    const points = Array.from(activePointers.values())
+    const first = points[0]
+    const second = points[1]
+    pinchStartDistance.value = Math.hypot(first.x - second.x, first.y - second.y)
+    pinchStartScale.value = scale.value
+    pinchStartOffsetX.value = offsetX.value
+    pinchStartOffsetY.value = offsetY.value
+    pinchCenterX.value = (first.x + second.x) / 2 - rect.left
+    pinchCenterY.value = (first.y + second.y) / 2 - rect.top
+    isPanning.value = true
+    pointerDownTarget.value = null
+  }
 }
 
 const onPointerMove = (event: PointerEvent) => {
+  event.preventDefault()
+  if (!activePointers.has(event.pointerId)) return
+  activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
+
+  if (activePointers.size >= 2) {
+    const viewport = boardViewportRef.value
+    if (!viewport || pinchStartDistance.value <= 0) return
+    const rect = viewport.getBoundingClientRect()
+    const points = Array.from(activePointers.values())
+    const first = points[0]
+    const second = points[1]
+    const currentDistance = Math.hypot(first.x - second.x, first.y - second.y)
+    const nextScale = Math.min(2.2, Math.max(0.5, pinchStartScale.value * (currentDistance / pinchStartDistance.value)))
+    const localX = (pinchCenterX.value - pinchStartOffsetX.value) / pinchStartScale.value
+    const localY = (pinchCenterY.value - pinchStartOffsetY.value) / pinchStartScale.value
+    scale.value = nextScale
+    offsetX.value = pinchCenterX.value - localX * nextScale
+    offsetY.value = pinchCenterY.value - localY * nextScale
+    isPanning.value = true
+    pointerDownTarget.value = null
+    return
+  }
+
   if (pointerDownTarget.value === null) return
   const distanceX = Math.abs(event.clientX - pointerDownX.value)
   const distanceY = Math.abs(event.clientY - pointerDownY.value)
@@ -227,10 +296,20 @@ const onPointerMove = (event: PointerEvent) => {
 }
 
 const onPointerUp = (event: PointerEvent) => {
+  event.preventDefault()
+  activePointers.delete(event.pointerId)
   const target = pointerDownTarget.value
   const wasPanning = isPanning.value
+
+  if (activePointers.size >= 2) {
+    pointerDownTarget.value = null
+    isPanning.value = true
+    return
+  }
+
   pointerDownTarget.value = null
   isPanning.value = false
+  pinchStartDistance.value = 0
 
   if (wasPanning) {
     return
@@ -242,6 +321,11 @@ const onPointerUp = (event: PointerEvent) => {
   const y = Number(cell.dataset.y)
   if (Number.isNaN(x) || Number.isNaN(y)) return
   placeStone(x, y)
+}
+
+const onDoubleClick = (event: MouseEvent) => {
+  event.preventDefault()
+  event.stopPropagation()
 }
 
 const getCellStone = (x: number, y: number) => {
@@ -259,6 +343,24 @@ const getPendingMoveClass = (x: number, y: number) => {
   return pendingMove.value.color === 'black' ? 'stone preview black' : 'stone preview white'
 }
 
+const isLatestMoveCell = (x: number, y: number) => {
+  return !!latestMove.value && latestMove.value.x === x && latestMove.value.y === y
+}
+
+const getLatestStoneClass = (x: number, y: number) => {
+  const stoneClass = getStoneClass(x, y)
+  if (!stoneClass || !isLatestMoveCell(x, y)) return stoneClass
+  return `${stoneClass} latest-stone`
+}
+
+const surrenderPlayer = (userId: string) => {
+  socket.emit('setUserStatus', { userId, status: 'end' }, (response: any) => {
+    if (response?.success === false) {
+      toastStore.showToast({ content: response.message || '认输失败', type: '!' })
+    }
+  })
+}
+
 const getMoveLabel = (record: any) => `${record.round}回合`
 
 const restartGame = () => {
@@ -270,6 +372,38 @@ const restartGame = () => {
       toastStore.showToast({ content: response.message || '重启失败', type: '!' })
     }
   })
+}
+
+const openSettingsModal = () => {
+  settingsModal.show = true
+  settingsModal.blackSelectionMode = blackSelectionMode.value
+}
+
+const updateBlackSelectionMode = (value: number | string | null) => {
+  if (value === '随机') {
+    settingsModal.blackSelectionMode = 'random'
+    return
+  }
+  if (value === '败者') {
+    settingsModal.blackSelectionMode = 'loser'
+  }
+}
+
+const saveGameSettings = () => {
+  if (!isHost.value) return
+  settingsModal.saving = true
+  socket.emit(
+    'updateGameSettings',
+    { roomId, blackSelectionMode: settingsModal.blackSelectionMode },
+    (response: any) => {
+      settingsModal.saving = false
+      if (response?.success === false) {
+        toastStore.showToast({ content: response.message || '保存失败', type: '!' })
+        return
+      }
+      settingsModal.show = false
+    }
+  )
 }
 
 const startGame = () => {
@@ -441,6 +575,7 @@ onUnmounted(() => {
       <div class="room-toolbar">
         <div class="room-title">五子棋</div>
         <div class="toolbar-actions">
+          <Btn v-if="isHost" small @click="openSettingsModal">设置</Btn>
           <Btn v-if="isHost" small type="danger" @click="restartGame">重启</Btn>
         </div>
       </div>
@@ -509,22 +644,26 @@ onUnmounted(() => {
               />
             </div>
             <div class="player-actions">
-              <template v-if="user.id === currentUid()">
-                <Btn
-                  v-if="roomStatus === 'settlement'"
-                  small
-                  type="primary"
-                  @click="setUserStatus('ready')"
-                  >再来一局</Btn
-                >
-                <Btn
-                  v-if="roomStatus === 'settlement'"
-                  small
-                  type="danger"
-                  @click="setUserStatus('end')"
-                  >不玩了</Btn
-                >
-              </template>
+              <Btn
+                v-if="roomStatus === 'settlement' && user.id === currentUid()"
+                small
+                type="primary"
+                @click="setUserStatus('ready')"
+                >再来一局</Btn
+              >
+              <Btn
+                v-if="roomStatus === 'settlement' && user.id === currentUid()"
+                small
+                type="danger"
+                @click="setUserStatus('end')"
+                >不玩了</Btn
+              >
+              <Btn
+                v-if="roomStatus === 'playing' && user.id === currentUid()"
+                small
+                @click="surrenderPlayer(user.id)"
+                >🏳️</Btn
+              >
             </div>
           </div>
         </div>
@@ -540,11 +679,13 @@ onUnmounted(() => {
           <div
             ref="boardViewportRef"
             class="board-viewport"
+            :class="{ 'turn-highlight': showBoardViewportHighlight }"
             @wheel.prevent="onWheel"
             @pointerdown="onPointerDown"
             @pointermove="onPointerMove"
             @pointerup="onPointerUp"
             @pointercancel="onPointerUp"
+            @dblclick.prevent.stop="onDoubleClick"
           >
             <div class="board-stage" :style="transformStyle">
               <div class="board-grid" :style="{ gridTemplateColumns: `repeat(${boardSize}, 36px)` }">
@@ -557,10 +698,13 @@ onUnmounted(() => {
                   :class="{
                     occupied: !!getCellStone(cell.x, cell.y),
                     preview: !!getPendingMoveClass(cell.x, cell.y),
+                    'latest-move': isLatestMoveCell(cell.x, cell.y),
                   }"
                 >
                   <div v-if="getCellStone(cell.x, cell.y)" class="stone-wrap">
-                    <div :class="getStoneClass(cell.x, cell.y)"></div>
+                    <div class="stone-stack">
+                      <div :class="getLatestStoneClass(cell.x, cell.y)"></div>
+                    </div>
                   </div>
                   <div v-else-if="getPendingMoveClass(cell.x, cell.y)" class="stone-wrap">
                     <div :class="getPendingMoveClass(cell.x, cell.y)"></div>
@@ -569,7 +713,7 @@ onUnmounted(() => {
               </div>
             </div>
             <div class="board-zoom-controls" @pointerdown.stop @pointerup.stop>
-              <Btn class="board-zoom-btn" small @click="fitBoardToViewport">适配</Btn>
+              <Btn class="board-zoom-btn" small @click="fitBoardToViewport">最大化</Btn>
             </div>
           </div>
         </div>
@@ -580,6 +724,34 @@ onUnmounted(() => {
         <template #title>对局记录</template>
         <RecordTable :players="gomokuPlayers" :records="records" />
       </Card>
+
+      <Modal
+        v-model:show="settingsModal.show"
+        title="设置"
+        placement="center"
+        cancel-text="取消"
+        confirm-text="保存"
+        :confirm-loading="settingsModal.saving"
+        @cancel="settingsModal.show = false"
+        @confirm="saveGameSettings"
+      >
+        <div class="field-group">
+          <div class="field-row">
+            <div class="field-label">如何选择黑棋</div>
+            <StepperFilter
+              class="black-selection-filter"
+              :value="settingsModal.blackSelectionMode === 'random' ? '随机' : '败者'"
+              :options="blackSelectionOptions"
+              :nullable="false"
+              :btn-size="24"
+              :btn-font-size="13"
+              :btn-mobile-size="26"
+              :btn-mobile-font-size="13"
+              @update:value="updateBlackSelectionMode"
+            />
+          </div>
+        </div>
+      </Modal>
     </div>
   </div>
 </template>
@@ -664,6 +836,11 @@ onUnmounted(() => {
   margin: 0;
   touch-action: none;
   user-select: none;
+  transition: box-shadow 0.3s ease;
+}
+
+.board-viewport.turn-highlight {
+  box-shadow: 0 0 4px 1px gold;
 }
 
 .board-zoom-controls {
@@ -715,10 +892,15 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
+  position: relative;
 }
 
 .board-cell.preview {
   background: rgba(255, 255, 255, 0.16);
+}
+
+.board-cell.latest-move {
+  z-index: 3;
 }
 
 .stone-wrap {
@@ -727,6 +909,13 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.stone-stack {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  overflow: visible;
 }
 
 .stone {
@@ -755,6 +944,48 @@ onUnmounted(() => {
 
   &.preview.white {
     border: 1px solid rgba(0, 0, 0, 0.5);
+  }
+
+  &.latest {
+    position: absolute;
+    inset: 0;
+    box-shadow: 0 0 0 8px rgba(255, 255, 255, 0.22), 0 0 28px rgba(255, 255, 255, 0.8), 0 8px 18px rgba(0, 0, 0, 0.28);
+  }
+
+  &.latest.white {
+    border: 1px solid rgba(0, 0, 0, 0.02);
+  }
+
+  &.latest.black {
+    border: 1px solid rgba(255, 255, 255, 0.22);
+  }
+}
+
+.latest-stone {
+  position: relative;
+  z-index: 2;
+  animation: latest-stone-enter 0.42s ease-out both;
+}
+
+.latest-stone.black {
+  box-shadow: 2px 2px 14px 1px rgba(30, 30, 30, 1);
+  // border: 1px solid rgba(255, 255, 255, 0.28);
+}
+
+.latest-stone.white {
+  box-shadow: 2px 2px 20px 2px rgba(30, 30, 30, .5);
+  // border: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+@keyframes latest-stone-enter {
+  0% {
+    opacity: 0;
+    transform: translate(8px, 6px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translate(0, 0);
   }
 }
 
@@ -860,6 +1091,47 @@ onUnmounted(() => {
   justify-content: center;
 }
 
+.settings-modal {
+  width: 100%;
+}
+
+.field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.field-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.black-selection-filter {
+  width: auto;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.black-selection-filter :deep(.stepper-filter) {
+  width: auto;
+}
+
+.black-selection-filter :deep(.step-value) {
+  font-size: 13px;
+}
+
+.black-selection-filter :deep(.step-btn) {
+  flex-shrink: 0;
+}
+
 @media (max-width: 768px) {
   .setting-row {
     flex-direction: column;
@@ -869,6 +1141,10 @@ onUnmounted(() => {
   .modal-setting-row {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .field-row {
+    gap: 8px;
   }
 }
 </style>

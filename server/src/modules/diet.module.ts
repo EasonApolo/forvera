@@ -8,6 +8,7 @@ type DietUnit = 'g' | 'ml' | 'u';
 export interface DietConfigItem extends Document {
   creator: string;
   standard_calories: number;
+  diet_start_date?: string | null;
   created_time: Date;
   updated_time: Date;
 }
@@ -48,6 +49,7 @@ export interface DietDailyStatItem extends Document {
 
 export class UpdateDietConfigDto {
   standardCalories!: number;
+  dietStartDate?: string | null;
 }
 
 export class CreateDietRecordDto {
@@ -62,6 +64,7 @@ export class CreateDietRecordDto {
 export const DietConfigSchema = new Schema({
   creator: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true, unique: true },
   standard_calories: { type: Number, default: 2000 },
+  diet_start_date: { type: String, default: null },
   created_time: Date,
   updated_time: Date,
 });
@@ -187,6 +190,15 @@ export class DietService {
     return `${name || ''}`.trim();
   }
 
+  private normalizeDayKey(dayKey?: string | null) {
+    const value = `${dayKey || ''}`.trim();
+    if (!value) return null;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      throw new BadRequestException('Invalid dietStartDate');
+    }
+    return value;
+  }
+
   private async ensureConfig(creatorId: string) {
     const now = new Date();
     return await this.configModel
@@ -196,6 +208,7 @@ export class DietService {
           $setOnInsert: {
             creator: creatorId,
             standard_calories: 2000,
+            diet_start_date: null,
             created_time: now,
           },
           $set: {
@@ -246,6 +259,7 @@ export class DietService {
       const { month: monthKey } = isMonthMode ? this.parseMonth(month) : this.parseRecentRange(30);
       const fallbackConfig = {
         standard_calories: 2000,
+        diet_start_date: null,
       } as DietConfigItem;
       return {
         config: fallbackConfig,
@@ -264,8 +278,10 @@ export class DietService {
     if (!Number.isFinite(standardCalories) || standardCalories <= 0) {
       throw new BadRequestException('Invalid standardCalories');
     }
+    const dietStartDate = this.normalizeDayKey(dto.dietStartDate);
     const config = await this.ensureConfig(creatorId);
     config.standard_calories = standardCalories;
+    config.diet_start_date = dietStartDate;
     config.updated_time = new Date();
     await config.save();
     return config;

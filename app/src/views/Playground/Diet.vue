@@ -11,6 +11,7 @@ import StepperFilter from '@/components/StepperFilter.vue'
 import { request } from '@/utils/request'
 
 type DietUnit = 'u'
+type DietCaloriesUnit = '%' | 'kCal' | 'kJ'
 
 type DietFood = {
   _id: string
@@ -42,7 +43,7 @@ type DietDay = {
 }
 
 type DietSummary = {
-  config: { standard_calories: number }
+  config: { standard_calories: number; diet_start_date?: string | null }
   foods: DietFood[]
   recentFoods: DietFood[]
   records: DietRecord[]
@@ -69,6 +70,7 @@ const settingsModal = reactive({
   show: false,
   saving: false,
   standardCalories: 2000,
+  dietStartDate: null as string | null,
 })
 
 const recordModal = reactive({
@@ -78,6 +80,7 @@ const recordModal = reactive({
   query: '',
   name: '',
   unit: 'u' as DietUnit,
+  caloriesUnit: 'kCal' as DietCaloriesUnit,
   caloriesValue: '',
   caloriesMultiplier: '100',
   amountValue: '',
@@ -135,7 +138,6 @@ const latestFoodRecord = (name: string) => {
     .sort((a, b) => new Date(b.recorded_time).getTime() - new Date(a.recorded_time).getTime())
   return matched[0] || null
 }
-const caloriesUnitOption = 'u'
 const amountUnitOption = 'u'
 
 const displayUnit = (unit?: string) => (unit === 'g/ml' ? 'u' : (unit === 'u' ? 'u' : (unit as DietUnit) || 'u'))
@@ -145,16 +147,16 @@ const parseRecordInput = (value: string) => {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
-const getRecordCaloriesMultiplier = () => {
-  return Math.max(parseRecordInput(recordModal.caloriesMultiplier), 1)
-}
-
 const getRecordCaloriesValue = () => {
   return parseRecordInput(recordModal.caloriesValue)
 }
 
+const getRecordCaloriesMultiplier = () => {
+  return Math.max(parseRecordInput(recordModal.caloriesMultiplier), 1)
+}
+
 const getRecordTotalCalories = () => {
-  return parseRecordInput(recordModal.amountValue) * getRecordCaloriesValue() / getRecordCaloriesMultiplier()
+  return parseRecordInput(recordModal.amountValue) * getRecordCaloriesValueInKCal() / getRecordCaloriesMultiplier()
 }
 
 const formatDietNumber = (value: number) => {
@@ -179,6 +181,52 @@ const selectedDayLabel = computed(() => {
   return selectedDay.value.dayKey
 })
 
+const caloriesUnitOptions: DietCaloriesUnit[] = ['%', 'kCal', 'kJ']
+
+const selectedRecordDayKey = computed(() => selectedDayKey.value || currentDay.value)
+
+const selectedRecordDayDate = computed(() => dayKeyToDate(selectedRecordDayKey.value))
+
+const selectedRecordDayLabel = computed(() => formatRecordDayLabel(selectedRecordDayDate.value))
+
+const selectedRecordDayIsToday = computed(() => selectedRecordDayKey.value === currentDay.value)
+
+const yesterdayDayKey = computed(() => {
+  const date = dayKeyToDate(currentDay.value)
+  date.setDate(date.getDate() - 1)
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+})
+
+const effectiveDietStartDayKey = computed(() => {
+  const startDayKey = summary.value.config.diet_start_date?.trim()
+  if (!startDayKey) return null
+  return startDayKey > currentDay.value ? currentDay.value : startDayKey
+})
+
+const getDaySpanCount = (startDayKey: string, endDayKey: string) => {
+  const startDate = dayKeyToDate(startDayKey)
+  const endDate = dayKeyToDate(endDayKey)
+  const diffDays = Math.floor((endDate.getTime() - startDate.getTime()) / 86400000)
+  return Math.max(0, diffDays + 1)
+}
+
+const weightChangeLabel = computed(() => {
+  const startDayKey = effectiveDietStartDayKey.value
+  if (!startDayKey) return ''
+
+  const endDayKey = yesterdayDayKey.value
+  if (startDayKey > endDayKey) return '0天0kg'
+
+  const daysInRange = summary.value.days.filter(day => day.dayKey >= startDayKey && day.dayKey <= endDayKey)
+  if (!daysInRange.length) return '0天0kg'
+
+  const actualCalories = daysInRange.reduce((sum, day) => sum + day.totalCalories, 0)
+  const expectedCalories = daysInRange.length * 2000
+  const weightKg = (actualCalories - expectedCalories) / 7 / 1000
+  const dayCount = getDaySpanCount(startDayKey, endDayKey)
+  return `${dayCount}天${weightKg >= 0 ? '+' : ''}${weightKg.toFixed(1)}kg`
+})
+
 const selectedDayRecords = computed(() => {
   const list = summary.value.records.filter(record => {
     const recorded = new Date(record.recorded_time)
@@ -189,22 +237,75 @@ const selectedDayRecords = computed(() => {
 })
 
 const selectedDayTotalCalories = computed(() => selectedDayRecords.value.reduce((sum, record) => sum + record.total_calories, 0))
-const selectedDayTrackRows = computed(() => {
-  const standard = Math.max(summary.value.config.standard_calories, 1)
-  const total = Math.max(selectedDayTotalCalories.value, 0)
-  const rowCount = Math.max(1, Math.ceil(total / standard))
-  return Array.from({ length: rowCount }, (_, index) => {
-    const filled = Math.max(0, Math.min(standard, total - index * standard))
-    return {
-      key: `${selectedDayKey.value}-${index}`,
-      filled,
-      ratio: filled / standard,
-      label: `${Math.round(filled)} / ${Math.round(standard)}`,
-    }
-  })
-})
 
 const getStoredCaloriesMultiplier = (value?: number) => value && value > 0 ? value : 100
+
+type ProgressSegment = {
+  key: string
+  name: string
+  calories: number
+  width: number
+  color: string
+  isFirstInRow: boolean
+}
+
+type ProgressRow = {
+  key: string
+  segments: ProgressSegment[]
+}
+
+const getBarFillColor = (totalCalories: number) => {
+  const standard = Math.max(summary.value.config.standard_calories, 1)
+  const overCalories = Math.max(0, totalCalories - standard)
+  if (overCalories <= 0) return 'hsl(126, 56%, 42%)'
+
+  const progress = Math.min(1, overCalories / 500)
+  const start = { r: 46, g: 204, b: 113 }
+  const end = { r: 255, g: 77, b: 79 }
+  const r = Math.round(start.r + (end.r - start.r) * progress)
+  const g = Math.round(start.g + (end.g - start.g) * progress)
+  const b = Math.round(start.b + (end.b - start.b) * progress)
+  return `rgb(${r}, ${g}, ${b})`
+}
+
+function dayKeyToDate(dayKey: string) {
+  const [year, month, day] = dayKey.split('-').map(Number)
+  if (!year || !month || !day) return new Date()
+  return new Date(year, month - 1, day, 12, 0, 0, 0)
+}
+
+function formatRecordDayLabel(date: Date) {
+  const todayKey = currentDayKey()
+  const targetKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  const todayDate = dayKeyToDate(todayKey)
+  const diffDays = Math.round((todayDate.getTime() - dayKeyToDate(targetKey).getTime()) / 86400000)
+  const monthDay = `${String(date.getMonth() + 1).padStart(2, '0')}月${String(date.getDate()).padStart(2, '0')}日`
+
+  if (diffDays === 1) return `昨天（${monthDay}）`
+  if (diffDays === 2) return `前天（${monthDay}）`
+  return monthDay
+}
+
+const getRecordDateTime = () => {
+  const date = selectedRecordDayDate.value
+  return date.toISOString()
+}
+
+const normalizeCaloriesDisplayValue = (value: number, unit: DietCaloriesUnit) => {
+  if (!Number.isFinite(value)) return 0
+  if (unit === 'kCal') return value
+  if (unit === '%') return value * 2000 / 100
+  return value / 4.184
+}
+
+const getRecordCaloriesValueInKCal = () => {
+  return normalizeCaloriesDisplayValue(parseRecordInput(recordModal.caloriesValue), recordModal.caloriesUnit)
+}
+
+const formatRelativeDayLabel = (dayKey?: string | null) => {
+  if (!dayKey) return '未设置'
+  return formatRecordDayLabel(dayKeyToDate(dayKey))
+}
 
 const getDisplayCaloriesValue = (value: number, multiplier?: number) => {
   return multiplier && multiplier > 0 ? value : value * 100
@@ -222,6 +323,72 @@ const getRecordDisplayCalories = (record: DietRecord) => {
 
 const getRecordDisplayMultiplier = (record: DietRecord) => getStoredCaloriesMultiplier(record.calories_multiplier)
 
+function mixGreenToRed(progress: number) {
+  const clamped = Math.max(0, Math.min(1, progress))
+  const start = { r: 46, g: 204, b: 113 }
+  const end = { r: 255, g: 77, b: 79 }
+  const r = Math.round(start.r + (end.r - start.r) * clamped)
+  const g = Math.round(start.g + (end.g - start.g) * clamped)
+  const b = Math.round(start.b + (end.b - start.b) * clamped)
+  return `rgb(${r}, ${g}, ${b})`
+}
+
+const getSegmentProgress = (unitCalories: number, totalCalories: number) => {
+  const unitScore = Math.max(0, Math.min(1, (unitCalories - 100) / 400))
+  const totalScore = Math.max(0, Math.min(1, (totalCalories - 500) / 500))
+  return Math.min(1, Math.sqrt(unitScore * unitScore + totalScore * totalScore))
+}
+
+const selectedDayProgressRows = computed(() => {
+  const lineCapacity = 1500
+  const rows: ProgressRow[] = []
+  let currentRow = { key: 'row-0', segments: [] as ProgressSegment[] }
+  let rowUsed = 0
+
+  const pushRowIfNeeded = () => {
+    if (currentRow.segments.length) {
+      rows.push(currentRow)
+    }
+  }
+
+  selectedDayRecords.value.forEach((record, recordIndex) => {
+    let remaining = Math.max(0, record.total_calories)
+    const unitCalories = getRecordDisplayCalories(record)
+    const color = mixGreenToRed(getSegmentProgress(unitCalories, remaining))
+
+    while (remaining > 0) {
+      if (rowUsed >= lineCapacity) {
+        pushRowIfNeeded()
+        currentRow = { key: `row-${rows.length}`, segments: [] }
+        rowUsed = 0
+      }
+
+      const available = lineCapacity - rowUsed
+      const pieceCalories = Math.min(remaining, available)
+      currentRow.segments.push({
+        key: `${record._id}-${recordIndex}-${currentRow.segments.length}`,
+        name: record.food_name,
+        calories: pieceCalories,
+        width: (pieceCalories / lineCapacity) * 100,
+        color,
+        isFirstInRow: currentRow.segments.length === 0,
+      })
+
+      rowUsed += pieceCalories
+      remaining -= pieceCalories
+
+      if (rowUsed >= lineCapacity) {
+        pushRowIfNeeded()
+        currentRow = { key: `row-${rows.length}`, segments: [] }
+        rowUsed = 0
+      }
+    }
+  })
+
+  pushRowIfNeeded()
+  return rows
+})
+
 const loadSummary = async () => {
   loading.value = true
   try {
@@ -233,6 +400,9 @@ const loadSummary = async () => {
     normalizedSummary.records = normalizedSummary.records.map(record => ({ ...record, unit: displayUnit(record.unit) as DietUnit }))
     summary.value = normalizedSummary
     settingsModal.standardCalories = summary.value.config.standard_calories
+    settingsModal.dietStartDate = summary.value.config.diet_start_date && summary.value.config.diet_start_date > currentDay.value
+      ? currentDay.value
+      : summary.value.config.diet_start_date || null
     if (!summary.value.days.find(day => day.dayKey === selectedDayKey.value)) {
       selectedDayKey.value = summary.value.days.find(day => day.dayKey === currentDay.value)?.dayKey || summary.value.days[summary.value.days.length - 1]?.dayKey || currentDay.value
     }
@@ -254,11 +424,15 @@ const resetRecordModal = () => {
 const openRecordModal = () => {
   recordModal.show = true
   resetRecordModal()
+  recordModal.caloriesUnit = 'kCal'
 }
 
 const openSettingsModal = () => {
   settingsModal.show = true
   settingsModal.standardCalories = summary.value.config.standard_calories
+  settingsModal.dietStartDate = summary.value.config.diet_start_date && summary.value.config.diet_start_date > currentDay.value
+    ? currentDay.value
+    : summary.value.config.diet_start_date || null
 }
 
 const closeRecordModal = () => {
@@ -273,6 +447,7 @@ const applyFood = (food: DietFood) => {
   recordModal.name = food.name
   recordModal.query = food.name
   recordModal.unit = 'u'
+  recordModal.caloriesUnit = 'kCal'
   recordModal.caloriesValue = caloriesValue
   recordModal.caloriesMultiplier = formatDietNumber(caloriesMultiplier)
   recordModal.amountValue = formatDietNumber(latestRecord?.amount ?? 1)
@@ -291,6 +466,7 @@ const confirmFood = () => {
   recordModal.query = name
   recordModal.stage = 2
   recordModal.unit = 'u'
+  recordModal.caloriesUnit = 'kCal'
   recordModal.caloriesValue = ''
   recordModal.caloriesMultiplier = '100'
   recordModal.amountValue = ''
@@ -325,12 +501,14 @@ const saveRecord = async () => {
   if (!name) return
   recordModal.saving = true
   try {
+    const caloriesPerUnit = Math.round(getRecordCaloriesValueInKCal() * 100) / 100
     await request('diet/record', 'POST', {
       name,
       unit: recordModal.unit,
       amount: Number(recordModal.amountValue),
-      caloriesPerUnit: getRecordCaloriesValue(),
+      caloriesPerUnit,
       caloriesMultiplier: getRecordCaloriesMultiplier(),
+      recordedTime: getRecordDateTime(),
     })
     closeRecordModal()
     await loadSummary()
@@ -339,15 +517,27 @@ const saveRecord = async () => {
   }
 }
 
-const saveSettings = async () => {
+const saveSettings = async (dietStartDate: string | null = settingsModal.dietStartDate) => {
   settingsModal.saving = true
   try {
-    await request('diet/config', 'POST', { standardCalories: settingsModal.standardCalories })
+    const normalizedDietStartDate = dietStartDate && dietStartDate > currentDay.value ? currentDay.value : dietStartDate
+    await request('diet/config', 'POST', {
+      standardCalories: settingsModal.standardCalories,
+      dietStartDate: normalizedDietStartDate,
+    })
     settingsModal.show = false
     await loadSummary()
   } finally {
     settingsModal.saving = false
   }
+}
+
+const setDietStartDateToSelectedDay = () => {
+  settingsModal.dietStartDate = selectedDayKey.value > currentDay.value ? currentDay.value : selectedDayKey.value
+}
+
+const clearDietStartDate = () => {
+  settingsModal.dietStartDate = null
 }
 
 const calorieGradient = (ratio: number) => {
@@ -382,6 +572,12 @@ const updateMonth = (value: string | number | null) => {
   selectedMonth.value = null
 }
 
+const updateCaloriesUnit = (value: number | string | null) => {
+  if (value === '%' || value === 'kCal' || value === 'kJ') {
+    recordModal.caloriesUnit = value
+  }
+}
+
 watch(selectedMonth, () => {
   void loadSummary()
 })
@@ -407,6 +603,7 @@ onMounted(() => {
             nullable-position="max"
             @update:value="updateMonth"
           />
+          <div class="summary-weight-change">{{ weightChangeLabel }}</div>
         </div>
 
         <div class="chart-wrap">
@@ -414,7 +611,7 @@ onMounted(() => {
             <div class="threshold-line" :style="{ bottom: `${thresholdBottom}%` }"></div>
             <button v-for="day in chartBars" :key="day.dayKey" class="bar-item" :class="{ active: day.dayKey === selectedDayKey }" @click="selectDay(day.dayKey)">
               <div class="bar-track">
-                <div class="bar-fill" :style="{ height: `${day.height}%`, background: calorieGradient(day.totalCalories / Math.max(summary.config.standard_calories, 1)) }"></div>
+                <div class="bar-fill" :style="{ height: `${day.height}%`, background: getBarFillColor(day.totalCalories) }"></div>
               </div>
             </button>
           </div>
@@ -427,12 +624,22 @@ onMounted(() => {
           <div class="card-sub">{{ Math.round(selectedDayTotalCalories) }} / {{ summary.config.standard_calories }} kcal</div>
         </div>
 
-        <div class="today-tracks">
-          <div v-for="row in selectedDayTrackRows" :key="row.key" class="today-track">
-            <div class="today-track-fill" :style="{ width: `${row.ratio * 100}%`, background: calorieGradient(row.ratio) }"></div>
-            <div class="today-track-label">{{ row.label }}</div>
+        <div class="today-progress" v-if="selectedDayProgressRows.length">
+          <div v-for="row in selectedDayProgressRows" :key="row.key" class="today-progress-track">
+            <div
+              v-for="segment in row.segments"
+              :key="segment.key"
+              class="today-progress-segment"
+              :style="{
+                width: `${segment.width}%`,
+                background: segment.color,
+                borderLeft: segment.isFirstInRow ? 'none' : '1px solid rgba(255, 255, 255, 0.72)',
+              }"
+              :title="`${segment.name} ${Math.round(segment.calories)}kCal`"
+            ></div>
           </div>
         </div>
+        <div v-else class="today-progress-empty">这一天还没有记录。</div>
 
         <div class="today-items" v-if="selectedDayRecords.length">
           <div v-for="record in selectedDayRecords" :key="record._id" class="today-item">
@@ -452,7 +659,10 @@ onMounted(() => {
 
       <div v-if="recordModal.show" class="modal-mask" @click.self="closeRecordModal">
         <Card class="modal">
-          <div class="modal-title">记录热量</div>
+          <div class="modal-head">
+            <div class="modal-title">记录热量</div>
+            <div v-if="!selectedRecordDayIsToday" class="modal-title-date">{{ selectedRecordDayLabel }}</div>
+          </div>
 
           <template v-if="recordModal.stage === 1">
             <div class="search-row">
@@ -479,9 +689,10 @@ onMounted(() => {
             <div class="field-group">
               <div class="field-label">输入热量</div>
               <div class="field-row">
-                <Input class="value-input" v-model="recordModal.caloriesValue" type="number" min="0" step="0.1" placeholder="kCal" />
+                <Input class="value-input" v-model="recordModal.caloriesValue" type="number" min="0" step="0.1" :placeholder="recordModal.caloriesUnit" />
+                <StepperFilter :value="recordModal.caloriesUnit" :options="caloriesUnitOptions" :nullable="false" @update:value="updateCaloriesUnit" />
                 <Input class="unit-multiplier-input" v-model="recordModal.caloriesMultiplier" type="number" min="1" step="1" placeholder="100" />
-                <StepperFilter :value="caloriesUnitOption" :options="[caloriesUnitOption]" :nullable="false" />
+                <StepperFilter :value="amountUnitOption" :options="[amountUnitOption]" :nullable="false" />
               </div>
             </div>
 
@@ -507,14 +718,24 @@ onMounted(() => {
 
       <div v-if="settingsModal.show" class="modal-mask" @click.self="settingsModal.show = false">
         <Card class="modal settings-modal">
-          <div class="modal-title">标准热量</div>
+          <div class="modal-title">设置</div>
           <div class="field-group">
             <div class="field-label">每日标准 kcal</div>
             <Input v-model="settingsModal.standardCalories" type="number" min="1" step="1" />
           </div>
+          <div class="field-group">
+            <div class="field-label">减肥起始日期</div>
+            <div class="diet-start-row">
+              <div class="diet-start-date">{{ formatRelativeDayLabel(settingsModal.dietStartDate) }}</div>
+              <div class="diet-start-actions">
+                <Btn small @click="setDietStartDateToSelectedDay">设为当天</Btn>
+                  <Btn small type="danger" @click="clearDietStartDate">取消</Btn>
+              </div>
+            </div>
+          </div>
           <div class="modal-actions">
             <Btn @click="settingsModal.show = false">取消</Btn>
-            <Btn type="primary" :loading="settingsModal.saving" @click="saveSettings">保存</Btn>
+            <Btn type="primary" :loading="settingsModal.saving" @click="saveSettings()">保存</Btn>
           </div>
         </Card>
       </div>
@@ -555,12 +776,33 @@ onMounted(() => {
   gap: 0.75rem;
 }
 
+.summary-weight-change {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.modal-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
 .month-title,
 .card-title,
 .modal-title {
   font-size: 16px;
   font-weight: 700;
   text-align: left;
+}
+
+.modal-title-date {
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .hero-sub,
@@ -633,40 +875,32 @@ onMounted(() => {
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
 }
 
-.today-tracks {
+.today-progress {
   margin-top: 0.75rem;
   display: grid;
   gap: 0.35rem;
 }
 
-.today-track {
-  position: relative;
-  min-width: 100%;
-  height: 6px;
-  border-radius: 999px;
+.today-progress-track {
+  display: flex;
+  width: 100%;
+  height: 12px;
   overflow: hidden;
+  border-radius: 999px;
   background: rgba(0, 0, 0, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.05);
 }
 
-.today-track-fill {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  border-radius: inherit;
-}
-
-.today-track-label {
-  position: absolute;
-  right: 0;
-  top: -1.05rem;
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-.today-segment {
+.today-progress-segment {
   height: 100%;
-  min-width: 2px;
+  min-width: 1px;
+  flex-shrink: 0;
+}
+
+.today-progress-empty {
+  margin-top: 0.75rem;
+  color: var(--text-secondary);
+  font-size: 13px;
 }
 
 .today-items {
@@ -712,6 +946,26 @@ onMounted(() => {
 .field-group {
   margin-top: 0.9rem;
   text-align: left;
+}
+
+.diet-start-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.diet-start-date {
+  color: var(--text-secondary);
+  font-size: 13px;
+  min-width: 0;
+}
+
+.diet-start-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
 }
 
 .field-label {

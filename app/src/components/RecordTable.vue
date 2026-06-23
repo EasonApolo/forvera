@@ -94,11 +94,11 @@ const getWinCount = (playerId: string) => {
 }
 
 .summary-col {
-	width: 84px;
+	width: 56px;
 }
 
 .round-col {
-	width: 64px;
+	width: 32px;
 }
 
 th,
