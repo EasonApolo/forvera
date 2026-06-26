@@ -13,6 +13,17 @@ import { Public, Roles } from 'src/guards/jwt-auth.guard'
 
 const BOARD_SIZE = 15
 const DEBUG_CHECKERS_ENDGAME_PRESET = false
+const CS_CANDIDATES = [
+  'donk',
+  'monesy',
+  'niko',
+  'zywoo',
+  'karrigan',
+  'apex',
+  'kyousuke',
+  'teses',
+  'flamez',
+] as const
 
 type GomokuColor = 'black' | 'white'
 
@@ -81,6 +92,14 @@ interface XiangqiDraftState {
   moveKind: 'none' | 'move' | 'capture'
 }
 
+interface CsUnit {
+  id: string
+  ownerId: string
+  name: string
+  x: number
+  y: number
+}
+
 type ConnectStatus = 'connected' | 'disconnected'
 
 type RoomStatus = 'waiting' | 'playing' | 'settlement'
@@ -136,6 +155,14 @@ interface GomokuRoom {
   // 象棋相关
   xiangqiPieces: XiangqiPiece[]
   xiangqiDrafts: Record<string, XiangqiDraftState | null>
+  // CS棋相关
+  csRound: number
+  csCandidates: string[]
+  csSelections: Record<string, string[]>
+  csRoundConfirmed: Record<string, boolean>
+  csSpawnSelections: Record<string, string[]>
+  csUnits: CsUnit[]
+  csRoundMoved: Record<string, boolean>
 }
 
 function createBoard() {
@@ -658,6 +685,144 @@ function initXiangqiGame(blackUserId: string, whiteUserId: string): XiangqiPiece
   return pieces
 }
 
+const CS_BOARD_POINTS = 5
+const CS_CT_SPAWN = { x: 2, y: 0 }
+const CS_T_SPAWN = { x: 2, y: 4 }
+
+function createCsEdgeSet() {
+  const isBorder = (x: number, y: number) => x === 0 || x === 4 || y === 0 || y === 4
+  const isCross = (x: number, y: number) => x === 2 || y === 2
+  const edgeKey = (x1: number, y1: number, x2: number, y2: number) => {
+    const a = `${x1},${y1}`
+    const b = `${x2},${y2}`
+    return a < b ? `${a}|${b}` : `${b}|${a}`
+  }
+  const edges = new Set<string>()
+  const addEdge = (x1: number, y1: number, x2: number, y2: number) => {
+    edges.add(edgeKey(x1, y1, x2, y2))
+  }
+  const removeEdge = (x1: number, y1: number, x2: number, y2: number) => {
+    edges.delete(edgeKey(x1, y1, x2, y2))
+  }
+  const applySegment = (
+    op: 'add' | 'remove',
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+  ) => {
+    const dx = to.x - from.x
+    const dy = to.y - from.y
+    const gcd = (a: number, b: number): number => {
+      let x = Math.abs(a)
+      let y = Math.abs(b)
+      while (y !== 0) {
+        const t = x % y
+        x = y
+        y = t
+      }
+      return x || 1
+    }
+    const steps = gcd(dx, dy)
+    const stepX = dx / steps
+    const stepY = dy / steps
+    for (let i = 0; i < steps; i += 1) {
+      const x1 = from.x + stepX * i
+      const y1 = from.y + stepY * i
+      const x2 = from.x + stepX * (i + 1)
+      const y2 = from.y + stepY * (i + 1)
+      if (op === 'add') addEdge(x1, y1, x2, y2)
+      else removeEdge(x1, y1, x2, y2)
+    }
+  }
+  const addPath = (...points: Array<{ x: number; y: number }>) => {
+    for (let i = 0; i < points.length - 1; i += 1) {
+      applySegment('add', points[i], points[i + 1])
+    }
+  }
+  const removePath = (...points: Array<{ x: number; y: number }>) => {
+    for (let i = 0; i < points.length - 1; i += 1) {
+      applySegment('remove', points[i], points[i + 1])
+    }
+  }
+
+  for (let y = 0; y < CS_BOARD_POINTS; y += 1) {
+    for (let x = 0; x < CS_BOARD_POINTS; x += 1) {
+      const currentEnabled = isBorder(x, y) || isCross(x, y)
+      if (!currentEnabled) continue
+      const rightEnabled = x < 4 && (isBorder(x + 1, y) || isCross(x + 1, y))
+      const downEnabled = y < 4 && (isBorder(x, y + 1) || isCross(x, y + 1))
+      if (rightEnabled) addEdge(x, y, x + 1, y)
+      if (downEnabled) addEdge(x, y, x, y + 1)
+    }
+  }
+
+  removePath({ x: 0, y: 2 }, { x: 2, y: 2 })
+  addPath({ x: 0, y: 1 }, { x: 2, y: 1 })
+  removePath({ x: 2, y: 2 }, { x: 4, y: 2 })
+  addPath({ x: 2, y: 1 }, { x: 3, y: 1 }, { x: 3, y: 0 })
+  removePath({ x: 3, y: 4 }, { x: 4, y: 4 }, { x: 4, y: 3 })
+  addPath({ x: 3, y: 4 }, { x: 3, y: 3 }, { x: 4, y: 3 })
+  addPath({ x: 2, y: 3 }, { x: 3, y: 3 })
+  removePath({ x: 2, y: 2 }, { x: 3, y: 2 })
+  removePath({ x: 3, y: 3 }, { x: 4, y: 3 })
+  addPath({ x: 3, y: 2 }, { x: 3, y: 3 })
+  removePath({ x: 0, y: 2 }, { x: 2, y: 2 })
+  removePath({ x: 0, y: 1 }, { x: 1, y: 1 })
+  addPath({ x: 0, y: 2 }, { x: 1, y: 1 })
+  addPath({ x: 3, y: 1 }, { x: 4, y: 0 })
+  removePath({ x: 3, y: 1 }, { x: 3, y: 0 })
+  addPath({ x: 3, y: 2 }, { x: 4, y: 2 })
+  removePath({ x: 1, y: 1 }, { x: 0, y: 2 })
+  addPath({ x: 1, y: 1 }, { x: 0, y: 1 })
+  addPath({ x: 1, y: 4 }, { x: 0, y: 3 })
+  removePath({ x: 1, y: 4 }, { x: 0, y: 4 }, { x: 0, y: 3 })
+
+  return edges
+}
+
+const CS_EDGE_SET = createCsEdgeSet()
+
+function isInsideCsBoardPoint(x: number, y: number) {
+  return x >= 0 && x < CS_BOARD_POINTS && y >= 0 && y < CS_BOARD_POINTS
+}
+
+function isCsAdjacentOneStep(fromX: number, fromY: number, toX: number, toY: number) {
+  if (fromX === toX && fromY === toY) return false
+  const a = `${fromX},${fromY}`
+  const b = `${toX},${toY}`
+  const key = a < b ? `${a}|${b}` : `${b}|${a}`
+  return CS_EDGE_SET.has(key)
+}
+
+function initCsUnits(room: GomokuRoom) {
+  const units: CsUnit[] = []
+  const ctUser = room.users.find((u) => u.color === 'black')
+  const tUser = room.users.find((u) => u.color === 'white')
+  const ctNames = ctUser ? room.csSpawnSelections[ctUser.id] || [] : []
+  const tNames = tUser ? room.csSpawnSelections[tUser.id] || [] : []
+
+  ctNames.forEach((name, index) => {
+    if (!ctUser) return
+    units.push({
+      id: `${ctUser.id}-${index}-${name}`,
+      ownerId: ctUser.id,
+      name,
+      x: CS_CT_SPAWN.x,
+      y: CS_CT_SPAWN.y,
+    })
+  })
+  tNames.forEach((name, index) => {
+    if (!tUser) return
+    units.push({
+      id: `${tUser.id}-${index}-${name}`,
+      ownerId: tUser.id,
+      name,
+      x: CS_T_SPAWN.x,
+      y: CS_T_SPAWN.y,
+    })
+  })
+  return units
+}
+
 function createRoom(roomId: string, hostId: string): GomokuRoom {
   return {
     id: roomId,
@@ -683,6 +848,13 @@ function createRoom(roomId: string, hostId: string): GomokuRoom {
     checkersTargetZones: {},
     xiangqiPieces: [],
     xiangqiDrafts: {},
+    csRound: 0,
+    csCandidates: [...CS_CANDIDATES],
+    csSelections: {},
+    csRoundConfirmed: {},
+    csSpawnSelections: {},
+    csUnits: [],
+    csRoundMoved: {},
   }
 }
 
@@ -841,6 +1013,55 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
     room.currentPlayerId = activeUsers[nextIndex]?.id || ''
   }
 
+  private getCsRoundPlayers(room: GomokuRoom) {
+    const players = room.users.filter((u) => u.color === 'black' || u.color === 'white')
+    if (players.length) return players
+    return room.users.slice(0, 2)
+  }
+
+  private resetCsRoundState(room: GomokuRoom, roundIndex = 0) {
+    room.csRound = roundIndex
+    room.csCandidates = [...CS_CANDIDATES]
+    room.csSelections = {}
+    room.csRoundConfirmed = {}
+    room.csRoundMoved = {}
+    if (roundIndex === 0) {
+      room.csSpawnSelections = {}
+      room.csUnits = []
+    }
+    this.getCsRoundPlayers(room).forEach((player) => {
+      room.csSelections[player.id] = []
+      room.csRoundConfirmed[player.id] = false
+    })
+  }
+
+  private tryAdvanceCsRound(room: GomokuRoom) {
+    const players = this.getCsRoundPlayers(room)
+    if (players.length < 2) return false
+    const allDone = players.every((player) => room.csRoundConfirmed[player.id] === true)
+    if (!allDone) return false
+
+    if (room.csRound === 0) {
+      room.csSpawnSelections = {}
+      players.forEach((player) => {
+        room.csSpawnSelections[player.id] = [...(room.csSelections[player.id] || [])]
+      })
+    }
+
+    room.csRound += 1
+    if (room.csRound === 1) {
+      room.csUnits = initCsUnits(room)
+    }
+    room.csSelections = {}
+    room.csRoundConfirmed = {}
+    room.csRoundMoved = {}
+    players.forEach((player) => {
+      room.csSelections[player.id] = []
+      room.csRoundConfirmed[player.id] = false
+    })
+    return true
+  }
+
   private confirmXiangqiDraft(room: GomokuRoom, user: GomokuUser, roomId: string) {
     const draft = room.xiangqiDrafts[user.id] || null
     if (!draft || draft.moveKind === 'none') {
@@ -934,6 +1155,13 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
     room.nextGameMode = room.currentGameMode
     room.xiangqiPieces = []
     this.clearAllXiangqiDrafts(room)
+    room.csRound = 0
+    room.csSelections = {}
+    room.csRoundConfirmed = {}
+    room.csCandidates = [...CS_CANDIDATES]
+    room.csSpawnSelections = {}
+    room.csUnits = []
+    room.csRoundMoved = {}
     
     if (room.currentGameMode === 'checkers') {
       // 跳棋模式
@@ -985,7 +1213,8 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
       room.checkersTargetZones = {}
       room.xiangqiPieces = []
       this.clearAllXiangqiDrafts(room)
-      room.currentPlayerId = room.blackUserId
+      this.resetCsRoundState(room, 0)
+      room.currentPlayerId = ''
     } else {
       // 五子棋模式
       this.assignBlackWhite(room, forceRandomBlack, previousWinnerId)
@@ -1021,6 +1250,13 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.clearAllCheckersDrafts(room)
     room.xiangqiPieces = []
     this.clearAllXiangqiDrafts(room)
+    room.csRound = 0
+    room.csSelections = {}
+    room.csRoundConfirmed = {}
+    room.csCandidates = [...CS_CANDIDATES]
+    room.csSpawnSelections = {}
+    room.csUnits = []
+    room.csRoundMoved = {}
     room.checkersTargetZones = {}
     room.currentGameMode = room.nextGameMode || room.currentGameMode || 'gomoku'
     room.users.forEach((user) => {
@@ -1047,6 +1283,13 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.clearAllCheckersDrafts(room)
     room.xiangqiPieces = []
     this.clearAllXiangqiDrafts(room)
+    room.csRound = 0
+    room.csSelections = {}
+    room.csRoundConfirmed = {}
+    room.csCandidates = [...CS_CANDIDATES]
+    room.csSpawnSelections = {}
+    room.csUnits = []
+    room.csRoundMoved = {}
     room.checkersTargetZones = {}
     room.currentGameMode = 'gomoku'
     room.nextGameMode = 'gomoku'
@@ -1090,6 +1333,13 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
       checkersTargetZones: room.checkersTargetZones,
       xiangqiPieces: room.xiangqiPieces,
       xiangqiDrafts: room.xiangqiDrafts,
+      csRound: room.csRound,
+      csCandidates: room.csCandidates,
+      csSelections: room.csSelections,
+      csRoundConfirmed: room.csRoundConfirmed,
+      csSpawnSelections: room.csSpawnSelections,
+      csUnits: room.csUnits,
+      csRoundMoved: room.csRoundMoved,
     }
   }
 
@@ -1781,6 +2031,261 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
     room.xiangqiDrafts[user.id] = null
     this.broadcastXiangqiDraftState(roomId, user.id, null)
     const response = { success: true, draft: null }
+    if (ack) ack(response)
+    return response
+  }
+
+  @SubscribeMessage('csToggleCandidate')
+  async csToggleCandidate(
+    @MessageBody() data: { candidate: string },
+    @ConnectedSocket() client: Socket,
+    ack?: (response: { success: boolean; message?: string; selections?: string[] }) => void,
+  ) {
+    const roomId = this.socketToRoom.get(client.id)
+    if (!roomId) {
+      const response = { success: false, message: 'Room not found' }
+      if (ack) ack(response)
+      return response
+    }
+    const room = this.rooms.get(roomId)
+    const user = this.socketToUser.get(client.id)
+    if (!room || !user) {
+      const response = { success: false, message: 'Room not found' }
+      if (ack) ack(response)
+      return response
+    }
+
+    if (room.status !== 'playing' || room.currentGameMode !== 'cs') {
+      const response = { success: false, message: '当前不是CS棋对局' }
+      if (ack) ack(response)
+      return response
+    }
+
+    if (room.csRound !== 0) {
+      const response = { success: false, message: '当前回合没有选手操作' }
+      if (ack) ack(response)
+      return response
+    }
+
+    const participants = this.getCsRoundPlayers(room)
+    if (!participants.some((p) => p.id === user.id)) {
+      const response = { success: false, message: '当前玩家不可操作' }
+      if (ack) ack(response)
+      return response
+    }
+
+    if (!room.csCandidates.includes(data.candidate)) {
+      const response = { success: false, message: '选手不存在' }
+      if (ack) ack(response)
+      return response
+    }
+
+    if (room.csRoundConfirmed[user.id]) {
+      const response = {
+        success: false,
+        message: '已确认，不能再修改',
+        selections: room.csSelections[user.id] || [],
+      }
+      if (ack) ack(response)
+      return response
+    }
+
+    const currentSelections = room.csSelections[user.id] || []
+    const exists = currentSelections.includes(data.candidate)
+    let nextSelections = [...currentSelections]
+    if (exists) {
+      nextSelections = nextSelections.filter((name) => name !== data.candidate)
+    } else {
+      if (nextSelections.length >= 3) {
+        const response = { success: false, message: '最多选择3个', selections: nextSelections }
+        if (ack) ack(response)
+        return response
+      }
+      nextSelections.push(data.candidate)
+    }
+
+    room.csSelections[user.id] = nextSelections
+    this.syncRoomStatus(roomId)
+    const response = { success: true, selections: nextSelections }
+    if (ack) ack(response)
+    return response
+  }
+
+  @SubscribeMessage('csConfirmRound')
+  async csConfirmRound(
+    @ConnectedSocket() client: Socket,
+    ack?: (response: { success: boolean; message?: string }) => void,
+  ) {
+    const roomId = this.socketToRoom.get(client.id)
+    if (!roomId) {
+      const response = { success: false, message: 'Room not found' }
+      if (ack) ack(response)
+      return response
+    }
+    const room = this.rooms.get(roomId)
+    const user = this.socketToUser.get(client.id)
+    if (!room || !user) {
+      const response = { success: false, message: 'Room not found' }
+      if (ack) ack(response)
+      return response
+    }
+
+    if (room.status !== 'playing' || room.currentGameMode !== 'cs') {
+      const response = { success: false, message: '当前不是CS棋对局' }
+      if (ack) ack(response)
+      return response
+    }
+
+    const participants = this.getCsRoundPlayers(room)
+    if (!participants.some((p) => p.id === user.id)) {
+      const response = { success: false, message: '当前玩家不可操作' }
+      if (ack) ack(response)
+      return response
+    }
+
+    if (room.csRound === 0) {
+      const selections = room.csSelections[user.id] || []
+      if (selections.length !== 3) {
+        const response = { success: false, message: `请先选择3名选手（${selections.length}/3）` }
+        if (ack) ack(response)
+        return response
+      }
+
+      room.csRoundConfirmed[user.id] = true
+      this.tryAdvanceCsRound(room)
+      this.syncRoomStatus(roomId)
+      const response = { success: true }
+      if (ack) ack(response)
+      return response
+    }
+
+    room.csRoundConfirmed[user.id] = true
+    this.tryAdvanceCsRound(room)
+    this.syncRoomStatus(roomId)
+    const response = { success: true }
+    if (ack) ack(response)
+    return response
+  }
+
+  @SubscribeMessage('csMove')
+  async csMove(
+    @MessageBody() data: { unitId: string; toX: number; toY: number },
+    @ConnectedSocket() client: Socket,
+    ack?: (response: { success: boolean; message?: string }) => void,
+  ) {
+    const roomId = this.socketToRoom.get(client.id)
+    if (!roomId) {
+      const response = { success: false, message: 'Room not found' }
+      if (ack) ack(response)
+      return response
+    }
+    const room = this.rooms.get(roomId)
+    const user = this.socketToUser.get(client.id)
+    if (!room || !user) {
+      const response = { success: false, message: 'Room not found' }
+      if (ack) ack(response)
+      return response
+    }
+
+    if (room.status !== 'playing' || room.currentGameMode !== 'cs') {
+      const response = { success: false, message: '当前不是CS棋对局' }
+      if (ack) ack(response)
+      return response
+    }
+
+    if (room.csRound === 0) {
+      const response = { success: false, message: '当前回合不能移动棋子' }
+      if (ack) ack(response)
+      return response
+    }
+
+    if (room.csRoundConfirmed[user.id]) {
+      const response = { success: false, message: '本回合已完成，不能再操作' }
+      if (ack) ack(response)
+      return response
+    }
+
+    if (room.csRoundMoved[data.unitId]) {
+      const response = { success: false, message: '该棋子本回合已操作过' }
+      if (ack) ack(response)
+      return response
+    }
+
+    if (!isInsideCsBoardPoint(data.toX, data.toY)) {
+      const response = { success: false, message: '目标点位无效' }
+      if (ack) ack(response)
+      return response
+    }
+
+    const unit = room.csUnits.find((u) => u.id === data.unitId && u.ownerId === user.id)
+    if (!unit) {
+      const response = { success: false, message: '棋子不存在或不属于你' }
+      if (ack) ack(response)
+      return response
+    }
+
+    if (!isCsAdjacentOneStep(unit.x, unit.y, data.toX, data.toY)) {
+      const response = { success: false, message: '只能移动到一格可达的连线点位' }
+      if (ack) ack(response)
+      return response
+    }
+
+    unit.x = data.toX
+    unit.y = data.toY
+    room.csRoundMoved[unit.id] = true
+    this.syncRoomStatus(roomId)
+    const response = { success: true }
+    if (ack) ack(response)
+    return response
+  }
+
+  @SubscribeMessage('csCompleteRound')
+  async csCompleteRound(
+    @ConnectedSocket() client: Socket,
+    ack?: (response: { success: boolean; message?: string }) => void,
+  ) {
+    const roomId = this.socketToRoom.get(client.id)
+    if (!roomId) {
+      const response = { success: false, message: 'Room not found' }
+      if (ack) ack(response)
+      return response
+    }
+    const room = this.rooms.get(roomId)
+    const user = this.socketToUser.get(client.id)
+    if (!room || !user) {
+      const response = { success: false, message: 'Room not found' }
+      if (ack) ack(response)
+      return response
+    }
+
+    if (room.status !== 'playing' || room.currentGameMode !== 'cs') {
+      const response = { success: false, message: '当前不是CS棋对局' }
+      if (ack) ack(response)
+      return response
+    }
+    if (room.csRound === 0) {
+      const response = { success: false, message: '请使用选手确认按钮' }
+      if (ack) ack(response)
+      return response
+    }
+
+    const participants = this.getCsRoundPlayers(room)
+    if (!participants.some((p) => p.id === user.id)) {
+      const response = { success: false, message: '当前玩家不可操作' }
+      if (ack) ack(response)
+      return response
+    }
+
+    if (room.csRoundConfirmed[user.id]) {
+      const response = { success: false, message: '本回合已完成' }
+      if (ack) ack(response)
+      return response
+    }
+
+    room.csRoundConfirmed[user.id] = true
+    this.tryAdvanceCsRound(room)
+    this.syncRoomStatus(roomId)
+    const response = { success: true }
     if (ack) ack(response)
     return response
   }

@@ -88,14 +88,39 @@ export class RequirementsService {
     return task;
   }
 
-  async getAll(creatorId: string, showAll = false, allowAll = false) {
-    const filter: Record<string, any> = {};
+  async getAll(creatorId: string, viewMode: 'active' | 'completed' = 'active', allowAll = false) {
+    const filter: Record<string, any> = {}
     if (!allowAll) {
-      filter.creator = creatorId;
+      filter.creator = creatorId
     }
-    if (!showAll) {
-      filter.$or = [{ parent: { $ne: null } }, { checked: false }];
+    
+    if (viewMode === 'active') {
+      filter.checked = false
+    } else if (viewMode === 'completed') {
+      // Get completed root tasks and all their subtasks
+      const completedRoots = await this.requirementTaskModel
+        .find({ ...filter, checked: true, parent: null })
+        .select('_id')
+        .lean()
+        .exec();
+      
+      const rootIds = completedRoots.map(r => r._id);
+      if (rootIds.length === 0) {
+        return [];
+      }
+      
+      return await this.requirementTaskModel
+        .find({
+          ...filter,
+          $or: [
+            { _id: { $in: rootIds } },
+            { parent: { $in: rootIds } },
+          ],
+        })
+        .sort({ id: -1, created_time: 1, _id: 1 })
+        .exec();
     }
+    
     return await this.requirementTaskModel
       .find(filter)
       .sort({ id: -1, created_time: 1, _id: 1 })
@@ -240,9 +265,9 @@ export class RequirementsController {
   constructor(private readonly requirementsService: RequirementsService) {}
 
   @Get()
-  async getAll(@Request() req, @Query('showAll') showAll = '0') {
-    const flag = `${showAll}` === '1' || `${showAll}`.toLowerCase() === 'true';
-    return await this.requirementsService.getAll(req.user.userId, flag, false);
+  async getAll(@Request() req, @Query('viewMode') viewMode = 'active') {
+    const mode = (viewMode === 'completed' ? 'completed' : 'active') as 'active' | 'completed'
+    return await this.requirementsService.getAll(req.user.userId, mode, false)
   }
 
   @Post()

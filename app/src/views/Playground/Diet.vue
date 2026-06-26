@@ -31,6 +31,7 @@ type DietRecord = {
   calories_per_unit: number
   calories_multiplier?: number
   amount: number
+  quantity?: number
   total_calories: number
   recorded_time: string
 }
@@ -84,6 +85,7 @@ const recordModal = reactive({
   caloriesValue: '',
   caloriesMultiplier: '100',
   amountValue: '',
+  quantityValue: '1',
 })
 
 function currentMonthKey() {
@@ -124,7 +126,7 @@ const thresholdBottom = computed(() => {
   return Math.max(0, Math.min(100, (standard / highest) * 100))
 })
 
-const recentFoods = computed(() => summary.value.recentFoods.slice(0, 10))
+const recentFoods = computed(() => summary.value.recentFoods.slice(0, 5))
 const searchFoods = computed(() => {
   const keyword = recordModal.query.trim().toLowerCase()
   const source = keyword ? summary.value.foods.filter(food => food.name.toLowerCase().includes(keyword)) : summary.value.recentFoods
@@ -155,8 +157,18 @@ const getRecordCaloriesMultiplier = () => {
   return Math.max(parseRecordInput(recordModal.caloriesMultiplier), 1)
 }
 
+const getRecordAmount = () => {
+  const amount = parseRecordInput(recordModal.amountValue)
+  return Number.isFinite(amount) && amount > 0 ? amount : 1
+}
+
+const getRecordQuantity = () => {
+  const quantity = parseRecordInput(recordModal.quantityValue)
+  return Number.isFinite(quantity) && quantity > 0 ? quantity : 1
+}
+
 const getRecordTotalCalories = () => {
-  return parseRecordInput(recordModal.amountValue) * getRecordCaloriesValueInKCal() / getRecordCaloriesMultiplier()
+  return getRecordAmount() * getRecordQuantity() * getRecordCaloriesValueInKCal() / getRecordCaloriesMultiplier()
 }
 
 const formatDietNumber = (value: number) => {
@@ -418,7 +430,8 @@ const resetRecordModal = () => {
   recordModal.unit = 'u'
   recordModal.caloriesValue = ''
   recordModal.caloriesMultiplier = '100'
-  recordModal.amountValue = ''
+  recordModal.amountValue = '1'
+  recordModal.quantityValue = '1'
 }
 
 const openRecordModal = () => {
@@ -451,6 +464,7 @@ const applyFood = (food: DietFood) => {
   recordModal.caloriesValue = caloriesValue
   recordModal.caloriesMultiplier = formatDietNumber(caloriesMultiplier)
   recordModal.amountValue = formatDietNumber(latestRecord?.amount ?? 1)
+  recordModal.quantityValue = '1'
   recordModal.stage = 2
 }
 
@@ -469,16 +483,26 @@ const confirmFood = () => {
   recordModal.caloriesUnit = 'kCal'
   recordModal.caloriesValue = ''
   recordModal.caloriesMultiplier = '100'
-  recordModal.amountValue = ''
+  recordModal.amountValue = '1'
+  recordModal.quantityValue = '1'
 }
 
 const formatCaloriesPer100 = (food: DietFood) => `${formatDietNumber(getFoodDisplayCalories(food))}kCal/${formatDietNumber(getFoodDisplayMultiplier(food))}${displayUnit(food.unit)}`
-const formatCaloriesExpression = (caloriesValue: number, caloriesMultiplier: number, unit: string, amount?: number, amountUnit?: string, totalCalories?: number) => {
+const formatCaloriesExpression = (
+  caloriesValue: number,
+  caloriesMultiplier: number,
+  unit: string,
+  amount?: number,
+  amountUnit?: string,
+  quantity?: number,
+  totalCalories?: number,
+) => {
   const caloriesPart = `${formatDietNumber(caloriesValue)}kCal/${formatDietNumber(caloriesMultiplier)}${unit}`
   if (amount === undefined || amountUnit === undefined || totalCalories === undefined) {
     return caloriesPart
   }
-  return `${caloriesPart}*${formatDietNumber(amount)}${amountUnit}=${formatDietNumber(totalCalories)}kCal`
+  const safeQuantity = quantity && quantity > 0 ? quantity : 1
+  return `${caloriesPart}*${formatDietNumber(amount)}${amountUnit}*${formatDietNumber(safeQuantity)}=${formatDietNumber(totalCalories)}kCal`
 }
 
 const backToFoodSelect = () => {
@@ -502,10 +526,13 @@ const saveRecord = async () => {
   recordModal.saving = true
   try {
     const caloriesPerUnit = Math.round(getRecordCaloriesValueInKCal() * 100) / 100
+    const amount = getRecordAmount()
+    const quantity = getRecordQuantity()
     await request('diet/record', 'POST', {
       name,
       unit: recordModal.unit,
-      amount: Number(recordModal.amountValue),
+      amount,
+      quantity,
       caloriesPerUnit,
       caloriesMultiplier: getRecordCaloriesMultiplier(),
       recordedTime: getRecordDateTime(),
@@ -624,7 +651,7 @@ onMounted(() => {
           <div class="card-sub">{{ Math.round(selectedDayTotalCalories) }} / {{ summary.config.standard_calories }} kcal</div>
         </div>
 
-        <div class="today-progress" v-if="selectedDayProgressRows.length">
+        <div class="today-progress" v-if="selectedDayRecords.length && selectedDayProgressRows.length">
           <div v-for="row in selectedDayProgressRows" :key="row.key" class="today-progress-track">
             <div
               v-for="segment in row.segments"
@@ -639,14 +666,13 @@ onMounted(() => {
             ></div>
           </div>
         </div>
-        <div v-else class="today-progress-empty">这一天还没有记录。</div>
 
         <div class="today-items" v-if="selectedDayRecords.length">
           <div v-for="record in selectedDayRecords" :key="record._id" class="today-item">
             <div class="today-item-row">
-              <div class="today-item-name">{{ record.food_name }}</div>
+              <div class="today-item-name">{{ record.food_name }}{{ (record.quantity || 1) > 1 ? 'x' + formatDietNumber(record.quantity || 1) : '' }}</div>
               <div class="today-item-meta">
-                {{ formatCaloriesExpression(getRecordDisplayCalories(record), getRecordDisplayMultiplier(record), record.unit, record.amount, amountUnitOption, record.total_calories) }}
+                {{ formatCaloriesExpression(getRecordDisplayCalories(record), getRecordDisplayMultiplier(record), record.unit, record.amount, amountUnitOption, record.quantity, record.total_calories) }}
               </div>
               <div class="today-item-actions">
                 <CircleBtn class="delete-btn" variant="overlay" icon="close" aria-label="delete record" :size="16" :mobile-size="20" @click.stop="deleteRecord(record._id)" />
@@ -682,25 +708,40 @@ onMounted(() => {
           </template>
 
           <template v-else>
-            <div class="selected-food">
-              <div class="selected-food-name">{{ recordModal.name }}</div>
+            <div class="selected-food-wrap">
+              <div class="selected-food">
+                <div class="selected-food-name">{{ recordModal.name }}</div>
+              </div>
+              <div class="selected-food-qty">
+                <span class="selected-food-qty-label">数量</span>
+                <Input class="quantity-input" v-model="recordModal.quantityValue" type="number" min="1" step="1" placeholder="1" />
+              </div>
             </div>
 
             <div class="field-group">
               <div class="field-label">输入热量</div>
               <div class="field-row">
                 <Input class="value-input" v-model="recordModal.caloriesValue" type="number" min="0" step="0.1" :placeholder="recordModal.caloriesUnit" />
-                <StepperFilter :value="recordModal.caloriesUnit" :options="caloriesUnitOptions" :nullable="false" @update:value="updateCaloriesUnit" />
+                <StepperFilter
+                  :value="recordModal.caloriesUnit"
+                  :options="caloriesUnitOptions"
+                  :nullable="false"
+                  :btn-size="20"
+                  :btn-font-size="11"
+                  :btn-mobile-size="22"
+                  :btn-mobile-font-size="11"
+                  @update:value="updateCaloriesUnit"
+                />
                 <Input class="unit-multiplier-input" v-model="recordModal.caloriesMultiplier" type="number" min="1" step="1" placeholder="100" />
-                <StepperFilter :value="amountUnitOption" :options="[amountUnitOption]" :nullable="false" />
+                <span class="unit-text">u</span>
               </div>
             </div>
 
             <div class="field-group">
               <div class="field-label">输入分量</div>
               <div class="field-row">
-                <Input class="value-input" v-model="recordModal.amountValue" type="number" min="0" step="100" placeholder="" />
-                <StepperFilter :value="amountUnitOption" :options="[amountUnitOption]" :nullable="false" />
+                <Input class="value-input" v-model="recordModal.amountValue" type="number" min="1" step="1" placeholder="1" />
+                <span class="unit-text">u</span>
               </div>
             </div>
 
@@ -984,7 +1025,7 @@ onMounted(() => {
   }
 
   .unit-multiplier-input {
-    flex: 0 0 80px;
+    flex: 0 0 64px;
   }
 }
 
@@ -1040,16 +1081,48 @@ onMounted(() => {
 }
 
 .selected-food {
-  margin-top: 0.75rem;
   padding: 0.65rem 0.7rem;
   border-radius: 0.75rem;
   background: var(--bg);
   text-align: left;
+  flex: 1 1 auto;
+}
+
+.selected-food-wrap {
+  margin-top: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.75rem;
 }
 
 .selected-food-name {
   font-size: 14px;
   font-weight: 700;
+}
+
+.selected-food-qty {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.selected-food-qty-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.quantity-input {
+  width: 58px;
+}
+
+.unit-text {
+  min-width: 16px;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text);
 }
 
 .record-preview {
@@ -1100,6 +1173,10 @@ onMounted(() => {
   .chart-bars {
     gap: 6px;
     height: 96px;
+  }
+
+  .selected-food-wrap {
+    align-items: stretch;
   }
 }
 </style>

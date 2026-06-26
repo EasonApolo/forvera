@@ -32,6 +32,7 @@ export interface DietRecordItem extends Document {
   calories_per_unit: number;
   calories_multiplier?: number;
   amount: number;
+  quantity: number;
   total_calories: number;
   recorded_time: Date;
   created_time: Date;
@@ -56,6 +57,7 @@ export class CreateDietRecordDto {
   name!: string;
   unit!: DietUnit;
   amount!: number;
+  quantity?: number;
   caloriesPerUnit!: number;
   caloriesMultiplier?: number;
   recordedTime?: string;
@@ -90,6 +92,7 @@ export const DietRecordSchema = new Schema({
   calories_per_unit: { type: Number, required: true },
   calories_multiplier: { type: Number, default: 100 },
   amount: { type: Number, required: true },
+  quantity: { type: Number, required: true, default: 1 },
   total_calories: { type: Number, required: true },
   recorded_time: Date,
   created_time: Date,
@@ -233,7 +236,7 @@ export class DietService {
       const dayKeyEnd = this.toDayKey(end);
       const [foods, recentFoods, records, dailyStats] = await Promise.all([
         this.foodModel.find({ creator: creatorId }).sort({ last_used_time: -1, updated_time: -1 }).exec(),
-        this.foodModel.find({ creator: creatorId }).sort({ last_used_time: -1, updated_time: -1 }).limit(10).exec(),
+        this.foodModel.find({ creator: creatorId }).sort({ last_used_time: -1, updated_time: -1 }).limit(5).exec(),
         this.recordModel
           .find({ creator: creatorId, recorded_time: { $gte: start, $lt: end } })
           .sort({ recorded_time: -1, created_time: -1 })
@@ -295,10 +298,14 @@ export class DietService {
 
     const unit = this.normalizeUnit(dto.unit);
     const amount = Number(dto.amount);
+    const quantity = Number(dto.quantity ?? 1);
     const caloriesPerUnit = Number(dto.caloriesPerUnit);
     const caloriesMultiplier = Number(dto.caloriesMultiplier ?? 100);
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new BadRequestException('Invalid amount');
+    }
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      throw new BadRequestException('Invalid quantity');
     }
     if (!Number.isFinite(caloriesPerUnit) || caloriesPerUnit < 0) {
       throw new BadRequestException('Invalid caloriesPerUnit');
@@ -310,7 +317,7 @@ export class DietService {
     const now = new Date();
     const recordedTime = dto.recordedTime ? new Date(dto.recordedTime) : now;
     const normalizedRecordedTime = Number.isNaN(recordedTime.getTime()) ? now : recordedTime;
-    const totalCalories = Math.round((amount * caloriesPerUnit / caloriesMultiplier) * 100) / 100;
+    const totalCalories = Math.round((amount * quantity * caloriesPerUnit / caloriesMultiplier) * 100) / 100;
 
     let food = await this.foodModel.findOne({ creator: creatorId, name }).exec();
     if (!food) {
@@ -341,6 +348,7 @@ export class DietService {
       calories_per_unit: caloriesPerUnit,
       calories_multiplier: caloriesMultiplier,
       amount,
+      quantity,
       total_calories: totalCalories,
       recorded_time: normalizedRecordedTime,
       created_time: now,

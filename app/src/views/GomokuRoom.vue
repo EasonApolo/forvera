@@ -79,6 +79,7 @@ const XIANGQI_BOARD_HEIGHT_PX = (XIANGQI_ROWS - 1) * XIANGQI_CELL_SIZE + XIANGQI
 const CS_BOARD_POINTS = 5
 const CS_CELL_SIZE = 68
 const CS_PADDING = 36
+const CS_DEFAULT_VISION = 0
 const CS_BOARD_WIDTH_PX = (CS_BOARD_POINTS - 1) * CS_CELL_SIZE + CS_PADDING * 2
 const CS_BOARD_HEIGHT_PX = CS_BOARD_WIDTH_PX
 const CHECKERS_CELL_SIZE = 28
@@ -147,6 +148,15 @@ const checkersLatestMove = ref<CheckersPosition | null>(null)
 const checkersTargetZones = ref<Record<string, number>>({})
 const xiangqiPieces = ref<XiangqiPiece[]>([])
 const xiangqiDrafts = ref<Record<string, XiangqiDraftState | null>>({})
+const csRound = ref(0)
+const csCandidates = ref<string[]>([])
+const csSelections = ref<Record<string, string[]>>({})
+const csRoundConfirmed = ref<Record<string, boolean>>({})
+const csSpawnSelections = ref<Record<string, string[]>>({})
+const csUnits = ref<Array<{ id: string; ownerId: string; name: string; x: number; y: number }>>([])
+const csRoundMoved = ref<Record<string, boolean>>({})
+const csSelectedUnitId = ref('')
+const csMoveMode = ref(false)
 
 const getOppositeCheckersZoneIndex = (zoneIndex: number): number => {
   const oppositeMap: Record<number, number> = {
@@ -588,12 +598,12 @@ const renderCsBoard = (context: CanvasRenderingContext2D) => {
   }
 
   context.clearRect(0, 0, boardWidth, boardHeight)
-  context.fillStyle = '#e8d0a0'
+  context.fillStyle = '#f7f8fb'
   context.fillRect(0, 0, boardWidth, boardHeight)
-  context.fillStyle = 'rgba(0, 0, 0, 0.05)'
+  context.fillStyle = 'rgba(255, 255, 255, 0.5)'
   context.fillRect(0, 0, boardWidth, boardHeight)
 
-  context.strokeStyle = 'rgba(84, 57, 25, 0.9)'
+  context.strokeStyle = 'rgba(220, 225, 233, 0.82)'
   context.lineWidth = 2
 
   const edges = new Set<string>()
@@ -691,24 +701,71 @@ const renderCsBoard = (context: CanvasRenderingContext2D) => {
   addPath({ x: 1, y: 4 }, { x: 0, y: 3 })
   removePath({ x: 1, y: 4 }, { x: 0, y: 4 }, { x: 0, y: 3 })
 
+  const connectedPoints = new Set<string>()
   edges.forEach((edge) => {
     const [start, end] = edge.split('|')
     const [x1, y1] = start.split(',').map(Number)
     const [x2, y2] = end.split(',').map(Number)
+    connectedPoints.add(start)
+    connectedPoints.add(end)
     context.beginPath()
     context.moveTo(toPixel(x1), toPixel(y1))
     context.lineTo(toPixel(x2), toPixel(y2))
     context.stroke()
   })
 
-  context.fillStyle = 'rgba(56, 37, 15, 0.9)'
+  context.fillStyle = 'rgba(214, 220, 230, 0.78)'
   for (let y = 0; y < CS_BOARD_POINTS; y += 1) {
     for (let x = 0; x < CS_BOARD_POINTS; x += 1) {
+      if (!connectedPoints.has(`${x},${y}`)) continue
       context.beginPath()
-      context.arc(toPixel(x), toPixel(y), 5.5, 0, Math.PI * 2)
+      context.arc(toPixel(x), toPixel(y), 3.4, 0, Math.PI * 2)
       context.fill()
     }
   }
+
+  const uid = currentUid()
+  const visibleUnits = csUnits.value.filter((unit) => {
+    if (!uid || unit.ownerId === uid) return true
+    return csUnits.value.some(
+      (myUnit) =>
+        myUnit.ownerId === uid &&
+        Math.max(Math.abs(myUnit.x - unit.x), Math.abs(myUnit.y - unit.y)) <= CS_DEFAULT_VISION,
+    )
+  })
+
+  const grouped = new Map<string, Array<{ id: string; ownerId: string; name: string; x: number; y: number }>>()
+  visibleUnits.forEach((unit) => {
+    const key = `${unit.x},${unit.y}`
+    const list = grouped.get(key) || []
+    list.push(unit)
+    grouped.set(key, list)
+  })
+
+  grouped.forEach((group, key) => {
+    const [x, y] = key.split(',').map(Number)
+    const cx = toPixel(x)
+    const cy = toPixel(y)
+    const lineHeight = 14
+    const totalHeight = (group.length - 1) * lineHeight
+    const sorted = [...group].sort((a, b) => a.name.localeCompare(b.name))
+
+    context.save()
+    context.textAlign = 'center'
+    context.textBaseline = 'middle'
+    sorted.forEach((unit, index) => {
+      const rowY = cy - totalHeight / 2 + index * lineHeight
+      const isSelected = unit.id === csSelectedUnitId.value
+      const isMoved = csRoundMoved.value[unit.id] === true
+      context.globalAlpha = isSelected ? 1 : isMoved ? 0.5 : 1
+      context.font = isSelected
+        ? "700 13px 'Trebuchet MS', 'Avenir Next', sans-serif"
+        : "500 12px 'Trebuchet MS', 'Avenir Next', sans-serif"
+      context.fillStyle = unit.ownerId === blackUserId.value ? '#1d5bd1' : '#7a5a00'
+      context.fillText(unit.name, cx, rowY)
+    })
+    context.restore()
+  })
 }
 
 // 跳棋渲染 - 使用标准三向坐标系 (q, r, s) 其中 q+r+s=0
@@ -1015,6 +1072,21 @@ const getXiangqiCellFromClient = (clientX: number, clientY: number): { x: number
   return { x, y }
 }
 
+const getCsPointFromClient = (clientX: number, clientY: number): { x: number; y: number } | null => {
+  const viewport = boardViewportRef.value
+  if (!viewport) return null
+  const rect = viewport.getBoundingClientRect()
+  const localX = (clientX - rect.left - offsetX.value) / scale.value
+  const localY = (clientY - rect.top - offsetY.value) / scale.value
+  const colFloat = (localX - CS_PADDING) / CS_CELL_SIZE
+  const rowFloat = (localY - CS_PADDING) / CS_CELL_SIZE
+  const x = Math.round(colFloat)
+  const y = Math.round(rowFloat)
+  if (x < 0 || x >= CS_BOARD_POINTS || y < 0 || y >= CS_BOARD_POINTS) return null
+  if (Math.abs(colFloat - x) > 0.45 || Math.abs(rowFloat - y) > 0.45) return null
+  return { x, y }
+}
+
 // 获取跳棋六边形坐标（三向坐标系）
 const getCheckersHexFromClient = (clientX: number, clientY: number): CheckersPosition | null => {
   const viewport = boardViewportRef.value
@@ -1116,6 +1188,23 @@ const currentUserXiangqiDraft = computed(() => {
   const uid = currentUid()
   return uid ? (xiangqiDrafts.value[uid] || null) : null
 })
+const currentUserCsSelections = computed(() => {
+  const uid = currentUid()
+  return uid ? csSelections.value[uid] || [] : []
+})
+const isCurrentUserCsConfirmed = computed(() => {
+  const uid = currentUid()
+  return uid ? csRoundConfirmed.value[uid] === true : false
+})
+const currentSelectedCsMoved = computed(() =>
+  csSelectedUnitId.value ? csRoundMoved.value[csSelectedUnitId.value] === true : false
+)
+const canOperateCsRound = computed(() =>
+  activeGameMode.value === 'cs' &&
+  roomStatus.value === 'playing' &&
+  csRound.value > 0 &&
+  !isCurrentUserCsConfirmed.value
+)
 const currentUserCheckersStartZone = computed(() => {
   const uid = currentUid()
   if (!uid) return 3
@@ -1187,6 +1276,10 @@ watch(
     checkersLatestMove.value,
     xiangqiPieces.value,
     xiangqiDrafts.value,
+    csUnits.value,
+    csRoundMoved.value,
+    csSelectedUnitId.value,
+    csRound.value,
   ],
   () => {
     scheduleBoardRender()
@@ -1232,6 +1325,17 @@ const syncRoomStatus = (data: any) => {
   checkersTargetZones.value = data.checkersTargetZones || {}
   xiangqiPieces.value = Array.isArray(data.xiangqiPieces) ? data.xiangqiPieces : []
   xiangqiDrafts.value = data.xiangqiDrafts || {}
+  csRound.value = Number.isInteger(data.csRound) ? data.csRound : 0
+  csCandidates.value = Array.isArray(data.csCandidates) ? data.csCandidates : []
+  csSelections.value = data.csSelections || {}
+  csRoundConfirmed.value = data.csRoundConfirmed || {}
+  csSpawnSelections.value = data.csSpawnSelections || {}
+  csUnits.value = Array.isArray(data.csUnits) ? data.csUnits : []
+  csRoundMoved.value = data.csRoundMoved || {}
+  if (currentGameMode.value !== 'cs' || roomStatus.value !== 'playing' || csRoundConfirmed.value[currentUid()]) {
+    csSelectedUnitId.value = ''
+    csMoveMode.value = false
+  }
   if (currentGameMode.value !== 'checkers') {
     checkersLatestMove.value = null
     checkersTargetZones.value = {}
@@ -1392,6 +1496,11 @@ const onPointerUp = (event: PointerEvent) => {
     const hex = getCheckersHexFromClient(event.clientX, event.clientY)
     if (hex) {
       handleCheckersClick(hex.q, hex.r)
+    }
+  } else if (currentGameMode.value === 'cs') {
+    const point = getCsPointFromClient(event.clientX, event.clientY)
+    if (point) {
+      handleCsBoardClick(point.x, point.y)
     }
   } else if (currentGameMode.value === 'xiangqi') {
     const cell = getXiangqiCellFromClient(event.clientX, event.clientY)
@@ -1581,6 +1690,42 @@ const handleXiangqiClick = (x: number, y: number) => {
   })
 }
 
+const handleCsBoardClick = (x: number, y: number) => {
+  if (!canOperateCsRound.value) return
+  const uid = currentUid()
+
+  if (csMoveMode.value && csSelectedUnitId.value) {
+    socket.emit('csMove', { unitId: csSelectedUnitId.value, toX: x, toY: y }, (response: any) => {
+      if (response?.success === false) {
+        toastStore.showToast({ content: response.message || '移动失败', type: '!' })
+        return
+      }
+      csMoveMode.value = false
+      csSelectedUnitId.value = ''
+    })
+    return
+  }
+
+  const myUnitsAtPoint = csUnits.value.filter((u) => u.ownerId === uid && u.x === x && u.y === y)
+  if (!myUnitsAtPoint.length) {
+    csSelectedUnitId.value = ''
+    csMoveMode.value = false
+    return
+  }
+
+  myUnitsAtPoint.sort((a, b) => a.name.localeCompare(b.name))
+  if (!csSelectedUnitId.value || !myUnitsAtPoint.some((u) => u.id === csSelectedUnitId.value)) {
+    csSelectedUnitId.value = myUnitsAtPoint[0].id
+    csMoveMode.value = false
+    return
+  }
+
+  const currentIndex = myUnitsAtPoint.findIndex((u) => u.id === csSelectedUnitId.value)
+  const nextIndex = (currentIndex + 1) % myUnitsAtPoint.length
+  csSelectedUnitId.value = myUnitsAtPoint[nextIndex].id
+  csMoveMode.value = false
+}
+
 const confirmCheckersSelection = () => {
   socket.emit('checkersConfirm', (response: any) => {
     if (response?.success === false) {
@@ -1630,6 +1775,51 @@ const confirmXiangqiSelection = () => {
     if (uid) {
       xiangqiDrafts.value[uid] = null
     }
+  })
+}
+
+const toggleCsCandidate = (candidate: string) => {
+  if (roomStatus.value !== 'playing' || currentGameMode.value !== 'cs') return
+  socket.emit('csToggleCandidate', { candidate }, (response: any) => {
+    if (response?.success === false) {
+      toastStore.showToast({ content: response.message || '操作失败', type: '!' })
+      return
+    }
+  })
+}
+
+const confirmCsRound = () => {
+  if (roomStatus.value !== 'playing' || currentGameMode.value !== 'cs') return
+  socket.emit('csConfirmRound', (response: any) => {
+    if (response?.success === false) {
+      toastStore.showToast({ content: response.message || '确认失败', type: '!' })
+      return
+    }
+  })
+}
+
+const startCsMoveMode = () => {
+  if (!canOperateCsRound.value) return
+  if (currentSelectedCsMoved.value) {
+    toastStore.showToast({ content: '该棋子本回合已操作过', type: '!' })
+    return
+  }
+  if (!csSelectedUnitId.value) {
+    toastStore.showToast({ content: '请先点击地图上的己方棋子', type: '!' })
+    return
+  }
+  csMoveMode.value = true
+}
+
+const completeCsRound = () => {
+  if (!canOperateCsRound.value) return
+  socket.emit('csCompleteRound', (response: any) => {
+    if (response?.success === false) {
+      toastStore.showToast({ content: response.message || '完成失败', type: '!' })
+      return
+    }
+    csMoveMode.value = false
+    csSelectedUnitId.value = ''
   })
 }
 
@@ -1849,16 +2039,24 @@ onUnmounted(() => {
                 text="房主"
               />
               <Badge v-if="user.id === currentUid()" color="#722ed1" text-color="white" text="我" />
-              <Badge v-if="user.color === 'black'" color="var(--bg)" text-color="var(--text)">
+              <Badge
+                v-if="user.color === 'black'"
+                :color="activeGameMode === 'cs' ? '#1d5bd1' : 'var(--bg)'"
+                :text-color="activeGameMode === 'cs' ? 'white' : 'var(--text)'"
+              >
                 <template #default>
-                  <div class="badge-icon black"></div>
-                  {{ activeGameMode === 'xiangqi' ? '将' : '黑棋' }}
+                  <div v-if="activeGameMode !== 'cs'" class="badge-icon black"></div>
+                  {{ activeGameMode === 'xiangqi' ? '将' : activeGameMode === 'cs' ? 'CT' : '黑棋' }}
                 </template>
               </Badge>
-              <Badge v-if="user.color === 'white'" color="var(--bg)" text-color="var(--text)">
+              <Badge
+                v-if="user.color === 'white'"
+                :color="activeGameMode === 'cs' ? '#b8860b' : 'var(--bg)'"
+                :text-color="activeGameMode === 'cs' ? '#3a2a00' : 'var(--text)'"
+              >
                 <template #default>
-                  <div class="badge-icon white"></div>
-                  {{ activeGameMode === 'xiangqi' ? '帅' : '白棋' }}
+                  <div v-if="activeGameMode !== 'cs'" class="badge-icon white"></div>
+                  {{ activeGameMode === 'xiangqi' ? '帅' : activeGameMode === 'cs' ? 'T' : '白棋' }}
                 </template>
               </Badge>
               <Badge v-if="user.color === 'yellow'" color="var(--bg)" text-color="var(--text)">
@@ -1885,6 +2083,12 @@ onUnmounted(() => {
                 text-color="white"
                 type="loading"
                 :text="`思考中 ${formatDuration(getPlayerThinkTime(user))}`"
+              />
+              <Badge
+                v-if="activeGameMode === 'cs' && roomStatus === 'playing' && csRoundConfirmed[user.id]"
+                color="#2f9e44"
+                text-color="white"
+                text="已完成"
               />
               <Badge
                 v-if="user.readyStatus === 'ready'"
@@ -1922,6 +2126,34 @@ onUnmounted(() => {
               >
             </div>
           </div>
+          <div
+            v-if="activeGameMode === 'cs' && roomStatus === 'playing' && csRound === 0 && user.id === currentUid()"
+            class="cs-selector"
+          >
+            <div class="cs-candidates">
+              <button
+                v-for="name in csCandidates"
+                :key="name"
+                class="cs-candidate"
+                :class="{ selected: currentUserCsSelections.includes(name), confirmed: isCurrentUserCsConfirmed }"
+                type="button"
+                :disabled="isCurrentUserCsConfirmed"
+                @click="toggleCsCandidate(name)"
+              >
+                {{ name }}
+              </button>
+            </div>
+            <div class="cs-actions">
+              <Btn
+                small
+                type="primary"
+                :disabled="currentUserCsSelections.length !== 3 || isCurrentUserCsConfirmed"
+                @click="confirmCsRound"
+              >
+                确定 {{ currentUserCsSelections.length }}/3
+              </Btn>
+            </div>
+          </div>
         </div>
       </div>
       <div v-if="roomStatus === 'waiting' && isHost" class="start-row">
@@ -1950,6 +2182,35 @@ onUnmounted(() => {
         </div>
 
         <div class="board-zoom-controls">
+          <div class="board-ops-left">
+            <Btn
+              v-if="activeGameMode === 'cs' && roomStatus === 'playing' && csRound > 0 && csSelectedUnitId && !currentSelectedCsMoved"
+              class="board-zoom-btn"
+              small
+              type="primary"
+              :disabled="!canOperateCsRound || !csSelectedUnitId || currentSelectedCsMoved"
+              @click="startCsMoveMode"
+            >
+              移动
+            </Btn>
+          </div>
+          <div class="board-ops-right">
+            <Badge
+              v-if="activeGameMode === 'cs' && roomStatus === 'playing'"
+              color="var(--bg)"
+              text-color="var(--text)"
+              :text="`回合 ${Math.min(csRound + 1, 30)}/30`"
+            />
+            <Btn
+              v-if="activeGameMode === 'cs' && roomStatus === 'playing' && csRound > 0"
+              class="board-zoom-btn"
+              small
+              type="primary"
+              :disabled="!canOperateCsRound"
+              @click="completeCsRound"
+            >
+              完成
+            </Btn>
           <Btn
             v-if="currentGameMode === 'checkers' && currentUserCheckersDraft"
             class="board-zoom-btn"
@@ -1994,6 +2255,7 @@ onUnmounted(() => {
           >
             <span class="focus-reticle" aria-hidden="true"></span>
           </CircleBtn>
+          </div>
         </div>
 
       </template>
@@ -2131,10 +2393,22 @@ onUnmounted(() => {
 
 .board-zoom-controls {
   display: flex;
-  gap: 6px;
-  justify-content: flex-end;
+  gap: 8px;
+  justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.board-ops-left,
+.board-ops-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.board-ops-right {
+  margin-left: auto;
 }
 
 .board-zoom-btn {
@@ -2258,6 +2532,48 @@ onUnmounted(() => {
     border-color: rgba(255, 77, 79, 0.95);
     box-shadow: 0 0 0 1px rgba(255, 77, 79, 0.18);
   }
+}
+
+.cs-selector {
+  margin-top: 6px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cs-candidates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.cs-candidate {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.2;
+  padding: 0;
+  cursor: pointer;
+
+  &.selected {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    text-decoration-thickness: 2px;
+  }
+
+  &.confirmed {
+    opacity: 0.75;
+    cursor: default;
+  }
+}
+
+.cs-actions {
+  flex: 0 0 auto;
 }
 
 .player-info {

@@ -10,10 +10,10 @@ import { useRequirementsStore, type RequirementTask } from '@/store/requirements
 
 const requirementsStore = useRequirementsStore()
 const initialized = ref(false)
-const showAll = ref(false)
+const viewMode = ref<'active' | 'completed'>('active')
 
 const tasks = computed(() => {
-  const roots = requirementsStore.tasks.filter(task => !task.parent && (showAll.value || !task.checked))
+  const roots = requirementsStore.tasks.filter(task => !task.parent)
   const childMap = new Map<string, RequirementTask[]>()
 
   requirementsStore.tasks.forEach(task => {
@@ -33,7 +33,7 @@ const tasks = computed(() => {
 })
 
 const refresh = async () => {
-  await requirementsStore.fetchAll(showAll.value)
+  await requirementsStore.fetchAll(viewMode.value)
   initialized.value = true
 }
 
@@ -106,15 +106,15 @@ const deleteRootTask = async (task: RequirementTask) => {
   await refresh()
 }
 
-const toggleShowAll = async () => {
-  showAll.value = !showAll.value
+const toggleViewMode = async () => {
+  viewMode.value = viewMode.value === 'active' ? 'completed' : 'active'
   await refresh()
 }
 
 const navItems = computed(() => [
   { key: 'back', label: '‹ 返回' },
   { key: 'add', label: '添加' },
-  { key: 'showAll', label: showAll.value ? '隐藏完成' : '显示完成' },
+  { key: 'switch', label: viewMode.value === 'active' ? '显示完成' : '显示未完成' },
 ])
 
 const handleNavSelect = async (key: string) => {
@@ -126,8 +126,8 @@ const handleNavSelect = async (key: string) => {
     await addTask()
     return
   }
-  if (key === 'showAll') {
-    await toggleShowAll()
+  if (key === 'switch') {
+    await toggleViewMode()
   }
 }
 

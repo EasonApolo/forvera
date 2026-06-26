@@ -16,8 +16,8 @@ export const useRequirementsStore = defineStore('requirements', {
     tasks: [] as RequirementTask[],
   }),
   actions: {
-    async fetchAll(showAll = false) {
-      this.tasks = await request('requirements', 'GET', { showAll: showAll ? '1' : '0' })
+    async fetchAll(viewMode: 'active' | 'completed' = 'active') {
+      this.tasks = await request('requirements', 'GET', { viewMode })
       return this.tasks
     },
     async createTask(parent: string | null = null) {
