@@ -7,6 +7,7 @@ const props = withDefaults(
     min?: number
     max?: number
     options?: string[]
+    loop?: boolean
     placeholder?: string
     nullablePosition?: 'min' | 'max'
     nullable?: boolean
@@ -16,6 +17,7 @@ const props = withDefaults(
     btnMobileFontSize?: number
   }>(),
   {
+    loop: false,
     placeholder: '-',
     nullablePosition: 'min',
     nullable: true,
@@ -67,6 +69,13 @@ const prev = () => {
     }
 
     const currentIndex = props.options!.indexOf(current)
+    if (props.loop) {
+      const lastIndex = props.options!.length - 1
+      const nextIndex = currentIndex <= 0 ? lastIndex : currentIndex - 1
+      emit('update:value', props.options![nextIndex])
+      return
+    }
+
     if (props.nullable && props.nullablePosition === 'min' && currentIndex <= 0) {
       emit('update:value', null)
       return
@@ -79,6 +88,11 @@ const prev = () => {
 
   if (props.value === null || typeof props.value !== 'number') {
     emit('update:value', fallbackBound())
+    return
+  }
+
+  if (props.loop && props.min !== undefined && props.max !== undefined && props.value <= props.min) {
+    emit('update:value', props.max)
     return
   }
 
@@ -101,6 +115,12 @@ const next = () => {
 
     const lastIndex = props.options!.length - 1
     const currentIndex = props.options!.indexOf(current)
+    if (props.loop) {
+      const nextIndex = currentIndex >= lastIndex ? 0 : currentIndex + 1
+      emit('update:value', props.options![nextIndex])
+      return
+    }
+
     if (props.nullable && props.nullablePosition === 'max' && currentIndex >= lastIndex) {
       emit('update:value', null)
       return
@@ -113,6 +133,11 @@ const next = () => {
 
   if (props.value === null || typeof props.value !== 'number') {
     emit('update:value', fallbackBound())
+    return
+  }
+
+  if (props.loop && props.min !== undefined && props.max !== undefined && props.value >= props.max) {
+    emit('update:value', props.min)
     return
   }
 

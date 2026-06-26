@@ -4,12 +4,14 @@ import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { request } from '../utils/request'
 import { useUserStore } from '../store/user'
+import { useToastStore } from '../store/toast'
 import Card from '../components/Card.vue'
 import Btn from '../components/Btn.vue'
 import GreyText from '../components/GreyText.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
+const toastStore = useToastStore()
 const { userInfo } = storeToRefs(userStore)
 
 type RoomItem = {
@@ -21,7 +23,11 @@ type RoomItem = {
 	round: number
 	winnerName: string
 	recordsCount: number
-	undoMode: string
+	users: Array<{
+		id: string
+		name: string
+		connectStatus: 'connected' | 'disconnected'
+	}>
 }
 
 const rooms = ref<RoomItem[]>([])
@@ -60,16 +66,19 @@ const genShareUserId = () => {
 	return `u${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
 }
 
-const copyLink = async (roomId: string) => {
-	const shareUserId = genShareUserId()
+const copyLink = async (roomId: string, shareUserId: string) => {
 	const link = `${window.location.origin}/gomoku/${roomId}/${shareUserId}`
 	try {
 		await navigator.clipboard.writeText(link)
-		alert('已复制分享链接: ' + link)
+		toastStore.showToast({ content: '已复制分享链接', type: 'OK' })
 	} catch (e) {
 		console.error('copy failed', e)
-		alert('复制分享链接失败，请手动复制: ' + link)
+		toastStore.showToast({ content: '复制失败，请检查剪贴板权限', type: '!' })
 	}
+}
+
+const copyRoomLink = async (roomId: string) => {
+	await copyLink(roomId, genShareUserId())
 }
 
 const openRoom = (roomId: string) => {
@@ -98,10 +107,10 @@ onMounted(async () => {
 
 <template>
 	<div class="gomoku-container">
-		<Card v-if="isAdmin" class="admin-panel">
-			<div class="header-row">
+		<template v-if="isAdmin">
+			<div class="admin-toolbar">
 				<GreyText>五子棋房间列表（管理员）</GreyText>
-				<div style="display:flex;gap:8px;align-items:center">
+				<div class="toolbar-actions">
 					<Btn small @click="fetchRooms" :loading="loading">刷新</Btn>
 					<Btn small type="primary" @click="createRoom">创建房间</Btn>
 				</div>
@@ -111,32 +120,46 @@ onMounted(async () => {
 			<div v-else-if="!rooms.length" class="empty">暂无房间</div>
 
 			<div v-else class="room-list">
-				<div v-for="room in rooms" :key="room.id" class="room-item">
-					<div class="room-main">
-						<div class="room-id">{{ room.id }}</div>
-						<div class="meta">
-							<span>状态：{{ room.status }}</span>
-							<span>人数：{{ room.connectedCount }}/{{ room.userCount }}</span>
-							<span>回合：{{ room.round }}</span>
-							<span>悔棋：{{ room.undoMode }}</span>
-							<span v-if="room.winnerName">胜者：{{ room.winnerName }}</span>
+				<Card v-for="room in rooms" :key="room.id" class="room-card">
+					<div class="room-head">
+						<div class="room-main">
+							<div class="room-id">{{ room.id }}</div>
+							<div class="meta">
+								<span>状态：{{ room.status }}</span>
+								<span>人数：{{ room.connectedCount }}/{{ room.userCount }}</span>
+								<span>回合：{{ room.round }}</span>
+								<span v-if="room.winnerName">胜者：{{ room.winnerName }}</span>
+							</div>
+						</div>
+						<div class="room-actions">
+							<Btn small @click="copyRoomLink(room.id)">分享</Btn>
+							<Btn small @click="openRoom(room.id)">进入</Btn>
+							<Btn
+								type="danger"
+								small
+								:loading="closingRoomId === room.id"
+								@click="closeRoom(room.id)"
+							>
+								关闭
+							</Btn>
 						</div>
 					</div>
-					<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-						<Btn small @click="copyLink(room.id)">分享</Btn>
-						<Btn small @click="openRoom(room.id)">进入</Btn>
-						<Btn
-							type="danger"
-							small
-							:loading="closingRoomId === room.id"
-							@click="closeRoom(room.id)"
-						>
-							关闭
-						</Btn>
+
+					<div class="players">
+						<div v-if="!room.users?.length" class="player-row empty-player">暂无玩家</div>
+						<div v-for="player in room.users" :key="`${room.id}-${player.id}`" class="player-row">
+							<div class="player-name">
+								{{ player.name || '未命名玩家' }}
+								<span class="player-status" :class="player.connectStatus">
+									{{ player.connectStatus === 'connected' ? '在线' : '离线' }}
+								</span>
+							</div>
+							<Btn small @click="copyLink(room.id, player.id)">分享</Btn>
+						</div>
 					</div>
-				</div>
+				</Card>
 			</div>
-		</Card>
+		</template>
 	</div>
 </template>
 
@@ -148,61 +171,141 @@ onMounted(async () => {
 	justify-content: center;
 	padding: 20px;
 	text-align: left;
+	gap: 0.75rem;
 }
 
-.admin-panel {
+.admin-toolbar {
 	width: 100%;
 	max-width: 760px;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
 
-	.header-row {
+	.toolbar-actions {
 		display: flex;
+		gap: 8px;
 		align-items: center;
-		justify-content: space-between;
-		margin-bottom: 0.5rem;
+	}
+}
+
+.empty {
+	width: 100%;
+	max-width: 760px;
+	text-align: left;
+	color: var(--text-secondary);
+	font-size: 14px;
+}
+
+.room-list {
+	width: 100%;
+	max-width: 760px;
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+}
+
+.room-card {
+	width: 100%;
+}
+
+.room-head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 0.75rem;
+	padding-bottom: 0.5rem;
+	border-bottom: 1px solid var(--border-light);
+}
+
+.room-main {
+	flex: 1;
+	min-width: 0;
+	text-align: left;
+}
+
+.room-id {
+	font-weight: 600;
+	font-size: 14px;
+	color: var(--text);
+	word-break: break-all;
+}
+
+.meta {
+	margin-top: 4px;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+	font-size: 12px;
+	color: var(--text-secondary);
+}
+
+.room-actions {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	flex-wrap: wrap;
+	flex: 0 0 auto;
+}
+
+.players {
+	margin-top: 0.5rem;
+	display: flex;
+	flex-direction: column;
+	gap: 0.35rem;
+}
+
+.player-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.5rem;
+}
+
+.player-name {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4rem;
+	font-size: 13px;
+	color: var(--text);
+	min-width: 0;
+	word-break: break-all;
+}
+
+.player-status {
+	font-size: 11px;
+	line-height: 1;
+	padding: 0.2rem 0.4rem;
+	border-radius: 999px;
+	background: var(--background);
+	border: 1px solid var(--border-light);
+	color: var(--text-secondary);
+
+	&.connected {
+		color: #2d8f45;
+		border-color: #94d3a2;
 	}
 
-	.empty {
-		text-align: left;
-		color: var(--text-secondary);
-		font-size: 14px;
+	&.disconnected {
+		color: #b26a00;
+		border-color: #ebc17a;
 	}
+}
 
-	.room-list {
-		display: flex;
+.empty-player {
+	font-size: 12px;
+	color: var(--text-secondary);
+}
+
+@media (max-width: 700px) {
+	.admin-toolbar {
 		flex-direction: column;
-		gap: 0.5rem;
+		align-items: flex-start;
 	}
 
-	.room-item {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 0.5rem;
-		padding: 0.5rem;
-		border: 1px solid var(--border-light);
-		border-radius: 0.5rem;
-	}
-
-	.room-main {
-		flex: 1;
-		min-width: 0;
-		text-align: left;
-	}
-
-	.room-id {
-		font-weight: 600;
-		font-size: 14px;
-		color: var(--text);
-		word-break: break-all;
-	}
-
-	.meta {
-		margin-top: 4px;
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.5rem;
-		font-size: 12px;
-		color: var(--text-secondary);
+	.room-head {
+		flex-direction: column;
+		align-items: flex-start;
 	}
 }
 </style>
