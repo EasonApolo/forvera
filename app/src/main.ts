@@ -21,9 +21,9 @@ import HoldemRoomVue from './views/HoldemRoom.vue'
 import GomokuVue from './views/Gomoku.vue'
 import GomokuRoomVue from './views/GomokuRoom.vue'
 import LoginVue from './views/Login.vue'
-import ExpiryCheckerVue from './views/Playground/ExpiryChecker.vue'
 import DietVue from './views/Playground/Diet.vue'
 import PetVue from './views/Pet.vue'
+import VillageVue from './views/Village.vue'
 import UserManageVue from './views/UserManage.vue'
 
 const routerOptions = {
@@ -79,12 +79,6 @@ const routerOptions = {
       name: 'requirements',
       meta: { requiresAuth: true },
     },
-    {
-      path: '/expiry',
-      component: ExpiryCheckerVue,
-      name: 'expiry',
-      meta: { requiresAuth: true },
-    },
     { path: '/rating', component: RatingVue, name: 'rating' },
     { path: '/diet', component: DietVue, name: 'diet' },
     { path: '/holdem', component: HoldemVue, name: 'holdem' },
@@ -94,6 +88,7 @@ const routerOptions = {
     { path: '/gomoku/:id', component: GomokuRoomVue, name: 'gomokuRoom' },
     { path: '/gomoku/:id/:userId', component: GomokuRoomVue, name: 'gomokuRoomWithUser' },
     { path: '/pet', component: PetVue, name: 'pet' },
+    { path: '/village', component: VillageVue, name: 'village' },
   ],
 }
 

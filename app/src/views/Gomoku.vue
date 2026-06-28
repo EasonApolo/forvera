@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { request } from '../utils/request'
@@ -34,15 +34,20 @@ const rooms = ref<RoomItem[]>([])
 const loading = ref(false)
 const closingRoomId = ref('')
 const isAdmin = computed(() => userInfo.value.role === 3)
+let autoRefreshTimer: number | null = null
 
-const fetchRooms = async () => {
+const fetchRooms = async ({ silent }: { silent?: boolean } = {}) => {
 	if (!isAdmin.value) return
-	loading.value = true
+	if (!silent) {
+		loading.value = true
+	}
 	try {
 		const res = await request('gomoku/rooms', 'GET')
 		rooms.value = Array.isArray(res?.rooms) ? res.rooms : []
 	} finally {
-		loading.value = false
+		if (!silent) {
+			loading.value = false
+		}
 	}
 }
 
@@ -101,6 +106,16 @@ onMounted(async () => {
 	await userStore.getUserInfo()
 	if (isAdmin.value) {
 		await fetchRooms()
+		autoRefreshTimer = window.setInterval(() => {
+			fetchRooms({ silent: true })
+		}, 5000)
+	}
+})
+
+onUnmounted(() => {
+	if (autoRefreshTimer !== null) {
+		window.clearInterval(autoRefreshTimer)
+		autoRefreshTimer = null
 	}
 })
 </script>
@@ -120,7 +135,7 @@ onMounted(async () => {
 			<div v-else-if="!rooms.length" class="empty">暂无房间</div>
 
 			<div v-else class="room-list">
-				<Card v-for="room in rooms" :key="room.id" class="room-card">
+				<Card v-for="room in rooms" :key="room.id">
 					<div class="room-head">
 						<div class="room-main">
 							<div class="room-id">{{ room.id }}</div>
@@ -169,13 +184,16 @@ onMounted(async () => {
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
+	width: 100%;
+	max-width: 100vw;
+	box-sizing: border-box;
 	padding: 20px;
 	text-align: left;
 	gap: 0.75rem;
 }
 
 .admin-toolbar {
-	width: 100%;
+	width: min(100%, 760px);
 	max-width: 760px;
 	display: flex;
 	align-items: center;
@@ -190,7 +208,7 @@ onMounted(async () => {
 }
 
 .empty {
-	width: 100%;
+	width: min(100%, 760px);
 	max-width: 760px;
 	text-align: left;
 	color: var(--text-secondary);
@@ -198,15 +216,11 @@ onMounted(async () => {
 }
 
 .room-list {
-	width: 100%;
+	width: min(100%, 760px);
 	max-width: 760px;
 	display: flex;
 	flex-direction: column;
 	gap: 0.5rem;
-}
-
-.room-card {
-	width: 100%;
 }
 
 .room-head {

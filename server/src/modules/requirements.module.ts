@@ -89,26 +89,25 @@ export class RequirementsService {
   }
 
   async getAll(creatorId: string, viewMode: 'active' | 'completed' = 'active', allowAll = false) {
-    const filter: Record<string, any> = {}
+    const filter: Record<string, any> = {};
     if (!allowAll) {
-      filter.creator = creatorId
+      filter.creator = creatorId;
     }
-    
-    if (viewMode === 'active') {
-      filter.checked = false
-    } else if (viewMode === 'completed') {
-      // Get completed root tasks and all their subtasks
-      const completedRoots = await this.requirementTaskModel
-        .find({ ...filter, checked: true, parent: null })
+
+    if (viewMode === 'active' || viewMode === 'completed') {
+      // viewMode only applies to root tasks; subtasks are always included.
+      const rootChecked = viewMode === 'completed';
+      const matchedRoots = await this.requirementTaskModel
+        .find({ ...filter, checked: rootChecked, parent: null })
         .select('_id')
         .lean()
         .exec();
-      
-      const rootIds = completedRoots.map(r => r._id);
+
+      const rootIds = matchedRoots.map(r => r._id);
       if (rootIds.length === 0) {
         return [];
       }
-      
+
       return await this.requirementTaskModel
         .find({
           ...filter,
@@ -120,7 +119,7 @@ export class RequirementsService {
         .sort({ id: -1, created_time: 1, _id: 1 })
         .exec();
     }
-    
+
     return await this.requirementTaskModel
       .find(filter)
       .sort({ id: -1, created_time: 1, _id: 1 })

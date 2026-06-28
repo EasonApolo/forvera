@@ -1,16 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../store/user'
 import Btn from '../components/Btn.vue'
 import Card from '../components/Card.vue'
 import CircleBtn from '../components/CircleBtn.vue'
 import List from '../components/layout/List.vue'
-import { request } from '@/utils/request'
 
 const router = useRouter()
 const userStore = useUserStore()
-const defaultCardOrder = ['taxonomy', 'requirements', 'expiry', 'diet', 'holdem', 'gomoku', 'pet', 'rating', 'mihoyo']
+const defaultCardOrder = ['taxonomy', 'requirements', 'diet', 'holdem', 'gomoku', 'village', 'pet', 'rating', 'mihoyo']
 
 type PlaygroundCard =
   | { key: string; type: 'route'; title: string; routeName: string; soon?: string }
@@ -23,10 +22,10 @@ type PlaygroundCard =
 const cardMap: Record<string, PlaygroundCard> = {
   taxonomy: { key: 'taxonomy', type: 'route', title: '🌳Taxonomy', routeName: 'taxonomy' },
   requirements: { key: 'requirements', type: 'route', title: '🧩需求拆解', routeName: 'requirements' },
-  expiry: { key: 'expiry', type: 'route', title: '🥛什么时候过期？', routeName: 'expiry' },
   diet: { key: 'diet', type: 'route', title: '🍽Diet', routeName: 'diet' },
   holdem: { key: 'holdem', type: 'route', title: '🃏德扑', routeName: 'holdem' },
   gomoku: { key: 'gomoku', type: 'route', title: '⚫五子棋', routeName: 'gomoku' },
+  village: { key: 'village', type: 'route', title: '🏘Village', routeName: 'village' },
   pet: { key: 'pet', type: 'route', title: 'AGENT', routeName: 'pet' },
   rating: { key: 'rating', type: 'route', title: '⭐Rating', routeName: 'rating' },
   mihoyo: {
@@ -41,19 +40,9 @@ const cardMap: Record<string, PlaygroundCard> = {
 
 const cardOrder = ref<string[]>([...defaultCardOrder])
 const sortMode = ref(false)
-const expirySoonNames = ref<string[]>([])
 
 const cards = computed(() =>
-  cardOrder.value.map((key) => {
-    const card = cardMap[key]
-    if (key !== 'expiry' || card?.type !== 'route') return card
-    const soon = expirySoonNames.value.length ? expirySoonNames.value.join('、') : ''
-    return {
-      ...card,
-      title: card.title,
-      soon,
-    }
-  }).filter(Boolean),
+  cardOrder.value.map((key) => cardMap[key]).filter(Boolean),
 )
 
 const goto = (routeName: string) => {
@@ -117,24 +106,6 @@ const moveCard = (index: number, direction: 'up' | 'down') => {
   void persistPlaygroundSort()
 }
 
-const loadExpirySoonNames = async () => {
-  if (!userStore.isLogin) {
-    expirySoonNames.value = []
-    return
-  }
-
-  const result = await request('expiry/soon', 'GET', { percent: '20' })
-  const items = Array.isArray(result?.items) ? result.items : []
-  expirySoonNames.value = items
-    .map((item: { name?: string }) => `${item?.name || ''}`.trim())
-    .filter(Boolean)
-    .slice(0, 3)
-}
-
-onMounted(() => {
-  void loadExpirySoonNames()
-})
-
 watch(
   () => userStore.userInfo.settings?.playgroundSort,
   (savedOrder) => {
@@ -150,12 +121,6 @@ watch(
   { immediate: true },
 )
 
-watch(
-  () => userStore.isLogin,
-  () => {
-    void loadExpirySoonNames()
-  },
-)
 </script>
 
 <template>
@@ -172,10 +137,7 @@ watch(
             class="entry"
             @click="goto(card.routeName)"
           >
-            <span>
-              {{ card.title }}
-              <span v-if="card.soon" class="page-title-soon">（{{ card.soon }}）</span>
-            </span>
+            <span>{{ card.title }}</span>
           </Card>
 
           <div v-else class="entry pair-entry">
@@ -269,12 +231,6 @@ a {
     pointer-events: none;
     opacity: 0.4;
   }
-}
-
-.page-title-soon {
-  color: var(--text-secondary, #888);
-  font-size: 0.85rem;
-  margin-left: 0.25rem;
 }
 
 </style>

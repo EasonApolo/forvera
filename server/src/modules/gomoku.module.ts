@@ -98,7 +98,10 @@ interface CsUnit {
   name: string
   x: number
   y: number
+  hp: number
 }
+
+type CsPhase = 'selection' | 'action' | 'reveal_moves' | 'reveal_settlement'
 
 type ConnectStatus = 'connected' | 'disconnected'
 
@@ -155,6 +158,7 @@ interface GomokuRoom {
   // 象棋相关
   xiangqiPieces: XiangqiPiece[]
   xiangqiDrafts: Record<string, XiangqiDraftState | null>
+  xiangqiLatestMove: { x: number; y: number } | null
   // CS棋相关
   csRound: number
   csCandidates: string[]
@@ -163,6 +167,8 @@ interface GomokuRoom {
   csSpawnSelections: Record<string, string[]>
   csUnits: CsUnit[]
   csRoundMoved: Record<string, boolean>
+  csVisibleEnemyUnits: Record<string, string[]>  // Record<playerId, visibleUnitIds[]>
+  csPhase: CsPhase
 }
 
 function createBoard() {
@@ -466,17 +472,10 @@ function getReachableJumpTargets(
   userId: string,
   draft: CheckersDraftState,
 ) {
-  const piece = pieces.find(
-    (p) => p.playerId === userId && p.q === draft.original.q && p.r === draft.original.r,
-  )
-  if (!piece) return new Set<string>()
-
-  // 跳棋中被跨越棋子不会移除，只有当前移动棋子的占位会变化。
-  const occupiedByOthers = new Set(
-    pieces
-      .filter((p) => p !== piece)
-      .map((p) => `${p.q},${p.r}`),
-  )
+  // 基于草稿后的有效棋盘占位来计算连跳，确保可跨越任意阵营棋子。
+  const effectivePieces = getEffectivePiecesForDraft(pieces, userId, draft)
+  const occupiedByOthers = new Set(effectivePieces.map((p) => `${p.q},${p.r}`))
+  occupiedByOthers.delete(posKey(draft.current))
 
   const visited = new Set<string>([posKey(draft.current)])
   const queue: CheckersPosition[] = [draft.current]
@@ -808,6 +807,7 @@ function initCsUnits(room: GomokuRoom) {
       name,
       x: CS_CT_SPAWN.x,
       y: CS_CT_SPAWN.y,
+      hp: 100,
     })
   })
   tNames.forEach((name, index) => {
@@ -818,6 +818,7 @@ function initCsUnits(room: GomokuRoom) {
       name,
       x: CS_T_SPAWN.x,
       y: CS_T_SPAWN.y,
+      hp: 100,
     })
   })
   return units
@@ -848,6 +849,7 @@ function createRoom(roomId: string, hostId: string): GomokuRoom {
     checkersTargetZones: {},
     xiangqiPieces: [],
     xiangqiDrafts: {},
+    xiangqiLatestMove: null,
     csRound: 0,
     csCandidates: [...CS_CANDIDATES],
     csSelections: {},
@@ -855,6 +857,8 @@ function createRoom(roomId: string, hostId: string): GomokuRoom {
     csSpawnSelections: {},
     csUnits: [],
     csRoundMoved: {},
+    csVisibleEnemyUnits: {},
+    csPhase: 'selection',
   }
 }
 
@@ -1019,15 +1023,46 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return room.users.slice(0, 2)
   }
 
+  private calculateCsVisibleEnemyUnits(room: GomokuRoom) {
+    const players = this.getCsRoundPlayers(room)
+    const CS_DEFAULT_VISION = 0
+    
+    room.csVisibleEnemyUnits = {}
+    players.forEach((player) => {
+      room.csVisibleEnemyUnits[player.id] = []
+      
+      // 获取该玩家的所有棋子
+      const myUnits = room.csUnits.filter((u) => u.ownerId === player.id)
+      
+      // 遍历所有敌方棋子
+      room.csUnits.forEach((enemyUnit) => {
+        if (enemyUnit.ownerId === player.id) return
+        
+        // 检查该敌方棋子是否在玩家的任何棋子的视野范围内
+        const isVisible = myUnits.some((myUnit) => {
+          const distance = Math.max(Math.abs(myUnit.x - enemyUnit.x), Math.abs(myUnit.y - enemyUnit.y))
+          return distance <= CS_DEFAULT_VISION
+        })
+        
+        if (isVisible) {
+          room.csVisibleEnemyUnits[player.id].push(enemyUnit.id)
+        }
+      })
+    })
+  }
+
   private resetCsRoundState(room: GomokuRoom, roundIndex = 0) {
     room.csRound = roundIndex
     room.csCandidates = [...CS_CANDIDATES]
     room.csSelections = {}
     room.csRoundConfirmed = {}
     room.csRoundMoved = {}
+    room.csVisibleEnemyUnits = {}
+    room.csPhase = roundIndex === 0 ? 'selection' : 'action'
     if (roundIndex === 0) {
       room.csSpawnSelections = {}
       room.csUnits = []
+      room.csVisibleEnemyUnits = {}
     }
     this.getCsRoundPlayers(room).forEach((player) => {
       room.csSelections[player.id] = []
@@ -1042,16 +1077,74 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!allDone) return false
 
     if (room.csRound === 0) {
+      // Selection phase -> spawn units, go straight to action round 1
       room.csSpawnSelections = {}
       players.forEach((player) => {
         room.csSpawnSelections[player.id] = [...(room.csSelections[player.id] || [])]
       })
+      room.csRound = 1
+      room.csUnits = initCsUnits(room)
+      room.csSelections = {}
+      room.csRoundConfirmed = {}
+      room.csRoundMoved = {}
+      players.forEach((player) => {
+        room.csSelections[player.id] = []
+        room.csRoundConfirmed[player.id] = false
+      })
+      this.calculateCsVisibleEnemyUnits(room)
+      room.csPhase = 'action'
+      return true
     }
 
+    // Action round done -> trigger reveal phase (async via setTimeout)
+    // Return true so caller can syncRoomStatus; reveal phase will self-sync
+    room.csPhase = 'reveal_moves'
+    return true
+  }
+
+  private computeCsRevealVisibility(room: GomokuRoom) {
+    // Reveal visibility = pre-round visible OR enemy now shares tile with my unit
+    const players = this.getCsRoundPlayers(room)
+    players.forEach((player) => {
+      const visible = new Set(room.csVisibleEnemyUnits[player.id] || [])
+      const myUnits = room.csUnits.filter((u) => u.ownerId === player.id)
+      room.csUnits.forEach((enemy) => {
+        if (enemy.ownerId === player.id) return
+        if (myUnits.some((m) => m.x === enemy.x && m.y === enemy.y)) {
+          visible.add(enemy.id)
+        }
+      })
+      room.csVisibleEnemyUnits[player.id] = [...visible]
+    })
+  }
+
+  private executeCsSettlement(room: GomokuRoom) {
+    // Group units by tile
+    const tileMap = new Map<string, CsUnit[]>()
+    room.csUnits.forEach((unit) => {
+      const key = `${unit.x},${unit.y}`
+      const list = tileMap.get(key) || []
+      list.push(unit)
+      tileMap.set(key, list)
+    })
+    // Each unit takes 50 damage per enemy unit on the same tile
+    tileMap.forEach((units) => {
+      const ownerSet = new Set(units.map((u) => u.ownerId))
+      if (ownerSet.size < 2) return
+      units.forEach((unit) => {
+        const enemies = units.filter((u) => u.ownerId !== unit.ownerId)
+        unit.hp = Math.max(0, unit.hp - enemies.length * 50)
+      })
+    })
+    // Remove dead units
+    room.csUnits = room.csUnits.filter((u) => u.hp > 0)
+  }
+
+  private advanceCsToNextRound(roomId: string) {
+    const room = this.rooms.get(roomId)
+    if (!room) return
+    const players = this.getCsRoundPlayers(room)
     room.csRound += 1
-    if (room.csRound === 1) {
-      room.csUnits = initCsUnits(room)
-    }
     room.csSelections = {}
     room.csRoundConfirmed = {}
     room.csRoundMoved = {}
@@ -1059,7 +1152,33 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
       room.csSelections[player.id] = []
       room.csRoundConfirmed[player.id] = false
     })
-    return true
+    this.calculateCsVisibleEnemyUnits(room)
+    room.csPhase = 'action'
+    this.syncRoomStatus(roomId)
+  }
+
+  private startCsRevealPhase(roomId: string) {
+    const room = this.rooms.get(roomId)
+    if (!room) return
+    // Step 1: reveal moves with expanded visibility
+    room.csPhase = 'reveal_moves'
+    this.computeCsRevealVisibility(room)
+    this.syncCsState(roomId)
+
+    setTimeout(() => {
+      const r = this.rooms.get(roomId)
+      if (!r || r.csPhase !== 'reveal_moves') return
+      // Step 2: settlement
+      r.csPhase = 'reveal_settlement'
+      this.executeCsSettlement(r)
+      this.syncCsState(roomId)
+
+      setTimeout(() => {
+        const r2 = this.rooms.get(roomId)
+        if (!r2 || r2.csPhase !== 'reveal_settlement') return
+        this.advanceCsToNextRound(roomId)
+      }, 2500)
+    }, 2500)
   }
 
   private confirmXiangqiDraft(room: GomokuRoom, user: GomokuUser, roomId: string) {
@@ -1091,6 +1210,7 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     piece.x = draft.current.x
     piece.y = draft.current.y
+    room.xiangqiLatestMove = { x: piece.x, y: piece.y }
     room.lastMoveDurations[user.id] = Math.max(0, Date.now() - room.turnStartedAt)
     room.xiangqiDrafts[user.id] = null
     this.broadcastXiangqiDraftState(roomId, user.id, null)
@@ -1152,8 +1272,12 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private beginNextRound(room: GomokuRoom, forceRandomBlack = false, roomId?: string) {
     const previousWinnerId = room.winnerId
     room.currentGameMode = room.nextGameMode || 'gomoku'
+    if (room.currentGameMode === 'cs') {
+      room.currentGameMode = 'gomoku'
+    }
     room.nextGameMode = room.currentGameMode
     room.xiangqiPieces = []
+    room.xiangqiLatestMove = null
     this.clearAllXiangqiDrafts(room)
     room.csRound = 0
     room.csSelections = {}
@@ -1204,17 +1328,8 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.clearAllCheckersDrafts(room)
       room.checkersTargetZones = {}
       room.xiangqiPieces = initXiangqiGame(room.blackUserId, room.whiteUserId)
+      room.xiangqiLatestMove = null
       room.currentPlayerId = room.blackUserId
-    } else if (room.currentGameMode === 'cs') {
-      this.assignBlackWhite(room, forceRandomBlack, previousWinnerId)
-      room.board = createBoard()
-      room.checkersPieces = []
-      this.clearAllCheckersDrafts(room)
-      room.checkersTargetZones = {}
-      room.xiangqiPieces = []
-      this.clearAllXiangqiDrafts(room)
-      this.resetCsRoundState(room, 0)
-      room.currentPlayerId = ''
     } else {
       // 五子棋模式
       this.assignBlackWhite(room, forceRandomBlack, previousWinnerId)
@@ -1223,6 +1338,7 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.clearAllCheckersDrafts(room)
       room.checkersTargetZones = {}
       room.currentPlayerId = room.blackUserId
+      room.xiangqiLatestMove = null
       if (roomId) {
         this.broadcastBoardPatch(roomId, { type: 'reset', board: cloneBoard(room.board) })
       }
@@ -1249,6 +1365,7 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
     room.lastMoveDurations = {}
     this.clearAllCheckersDrafts(room)
     room.xiangqiPieces = []
+    room.xiangqiLatestMove = null
     this.clearAllXiangqiDrafts(room)
     room.csRound = 0
     room.csSelections = {}
@@ -1258,6 +1375,7 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
     room.csUnits = []
     room.csRoundMoved = {}
     room.checkersTargetZones = {}
+    room.csPhase = 'selection'
     room.currentGameMode = room.nextGameMode || room.currentGameMode || 'gomoku'
     room.users.forEach((user) => {
       user.color = ''
@@ -1282,6 +1400,7 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
     room.lastMoveDurations = {}
     this.clearAllCheckersDrafts(room)
     room.xiangqiPieces = []
+    room.xiangqiLatestMove = null
     this.clearAllXiangqiDrafts(room)
     room.csRound = 0
     room.csSelections = {}
@@ -1291,6 +1410,7 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
     room.csUnits = []
     room.csRoundMoved = {}
     room.checkersTargetZones = {}
+    room.csPhase = 'selection'
     room.currentGameMode = 'gomoku'
     room.nextGameMode = 'gomoku'
     room.users.forEach((user) => {
@@ -1333,6 +1453,7 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
       checkersTargetZones: room.checkersTargetZones,
       xiangqiPieces: room.xiangqiPieces,
       xiangqiDrafts: room.xiangqiDrafts,
+      xiangqiLatestMove: room.xiangqiLatestMove,
       csRound: room.csRound,
       csCandidates: room.csCandidates,
       csSelections: room.csSelections,
@@ -1340,6 +1461,8 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
       csSpawnSelections: room.csSpawnSelections,
       csUnits: room.csUnits,
       csRoundMoved: room.csRoundMoved,
+      csVisibleEnemyUnits: room.csVisibleEnemyUnits,
+      csPhase: room.csPhase,
     }
   }
 
@@ -1350,6 +1473,21 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private broadcastBoardPatch(roomId: string, patch: BoardPatch) {
     this.broadcast(roomId, 'boardPatch', patch)
+  }
+
+  private syncCsState(roomId: string) {
+    const room = this.rooms.get(roomId)
+    if (!room || room.currentGameMode !== 'cs') return
+    
+    const payload = {
+      csVisibleEnemyUnits: room.csVisibleEnemyUnits,
+      csRound: room.csRound,
+      csUnits: room.csUnits,
+      csRoundMoved: room.csRoundMoved,
+      csRoundConfirmed: room.csRoundConfirmed,
+      csPhase: room.csPhase,
+    }
+    this.broadcast(roomId, 'syncCsState', payload)
   }
 
   syncRoomStatus(roomId: string) {
@@ -1373,7 +1511,7 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     const nextGameMode: GameMode =
-      data.gameMode === 'xiangqi' || data.gameMode === 'checkers' || data.gameMode === 'cs'
+      data.gameMode === 'xiangqi' || data.gameMode === 'checkers'
         ? data.gameMode
         : 'gomoku'
 
@@ -1448,7 +1586,7 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   @SubscribeMessage('startGame')
   async startGame(
-    @MessageBody() data: { roomId: string },
+    @MessageBody() data: { roomId: string; userId?: string },
     @ConnectedSocket() client: Socket,
     ack?: (response: { success: boolean; message?: string }) => void,
   ) {
@@ -1460,7 +1598,9 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return response
     }
 
-    const requester = this.socketToUser.get(client.id)
+    const requester =
+      this.socketToUser.get(client.id)
+      || (data.userId ? this.getUser(room, data.userId) : undefined)
     if (!requester || requester.id !== room.hostId) {
       const response = { success: false, message: '只有房主可以开始游戏' }
       if (ack) ack(response)
@@ -1788,6 +1928,25 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     const from = { ...draft.original }
     const to = { ...draft.current }
+    if (draft.moveKind === 'step') {
+      if (!isAdjacentMove(from, to)) {
+        const response = { success: false, message: '移动不合法', draft }
+        if (ack) ack(response)
+        return response
+      }
+    } else if (draft.moveKind === 'jump') {
+      const reachable = getReachableJumpTargets(room.checkersPieces, user.id, {
+        original: from,
+        current: from,
+        moveKind: 'none',
+      })
+      if (!reachable.has(posKey(to))) {
+        const response = { success: false, message: '跳跃不合法', draft }
+        if (ack) ack(response)
+        return response
+      }
+    }
+
     piece.q = to.q
     piece.r = to.r
     room.lastMoveDurations[user.id] = Math.max(0, Date.now() - room.turnStartedAt)
@@ -2160,8 +2319,13 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     room.csRoundConfirmed[user.id] = true
-    this.tryAdvanceCsRound(room)
-    this.syncRoomStatus(roomId)
+    const advanced = this.tryAdvanceCsRound(room)
+    const phase2 = room.csPhase as CsPhase
+    if (advanced && phase2 === 'reveal_moves') {
+      this.startCsRevealPhase(roomId)
+    } else {
+      this.syncRoomStatus(roomId)
+    }
     const response = { success: true }
     if (ack) ack(response)
     return response
@@ -2195,6 +2359,12 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     if (room.csRound === 0) {
       const response = { success: false, message: '当前回合不能移动棋子' }
+      if (ack) ack(response)
+      return response
+    }
+
+    if (room.csPhase !== 'action') {
+      const response = { success: false, message: '当前阶段不能操作' }
       if (ack) ack(response)
       return response
     }
@@ -2233,7 +2403,7 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
     unit.x = data.toX
     unit.y = data.toY
     room.csRoundMoved[unit.id] = true
-    this.syncRoomStatus(roomId)
+    this.syncCsState(roomId)
     const response = { success: true }
     if (ack) ack(response)
     return response
@@ -2282,9 +2452,21 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return response
     }
 
+    if (room.csPhase !== 'action') {
+      const response = { success: false, message: '当前阶段不能完成' }
+      if (ack) ack(response)
+      return response
+    }
+
     room.csRoundConfirmed[user.id] = true
-    this.tryAdvanceCsRound(room)
-    this.syncRoomStatus(roomId)
+    const advanced = this.tryAdvanceCsRound(room)
+    const phaseAfter = room.csPhase as CsPhase
+    if (advanced && phaseAfter === 'reveal_moves') {
+      // Reveal phase started asynchronously
+      this.startCsRevealPhase(roomId)
+    } else {
+      this.syncRoomStatus(roomId)
+    }
     const response = { success: true }
     if (ack) ack(response)
     return response

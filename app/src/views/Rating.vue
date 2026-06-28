@@ -147,23 +147,39 @@ const openUrlInNewPage = (url: string) => {
   window.open(url, '_blank', 'noopener noreferrer')
 }
 
-const getFirstCommentTime = (document: RatingDocument) => {
+const getLatestCommentTime = (document: RatingDocument) => {
   const comments = Array.isArray(document.comments) ? document.comments : []
   const timestamps = comments
     .map(comment => new Date(comment.createdAt).getTime())
     .filter(time => Number.isFinite(time))
   if (!timestamps.length) return 0
-  return Math.min(...timestamps)
+  return Math.max(...timestamps)
+}
+
+const getSortedComments = (document: RatingDocument) => {
+  const comments = Array.isArray(document.comments) ? [...document.comments] : []
+  return comments.sort((a, b) => {
+    const t1 = new Date(a.createdAt).getTime()
+    const t2 = new Date(b.createdAt).getTime()
+    return t2 - t1
+  })
+}
+
+const getLatestComment = (document: RatingDocument) => {
+  const comments = getSortedComments(document)
+  return comments.length ? comments[0] : null
 }
 
 const getDisplayDate = (document: RatingDocument) => {
   return typeof document.date === 'string' ? document.date.trim() : ''
 }
 
-const getFirstWatchYear = (document: RatingDocument) => {
-  const firstTime = getFirstCommentTime(document)
-  if (!firstTime) return ''
-  return String(new Date(firstTime).getFullYear())
+const getCommentYears = (document: RatingDocument) => {
+  const comments = Array.isArray(document.comments) ? document.comments : []
+  const years = comments
+    .map(comment => new Date(comment.createdAt).getFullYear())
+    .filter(year => Number.isFinite(year))
+  return new Set(years)
 }
 
 const createDocument = async () => {
@@ -321,14 +337,11 @@ const filteredDocuments = computed(() => {
 
   if (movieFilters.value.rating !== null) {
     list = list.filter(doc => {
-      const rates = doc.comments
-        .map(comment => comment.rate)
-        .filter((rate): rate is number => rate !== null)
-      if (rates.length === 0) {
+      const latestComment = getLatestComment(doc)
+      if (!latestComment || latestComment.rate === null) {
         return false
       }
-      const avgRate = rates.reduce((sum, rate) => sum + rate, 0) / rates.length
-      return Math.round(avgRate) === movieFilters.value.rating
+      return latestComment.rate === movieFilters.value.rating
     })
   }
 
@@ -342,8 +355,7 @@ const filteredDocuments = computed(() => {
 
   if (movieFilters.value.year !== null) {
     list = list.filter(doc => {
-      const year = Number(getFirstWatchYear(doc))
-      return year === movieFilters.value.year
+      return getCommentYears(doc).has(movieFilters.value.year as number)
     })
   }
 
@@ -351,7 +363,7 @@ const filteredDocuments = computed(() => {
     list = list.filter(doc => doc.comments.length === movieFilters.value.watchCount)
   }
 
-  return list.sort((a, b) => getFirstCommentTime(b) - getFirstCommentTime(a))
+  return list.sort((a, b) => getLatestCommentTime(b) - getLatestCommentTime(a))
 })
 </script>
 
@@ -452,7 +464,7 @@ const filteredDocuments = computed(() => {
               </div>
             </div>
             <div class="filter-item">
-              <div class="filter-label">首次观看年份</div>
+              <div class="filter-label">观看年份</div>
               <StepperFilter
                 :value="movieFilters.year"
                 :max="currentYear"
@@ -522,7 +534,7 @@ const filteredDocuments = computed(() => {
 
           <div v-if="document.comments.length > 0" class="comments">
             <div
-              v-for="comment in document.comments"
+              v-for="comment in getSortedComments(document)"
               :key="comment._id"
               class="comment-card"
             >
