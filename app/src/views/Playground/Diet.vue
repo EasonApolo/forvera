@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { storeToRefs } from 'pinia'
 import List from '@/components/layout/List.vue'
 import BottomNavBar from '@/components/layout/BottomNavBar.vue'
 import Card from '@/components/Card.vue'
@@ -9,6 +10,7 @@ import CircleBtn from '@/components/CircleBtn.vue'
 import Input from '@/components/Input.vue'
 import StepperFilter from '@/components/StepperFilter.vue'
 import { request } from '@/utils/request'
+import { useUserStore } from '@/store/user'
 
 type DietUnit = 'u'
 type DietCaloriesUnit = '%' | 'kCal' | 'kJ'
@@ -25,7 +27,6 @@ type DietFood = {
 
 type DietRecord = {
   _id: string
-  food_id?: string | null
   food_name: string
   unit: DietUnit
   calories_per_unit: number
@@ -40,30 +41,33 @@ type DietDay = {
   dayKey: string
   label: string
   totalCalories: number
+  totalNegativeCalories: number
   recordCount: number
 }
 
 type DietSummary = {
-  config: { standard_calories: number; diet_start_date?: string | null }
   foods: DietFood[]
   recentFoods: DietFood[]
   records: DietRecord[]
   dailyStats: Array<{ day_key: string; total_calories: number; record_count: number }>
   days: DietDay[]
   month: string
+  weightChangeLabel: string
 }
 
 const router = useRouter()
+const userStore = useUserStore()
+const { userInfo } = storeToRefs(userStore)
 const loading = ref(true)
 const selectedDayKey = ref(currentDayKey())
 const summary = ref<DietSummary>({
-  config: { standard_calories: 2000 },
   foods: [],
   recentFoods: [],
   records: [],
   dailyStats: [],
   days: [],
   month: '',
+  weightChangeLabel: '',
 })
 const selectedMonth = ref<string | null>(null)
 
@@ -84,7 +88,7 @@ const recordModal = reactive({
   caloriesUnit: 'kCal' as DietCaloriesUnit,
   caloriesValue: '',
   caloriesMultiplier: '100',
-  amountValue: '',
+  amountValue: '100',
   quantityValue: '1',
 })
 
@@ -96,6 +100,13 @@ function currentMonthKey() {
 function currentDayKey() {
   const now = new Date()
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+}
+
+function prevDayKey(dayKey: string) {
+  const [year, month, day] = dayKey.split('-').map(Number)
+  const prev = new Date(year, month - 1, day)
+  prev.setDate(prev.getDate() - 1)
+  return `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}-${String(prev.getDate()).padStart(2, '0')}`
 }
 
 function buildMonthOptions(centerMonth = currentMonthKey(), offset = 5) {
@@ -116,14 +127,17 @@ const navItems = [
 
 const monthOptions = computed(() => buildMonthOptions())
 const currentDay = computed(() => currentDayKey())
-const totalCalories = computed(() => summary.value.days.reduce((total, day) => total + day.totalCalories, 0))
-const maxDayCalories = computed(() => Math.max(...summary.value.days.map(day => day.totalCalories), 1))
+const dietConfig = computed(() => ({
+  standardCalories: userInfo.value.settings?.diet?.standardCalories || 2000,
+  dietStartDate: userInfo.value.settings?.diet?.dietStartDate || null,
+} as { standardCalories: number; dietStartDate: string | null }))
+const totalCalories = computed(() => summary.value.days.reduce((total, day) => total + day.totalCalories - (day.totalNegativeCalories || 0), 0))
+const maxDayCalories = computed(() => Math.max(...summary.value.days.map(day => Math.max(0, day.totalCalories)), 1))
 const maxCalories = computed(() => maxDayCalories.value)
 const thresholdBottom = computed(() => {
-  const standard = Math.max(summary.value.config.standard_calories, 1)
+  const standard = Math.max(dietConfig.value.standardCalories, 1)
   const highest = Math.max(maxDayCalories.value, 1)
-  if (highest < standard) return 100
-  return Math.max(0, Math.min(100, (standard / highest) * 100))
+  return Math.max(0, (standard / highest) * 100)
 })
 
 const recentFoods = computed(() => summary.value.recentFoods.slice(0, 5))
@@ -178,11 +192,18 @@ const formatDietNumber = (value: number) => {
 }
 
 const chartBars = computed(() => summary.value.days.map(day => {
-  const overStandard = day.totalCalories > summary.value.config.standard_calories
+  const grossPositive = Math.max(0, day.totalCalories)
+  const grossNegative = day.totalNegativeCalories || 0
+  const netHeight = Math.max(0, grossPositive - grossNegative)
+  const barHeight = netHeight > 0 ? Math.max(4, (netHeight / maxCalories.value) * 100) : 0
+  const negativeHeight = grossNegative > 0 ? Math.max(2, (grossNegative / maxCalories.value) * 100) : 0
+  const barColor = getBarFillColor(day.totalCalories)
   return {
     ...day,
-    overStandard,
-    height: day.totalCalories > 0 ? Math.max(4, (day.totalCalories / maxCalories.value) * 100) : 0,
+    barHeight,
+    barColor,
+    negativeHeight,
+    hasNegative: grossNegative > 0,
   }
 }))
 
@@ -210,7 +231,7 @@ const yesterdayDayKey = computed(() => {
 })
 
 const effectiveDietStartDayKey = computed(() => {
-  const startDayKey = summary.value.config.diet_start_date?.trim()
+  const startDayKey = dietConfig.value.dietStartDate?.trim()
   if (!startDayKey) return null
   return startDayKey > currentDay.value ? currentDay.value : startDayKey
 })
@@ -222,22 +243,7 @@ const getDaySpanCount = (startDayKey: string, endDayKey: string) => {
   return Math.max(0, diffDays + 1)
 }
 
-const weightChangeLabel = computed(() => {
-  const startDayKey = effectiveDietStartDayKey.value
-  if (!startDayKey) return ''
-
-  const endDayKey = yesterdayDayKey.value
-  if (startDayKey > endDayKey) return '0天0kg'
-
-  const daysInRange = summary.value.days.filter(day => day.dayKey >= startDayKey && day.dayKey <= endDayKey)
-  if (!daysInRange.length) return '0天0kg'
-
-  const actualCalories = daysInRange.reduce((sum, day) => sum + day.totalCalories, 0)
-  const expectedCalories = daysInRange.length * 2000
-  const weightKg = (actualCalories - expectedCalories) / 7 / 1000
-  const dayCount = getDaySpanCount(startDayKey, endDayKey)
-  return `${dayCount}天${weightKg >= 0 ? '+' : ''}${weightKg.toFixed(1)}kg`
-})
+const weightChangeLabel = computed(() => summary.value.weightChangeLabel || '')
 
 const selectedDayRecords = computed(() => {
   const list = summary.value.records.filter(record => {
@@ -267,7 +273,7 @@ type ProgressRow = {
 }
 
 const getBarFillColor = (totalCalories: number) => {
-  const standard = Math.max(summary.value.config.standard_calories, 1)
+  const standard = Math.max(dietConfig.value.standardCalories, 1)
   const overCalories = Math.max(0, totalCalories - standard)
   if (overCalories <= 0) return 'hsl(126, 56%, 42%)'
 
@@ -335,6 +341,16 @@ const getRecordDisplayCalories = (record: DietRecord) => {
 
 const getRecordDisplayMultiplier = (record: DietRecord) => getStoredCaloriesMultiplier(record.calories_multiplier)
 
+function mixBlue(progress: number) {
+  const clamped = Math.max(0, Math.min(1, (progress - 50) / 200))
+  const start = { r: 200, g: 225, b: 255 }
+  const end = { r: 20, g: 80, b: 200 }
+  const r = Math.round(start.r + (end.r - start.r) * clamped)
+  const g = Math.round(start.g + (end.g - start.g) * clamped)
+  const b = Math.round(start.b + (end.b - start.b) * clamped)
+  return `rgb(${r}, ${g}, ${b})`
+}
+
 function mixGreenToRed(progress: number) {
   const clamped = Math.max(0, Math.min(1, progress))
   const start = { r: 46, g: 204, b: 113 }
@@ -363,10 +379,16 @@ const selectedDayProgressRows = computed(() => {
     }
   }
 
-  selectedDayRecords.value.forEach((record, recordIndex) => {
-    let remaining = Math.max(0, record.total_calories)
+  selectedDayRecords.value
+    .slice()
+    .sort((a, b) => b.total_calories - a.total_calories)
+    .forEach((record, recordIndex) => {
+    const isNegative = record.total_calories < 0
+    let remaining = isNegative ? Math.abs(record.total_calories) : Math.max(0, record.total_calories)
     const unitCalories = getRecordDisplayCalories(record)
-    const color = mixGreenToRed(getSegmentProgress(unitCalories, remaining))
+    const color = isNegative
+      ? mixBlue(Math.min(250, Math.max(50, remaining)))
+      : mixGreenToRed(getSegmentProgress(unitCalories, remaining))
 
     while (remaining > 0) {
       if (rowUsed >= lineCapacity) {
@@ -411,10 +433,10 @@ const loadSummary = async () => {
     normalizedSummary.recentFoods = normalizedSummary.recentFoods.map(food => ({ ...food, unit: displayUnit(food.unit) as DietUnit }))
     normalizedSummary.records = normalizedSummary.records.map(record => ({ ...record, unit: displayUnit(record.unit) as DietUnit }))
     summary.value = normalizedSummary
-    settingsModal.standardCalories = summary.value.config.standard_calories
-    settingsModal.dietStartDate = summary.value.config.diet_start_date && summary.value.config.diet_start_date > currentDay.value
+    settingsModal.standardCalories = dietConfig.value.standardCalories
+    settingsModal.dietStartDate = dietConfig.value.dietStartDate && dietConfig.value.dietStartDate > currentDay.value
       ? currentDay.value
-      : summary.value.config.diet_start_date || null
+      : dietConfig.value.dietStartDate || null
     if (!summary.value.days.find(day => day.dayKey === selectedDayKey.value)) {
       selectedDayKey.value = summary.value.days.find(day => day.dayKey === currentDay.value)?.dayKey || summary.value.days[summary.value.days.length - 1]?.dayKey || currentDay.value
     }
@@ -430,7 +452,7 @@ const resetRecordModal = () => {
   recordModal.unit = 'u'
   recordModal.caloriesValue = ''
   recordModal.caloriesMultiplier = '100'
-  recordModal.amountValue = '1'
+  recordModal.amountValue = '100'
   recordModal.quantityValue = '1'
 }
 
@@ -442,10 +464,10 @@ const openRecordModal = () => {
 
 const openSettingsModal = () => {
   settingsModal.show = true
-  settingsModal.standardCalories = summary.value.config.standard_calories
-  settingsModal.dietStartDate = summary.value.config.diet_start_date && summary.value.config.diet_start_date > currentDay.value
+  settingsModal.standardCalories = dietConfig.value.standardCalories
+  settingsModal.dietStartDate = dietConfig.value.dietStartDate && dietConfig.value.dietStartDate > currentDay.value
     ? currentDay.value
-    : summary.value.config.diet_start_date || null
+    : dietConfig.value.dietStartDate || null
 }
 
 const closeRecordModal = () => {
@@ -483,7 +505,7 @@ const confirmFood = () => {
   recordModal.caloriesUnit = 'kCal'
   recordModal.caloriesValue = ''
   recordModal.caloriesMultiplier = '100'
-  recordModal.amountValue = '1'
+  recordModal.amountValue = '100'
   recordModal.quantityValue = '1'
 }
 
@@ -548,9 +570,11 @@ const saveSettings = async (dietStartDate: string | null = settingsModal.dietSta
   settingsModal.saving = true
   try {
     const normalizedDietStartDate = dietStartDate && dietStartDate > currentDay.value ? currentDay.value : dietStartDate
-    await request('diet/config', 'POST', {
-      standardCalories: settingsModal.standardCalories,
-      dietStartDate: normalizedDietStartDate,
+    await userStore.updateSettings({
+      diet: {
+        standardCalories: settingsModal.standardCalories,
+        dietStartDate: normalizedDietStartDate,
+      },
     })
     settingsModal.show = false
     await loadSummary()
@@ -609,7 +633,8 @@ watch(selectedMonth, () => {
   void loadSummary()
 })
 
-onMounted(() => {
+onMounted(async () => {
+  await userStore.getUserInfo()
   void loadSummary()
 })
 </script>
@@ -638,7 +663,8 @@ onMounted(() => {
             <div class="threshold-line" :style="{ bottom: `${thresholdBottom}%` }"></div>
             <button v-for="day in chartBars" :key="day.dayKey" class="bar-item" :class="{ active: day.dayKey === selectedDayKey }" @click="selectDay(day.dayKey)">
               <div class="bar-track">
-                <div class="bar-fill" :style="{ height: `${day.height}%`, background: getBarFillColor(day.totalCalories) }"></div>
+                <div class="bar-fill" :style="{ height: `${day.barHeight}%`, background: day.barColor }"></div>
+                <div v-if="day.hasNegative" class="bar-fill-negative" :style="{ height: `${day.negativeHeight}%`, bottom: `${day.barHeight}%`, background: day.barColor, opacity: 0.5 }"></div>
               </div>
             </button>
           </div>
@@ -648,7 +674,9 @@ onMounted(() => {
       <Card class="today-card">
         <div class="card-head">
           <div class="card-title">{{ selectedDayLabel }}</div>
-          <div class="card-sub">{{ Math.round(selectedDayTotalCalories) }} / {{ summary.config.standard_calories }} kcal</div>
+          <Btn small class="prev-day-btn" @click="selectDay(prevDayKey(selectedDayKey))">前一天</Btn>
+          <Btn v-if="selectedDayKey !== currentDayKey()" small @click="selectDay(currentDayKey())">回到今天</Btn>
+          <div class="card-sub">{{ Math.round(selectedDayTotalCalories) }} / {{ dietConfig.standardCalories }} kcal</div>
         </div>
 
         <div class="today-progress" v-if="selectedDayRecords.length && selectedDayProgressRows.length">
@@ -670,7 +698,7 @@ onMounted(() => {
         <div class="today-items" v-if="selectedDayRecords.length">
           <div v-for="record in selectedDayRecords" :key="record._id" class="today-item">
             <div class="today-item-row">
-              <div class="today-item-name">{{ record.food_name }}{{ (record.quantity || 1) > 1 ? 'x' + formatDietNumber(record.quantity || 1) : '' }}</div>
+              <div class="today-item-name">{{ record.food_name }}{{ record.quantity != null && record.quantity !== 1 ? 'x' + formatDietNumber(record.quantity) : '' }}</div>
               <div class="today-item-meta">
                 {{ formatCaloriesExpression(getRecordDisplayCalories(record), getRecordDisplayMultiplier(record), record.unit, record.amount, amountUnitOption, record.quantity, record.total_calories) }}
               </div>
@@ -692,7 +720,18 @@ onMounted(() => {
 
           <template v-if="recordModal.stage === 1">
             <div class="search-row">
-              <Input v-model="recordModal.query" placeholder="输入食物名称" @keyup.enter="confirmFood" />
+              <div class="search-input-wrap">
+                <Input v-model="recordModal.query" placeholder="输入食物名称" @keyup.enter="confirmFood" />
+                <CircleBtn
+                  v-if="recordModal.query"
+                  class="search-clear-btn"
+                  icon="close"
+                  :size="18"
+                  :font-size="11"
+                  aria-label="清除"
+                  @click="recordModal.query = ''"
+                />
+              </div>
               <Btn class="search-confirm" type="primary" @click="confirmFood">下一步</Btn>
             </div>
 
@@ -721,7 +760,10 @@ onMounted(() => {
             <div class="field-group">
               <div class="field-label">输入热量</div>
               <div class="field-row">
-                <Input class="value-input" v-model="recordModal.caloriesValue" type="number" min="0" step="0.1" :placeholder="recordModal.caloriesUnit" />
+                <div class="search-input-wrap">
+                  <Input class="value-input" v-model="recordModal.caloriesValue" type="number" step="0.1" :placeholder="recordModal.caloriesUnit" />
+                  <CircleBtn v-if="recordModal.caloriesValue" class="search-clear-btn" icon="close" :size="18" :font-size="11" aria-label="清除" @click="recordModal.caloriesValue = ''" />
+                </div>
                 <StepperFilter
                   :value="recordModal.caloriesUnit"
                   :options="caloriesUnitOptions"
@@ -740,7 +782,10 @@ onMounted(() => {
             <div class="field-group">
               <div class="field-label">输入分量</div>
               <div class="field-row">
-                <Input class="value-input" v-model="recordModal.amountValue" type="number" min="1" step="1" placeholder="1" />
+                <div class="search-input-wrap">
+                  <Input class="value-input" v-model="recordModal.amountValue" type="number" min="1" step="1" placeholder="100" />
+                  <CircleBtn v-if="recordModal.amountValue" class="search-clear-btn" icon="close" :size="18" :font-size="11" aria-label="清除" @click="recordModal.amountValue = ''" />
+                </div>
                 <span class="unit-text">u</span>
               </div>
             </div>
@@ -813,12 +858,33 @@ onMounted(() => {
 .card-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 0.75rem;
 }
 
+.card-head {
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+}
+
+.card-sub {
+  flex: 1 0 auto;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.summary-head {
+  justify-content: flex-start;
+}
+
+.prev-day-btn,
+.back-today-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .summary-weight-change {
-  margin-left: auto;
+  flex: 1 0 auto;
+  text-align: right;
   font-size: 13px;
   color: var(--text-secondary);
   white-space: nowrap;
@@ -908,12 +974,23 @@ onMounted(() => {
   height: 100%;
   display: flex;
   align-items: end;
+  position: relative;
 }
 
 .bar-fill {
   width: 4px;
   border-radius: 999px 999px 0.2rem 0.2rem;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  position: relative;
+  z-index: 1;
+}
+
+.bar-fill-negative {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-radius: 0.2rem 0.2rem 0 0;
+  z-index: 2;
 }
 
 .today-progress {
@@ -1034,9 +1111,18 @@ onMounted(() => {
   gap: 0.6rem;
   align-items: center;
   margin-top: 0.75rem;
-  .input {
-    flex: 1 1 auto;
-  }
+}
+
+.search-input-wrap {
+  position: relative;
+  flex: 1 1 auto;
+}
+
+.search-clear-btn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
 }
 
 
@@ -1161,8 +1247,7 @@ onMounted(() => {
 @media (max-width: 768px) {
   .summary-head,
   .card-head {
-    grid-template-columns: 1fr;
-    display: grid;
+    display: flex;
   }
 
   .summary-head,

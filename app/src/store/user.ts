@@ -14,6 +14,10 @@ export const useUserStore = defineStore('user', {
       role: 0,
       settings: {} as {
         playgroundSort?: string[]
+        diet?: {
+          standardCalories?: number
+          dietStartDate?: string | null
+        }
       },
     },
   }),
@@ -85,7 +89,7 @@ export const useUserStore = defineStore('user', {
       )
       Object.assign(this.userInfo, { token, username: this.loginData.username })
     },
-    async updateSettings(settings: { playgroundSort?: string[] }) {
+    async updateSettings(settings: Record<string, any>) {
       if (!this.isLogin) return
       const res = await request('user/settings', 'POST', JSON.stringify({ settings }))
       Object.assign(this.userInfo, {

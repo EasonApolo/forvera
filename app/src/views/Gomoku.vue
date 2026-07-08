@@ -90,6 +90,10 @@ const openRoom = (roomId: string) => {
 	router.push({ name: 'gomokuRoomWithUser', params: { id: roomId, userId: genShareUserId() } })
 }
 
+const enterAsUser = (roomId: string, playerId: string) => {
+	router.push({ name: 'gomokuRoomWithUser', params: { id: roomId, userId: playerId } })
+}
+
 const closeRoom = async (roomId: string) => {
 	if (!isAdmin.value) return
 	if (!confirm(`确认关闭房间 ${roomId} 吗？`)) return
@@ -169,7 +173,10 @@ onUnmounted(() => {
 									{{ player.connectStatus === 'connected' ? '在线' : '离线' }}
 								</span>
 							</div>
-							<Btn small @click="copyLink(room.id, player.id)">分享</Btn>
+							<div class="player-actions">
+								<Btn small @click="copyLink(room.id, player.id)">分享</Btn>
+								<Btn small @click="enterAsUser(room.id, player.id)">进入</Btn>
+							</div>
 						</div>
 					</div>
 				</Card>
@@ -284,6 +291,14 @@ onUnmounted(() => {
 	color: var(--text);
 	min-width: 0;
 	word-break: break-all;
+}
+
+.player-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex-wrap: wrap;
 }
 
 .player-status {

@@ -2,31 +2,12 @@ import { BadRequestException, Body, Controller, Delete, Get, Injectable, Module,
 import { InjectModel, MongooseModule } from '@nestjs/mongoose';
 import { Document, Model, Schema, Types } from 'mongoose';
 import { ValidateObjectId } from 'src/shared/validate-object-id.pipes';
+import { UserSchema } from 'src/modules/user.module';
 
 type DietUnit = 'g' | 'ml' | 'u';
 
-export interface DietConfigItem extends Document {
-  creator: string;
-  standard_calories: number;
-  diet_start_date?: string | null;
-  created_time: Date;
-  updated_time: Date;
-}
-
-export interface DietFoodItem extends Document {
-  creator: string;
-  name: string;
-  unit: DietUnit;
-  calories_per_unit: number;
-  calories_multiplier?: number;
-  last_used_time: Date;
-  created_time: Date;
-  updated_time: Date;
-}
-
 export interface DietRecordItem extends Document {
   creator: string;
-  food_id: Types.ObjectId | null;
   food_name: string;
   unit: DietUnit;
   calories_per_unit: number;
@@ -43,14 +24,10 @@ export interface DietDailyStatItem extends Document {
   creator: string;
   day_key: string;
   total_calories: number;
+  total_negative_calories: number;
   record_count: number;
   created_time: Date;
   updated_time: Date;
-}
-
-export class UpdateDietConfigDto {
-  standardCalories!: number;
-  dietStartDate?: string | null;
 }
 
 export class CreateDietRecordDto {
@@ -63,30 +40,8 @@ export class CreateDietRecordDto {
   recordedTime?: string;
 }
 
-export const DietConfigSchema = new Schema({
-  creator: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true, unique: true },
-  standard_calories: { type: Number, default: 2000 },
-  diet_start_date: { type: String, default: null },
-  created_time: Date,
-  updated_time: Date,
-});
-
-export const DietFoodSchema = new Schema({
-  creator: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-  name: { type: String, required: true },
-  unit: { type: String, enum: ['g', 'ml', 'u'], required: true },
-  calories_per_unit: { type: Number, required: true },
-  calories_multiplier: { type: Number, default: 100 },
-  last_used_time: Date,
-  created_time: Date,
-  updated_time: Date,
-});
-
-DietFoodSchema.index({ creator: 1, name: 1 }, { unique: true });
-
 export const DietRecordSchema = new Schema({
   creator: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-  food_id: { type: Schema.Types.ObjectId, ref: 'DietFood', default: null },
   food_name: { type: String, required: true },
   unit: { type: String, enum: ['g', 'ml', 'u'], required: true },
   calories_per_unit: { type: Number, required: true },
@@ -103,6 +58,7 @@ export const DietDailyStatSchema = new Schema({
   creator: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
   day_key: { type: String, required: true },
   total_calories: { type: Number, default: 0 },
+  total_negative_calories: { type: Number, default: 0 },
   record_count: { type: Number, default: 0 },
   created_time: Date,
   updated_time: Date,
@@ -114,14 +70,14 @@ type DietSummaryDay = {
   dayKey: string;
   label: string;
   totalCalories: number;
+  totalNegativeCalories: number;
   recordCount: number;
 };
 
 @Injectable()
 export class DietService {
   constructor(
-    @InjectModel('DietConfig') private readonly configModel: Model<DietConfigItem>,
-    @InjectModel('DietFood') private readonly foodModel: Model<DietFoodItem>,
+    @InjectModel('User') private readonly userModel: Model<any>,
     @InjectModel('DietRecord') private readonly recordModel: Model<DietRecordItem>,
     @InjectModel('DietDailyStat') private readonly dailyStatModel: Model<DietDailyStatItem>,
   ) {}
@@ -165,6 +121,7 @@ export class DietService {
         dayKey,
         label: `${current.getMonth() + 1}/${current.getDate()}`,
         totalCalories: stat?.total_calories || 0,
+        totalNegativeCalories: stat?.total_negative_calories || 0,
         recordCount: stat?.record_count || 0,
       });
     }
@@ -193,50 +150,52 @@ export class DietService {
     return `${name || ''}`.trim();
   }
 
-  private normalizeDayKey(dayKey?: string | null) {
-    const value = `${dayKey || ''}`.trim();
-    if (!value) return null;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-      throw new BadRequestException('Invalid dietStartDate');
-    }
-    return value;
+  private async calcWeightChangeLabel(creatorId: string, config: { standard_calories: number; diet_start_date: string | null }) {
+    const startDayKey = config.diet_start_date?.trim();
+    if (!startDayKey) return '';
+
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const endDayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+
+    if (startDayKey > endDayKey) return '0天0kg';
+
+    const endDate = new Date(yesterday);
+    endDate.setDate(endDate.getDate() + 1); // end is exclusive
+
+    const stats = await this.dailyStatModel
+      .find({ creator: creatorId, day_key: { $gte: startDayKey, $lte: endDayKey } })
+      .sort({ day_key: 1 })
+      .lean()
+      .exec();
+
+    const startDate = this.toDayKeyToDate(startDayKey);
+    const dayCount = Math.max(0, Math.floor((new Date(yesterday).getTime() - startDate.getTime()) / 86400000) + 1);
+
+    const actualCalories = stats.reduce((sum, s) => sum + (s.total_calories - (s.total_negative_calories || 0)), 0);
+    const expectedCalories = dayCount * config.standard_calories;
+    const weightKg = (actualCalories - expectedCalories) / 7 / 1000;
+    return `${dayCount}天${weightKg >= 0 ? '+' : ''}${weightKg.toFixed(1)}kg`;
   }
 
-  private async ensureConfig(creatorId: string) {
-    const now = new Date();
-    return await this.configModel
-      .findOneAndUpdate(
-        { creator: creatorId },
-        {
-          $setOnInsert: {
-            creator: creatorId,
-            standard_calories: 2000,
-            diet_start_date: null,
-            created_time: now,
-          },
-          $set: {
-            updated_time: now,
-          },
-        },
-        {
-          new: true,
-          upsert: true,
-          setDefaultsOnInsert: true,
-        },
-      )
-      .exec();
+  private toDayKeyToDate(dayKey: string) {
+    const [year, month, day] = dayKey.split('-').map(Number);
+    return new Date(year, month - 1, day, 12, 0, 0, 0);
   }
 
   async getSummary(creatorId: string, month?: string) {
     try {
-      const config = await this.ensureConfig(creatorId);
+      const user = await this.userModel.findById(creatorId).select('settings').lean().exec();
+      const dietSettings = (user as any)?.settings?.diet || {};
+      const config = {
+        standard_calories: dietSettings.standardCalories || 2000,
+        diet_start_date: dietSettings.dietStartDate || null,
+      };
       const isMonthMode = !!month && /^\d{4}-\d{2}$/.test(month);
       const { month: monthKey, start, end } = isMonthMode ? this.parseMonth(month) : this.parseRecentRange(30);
       const dayKeyStart = this.toDayKey(start);
       const dayKeyEnd = this.toDayKey(end);
-      const [foods, recentFoods, records, dailyStats] = await Promise.all([
-        this.foodModel.find({ creator: creatorId }).sort({ last_used_time: -1, updated_time: -1 }).exec(),
-        this.foodModel.find({ creator: creatorId }).sort({ last_used_time: -1, updated_time: -1 }).limit(5).exec(),
+      const [records, dailyStats] = await Promise.all([
         this.recordModel
           .find({ creator: creatorId, recorded_time: { $gte: start, $lt: end } })
           .sort({ recorded_time: -1, created_time: -1 })
@@ -247,6 +206,24 @@ export class DietService {
           .exec(),
       ]);
 
+      // 从 records 里推导 foods 和 recentFoods（按 food_name 去重，取最近使用的）
+      const nameMap = new Map<string, any>();
+      for (const r of records) {
+        if (!nameMap.has(r.food_name)) {
+          nameMap.set(r.food_name, {
+            _id: r._id,
+            name: r.food_name,
+            unit: r.unit,
+            calories_per_unit: r.calories_per_unit,
+            calories_multiplier: r.calories_multiplier,
+            last_used_time: r.recorded_time,
+            updated_time: r.updated_time,
+          });
+        }
+      }
+      const foods = Array.from(nameMap.values());
+      const recentFoods = foods.slice(0, 5);
+
       const statsMap = new Map(dailyStats.map((item) => [item.day_key, item]));
       return {
         config,
@@ -256,6 +233,7 @@ export class DietService {
         dailyStats,
         days: isMonthMode ? this.buildMonthDays(monthKey, statsMap) : this.buildRecentDays(30, statsMap),
         month: monthKey,
+        weightChangeLabel: await this.calcWeightChangeLabel(creatorId, config),
       };
     } catch (error) {
       const isMonthMode = !!month && /^\d{4}-\d{2}$/.test(month);
@@ -263,7 +241,7 @@ export class DietService {
       const fallbackConfig = {
         standard_calories: 2000,
         diet_start_date: null,
-      } as DietConfigItem;
+      };
       return {
         config: fallbackConfig,
         foods: [],
@@ -272,22 +250,9 @@ export class DietService {
         dailyStats: [],
         days: isMonthMode ? this.buildMonthDays(monthKey, new Map()) : this.buildRecentDays(30, new Map()),
         month: monthKey,
+        weightChangeLabel: '',
       };
     }
-  }
-
-  async updateConfig(creatorId: string, dto: UpdateDietConfigDto) {
-    const standardCalories = Number(dto.standardCalories);
-    if (!Number.isFinite(standardCalories) || standardCalories <= 0) {
-      throw new BadRequestException('Invalid standardCalories');
-    }
-    const dietStartDate = this.normalizeDayKey(dto.dietStartDate);
-    const config = await this.ensureConfig(creatorId);
-    config.standard_calories = standardCalories;
-    config.diet_start_date = dietStartDate;
-    config.updated_time = new Date();
-    await config.save();
-    return config;
   }
 
   async createRecord(creatorId: string, dto: CreateDietRecordDto) {
@@ -307,7 +272,7 @@ export class DietService {
     if (!Number.isFinite(quantity) || quantity <= 0) {
       throw new BadRequestException('Invalid quantity');
     }
-    if (!Number.isFinite(caloriesPerUnit) || caloriesPerUnit < 0) {
+    if (!Number.isFinite(caloriesPerUnit)) {
       throw new BadRequestException('Invalid caloriesPerUnit');
     }
     if (!Number.isFinite(caloriesMultiplier) || caloriesMultiplier <= 0) {
@@ -319,30 +284,8 @@ export class DietService {
     const normalizedRecordedTime = Number.isNaN(recordedTime.getTime()) ? now : recordedTime;
     const totalCalories = Math.round((amount * quantity * caloriesPerUnit / caloriesMultiplier) * 100) / 100;
 
-    let food = await this.foodModel.findOne({ creator: creatorId, name }).exec();
-    if (!food) {
-      food = new this.foodModel({
-        creator: creatorId,
-        name,
-        unit,
-        calories_per_unit: caloriesPerUnit,
-        calories_multiplier: caloriesMultiplier,
-        last_used_time: now,
-        created_time: now,
-        updated_time: now,
-      });
-    } else {
-      food.unit = unit;
-      food.calories_per_unit = caloriesPerUnit;
-      food.calories_multiplier = caloriesMultiplier;
-      food.last_used_time = now;
-      food.updated_time = now;
-    }
-    await food.save();
-
     const record = await new this.recordModel({
       creator: creatorId,
-      food_id: food._id,
       food_name: name,
       unit,
       calories_per_unit: caloriesPerUnit,
@@ -356,18 +299,28 @@ export class DietService {
     }).save();
 
     const dayKey = this.toDayKey(normalizedRecordedTime);
+    const grossPositive = totalCalories > 0 ? totalCalories : 0;
+    const grossNegative = totalCalories < 0 ? Math.abs(totalCalories) : 0;
     const existingStat = await this.dailyStatModel.findOne({ creator: creatorId, day_key: dayKey }).exec();
     if (!existingStat) {
       await new this.dailyStatModel({
         creator: creatorId,
         day_key: dayKey,
-        total_calories: totalCalories,
+        total_calories: grossPositive,
+        total_negative_calories: grossNegative,
         record_count: 1,
         created_time: now,
         updated_time: now,
       }).save();
     } else {
-      existingStat.total_calories = Math.round((existingStat.total_calories + totalCalories) * 100) / 100;
+      const prevPositive = existingStat.total_negative_calories != null
+        ? existingStat.total_calories
+        : Math.max(0, existingStat.total_calories);
+      const prevNegative = existingStat.total_negative_calories != null
+        ? existingStat.total_negative_calories
+        : 0;
+      existingStat.total_calories = Math.round((prevPositive + grossPositive) * 100) / 100;
+      existingStat.total_negative_calories = Math.round((prevNegative + grossNegative) * 100) / 100;
       existingStat.record_count += 1;
       existingStat.updated_time = now;
       await existingStat.save();
@@ -389,7 +342,16 @@ export class DietService {
     await this.recordModel.findByIdAndDelete(recordId).exec();
 
     if (existingStat) {
-      existingStat.total_calories = Math.max(0, Math.round((existingStat.total_calories - totalCalories) * 100) / 100);
+      const grossPositive = totalCalories > 0 ? totalCalories : 0;
+      const grossNegative = totalCalories < 0 ? Math.abs(totalCalories) : 0;
+      const prevPositive = existingStat.total_negative_calories != null
+        ? existingStat.total_calories
+        : Math.max(0, existingStat.total_calories);
+      const prevNegative = existingStat.total_negative_calories != null
+        ? existingStat.total_negative_calories
+        : 0;
+      existingStat.total_calories = Math.max(0, Math.round((prevPositive - grossPositive) * 100) / 100);
+      existingStat.total_negative_calories = Math.max(0, Math.round((prevNegative - grossNegative) * 100) / 100);
       existingStat.record_count = Math.max(0, existingStat.record_count - 1);
       existingStat.updated_time = new Date();
 
@@ -421,11 +383,6 @@ export class DietController {
     return await this.dietService.getSummary(this.getUserId(req), month);
   }
 
-  @Post('config')
-  async updateConfig(@Request() req: any, @Body() dto: UpdateDietConfigDto) {
-    return await this.dietService.updateConfig(this.getUserId(req), dto);
-  }
-
   @Post('record')
   async createRecord(@Request() req: any, @Body() dto: CreateDietRecordDto) {
     return await this.dietService.createRecord(this.getUserId(req), dto);
@@ -440,8 +397,7 @@ export class DietController {
 @Module({
   imports: [
     MongooseModule.forFeature([
-      { name: 'DietConfig', schema: DietConfigSchema },
-      { name: 'DietFood', schema: DietFoodSchema },
+      { name: 'User', schema: UserSchema },
       { name: 'DietRecord', schema: DietRecordSchema },
       { name: 'DietDailyStat', schema: DietDailyStatSchema },
     ]),

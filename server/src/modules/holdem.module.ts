@@ -510,26 +510,9 @@ export class HoldemGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // Check if room exists
     room = this.rooms.get(roomId);
     if (!room) {
-      console.log('Room not found, creating new room:', roomId);
-      // Create new room
-      room = {
-          id: roomId,
-          status: 'waiting',
-          users: [],
-          pendingUsers: [],
-          hostId: userId, // First user is host
-          round: 0,
-          currentPlayerId: '',
-          communityCards: [],
-          gamePhase: 'waiting',
-          winnerIds: [],
-          messages: [],
-          results: [],
-          stats: {
-            users: [],
-          },
-        };
-      this.rooms.set(roomId, room);
+      console.log('Room not found (not a holdem room):', roomId);
+      // Silently return without calling ack to avoid overwriting other gateway's response
+      return;
     }
 
     // Check if user exists in room or pending list
@@ -2434,6 +2417,11 @@ export class HoldemController {
       hostId: room.hostId,
       round: room.round,
       messageCount: room.messages.length,
+      users: room.users.map((user) => ({
+        id: user.id,
+        name: user.name,
+        connectStatus: user.connectStatus,
+      })),
     }));
     return { success: true, rooms };
   }

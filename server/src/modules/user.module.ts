@@ -28,6 +28,10 @@ export class CreateUserDTO {
 export class UpdateUserSettingsDTO {
   readonly settings?: {
     playgroundSort?: string[];
+    diet?: {
+      standardCalories?: number;
+      dietStartDate?: string | null;
+    };
   };
 }
 
@@ -43,6 +47,10 @@ export interface User extends Document {
   readonly role?: number;
   readonly settings?: {
     playgroundSort?: string[];
+    diet?: {
+      standardCalories?: number;
+      dietStartDate?: string | null;
+    };
   };
 }
 
@@ -149,6 +157,13 @@ export class UserService implements OnModuleInit {
         .filter((item) => typeof item === 'string')
         .map((item) => item.trim())
         .filter((item) => !!item);
+    }
+
+    if (incoming.diet) {
+      nextSettings.diet = {
+        ...(currentSettings.diet || {}),
+        ...incoming.diet,
+      };
     }
 
     (target as any).settings = nextSettings;

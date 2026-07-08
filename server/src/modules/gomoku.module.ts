@@ -1541,8 +1541,8 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const { roomId, userId } = data
     let room = this.rooms.get(roomId)
     if (!room) {
-      room = createRoom(roomId, userId)
-      this.rooms.set(roomId, room)
+      // 不是本 gateway 管理的房间，静默返回，避免干扰其他 gateway
+      return
     }
 
     let user = this.getUser(room, userId)
