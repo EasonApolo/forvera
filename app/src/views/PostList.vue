@@ -128,12 +128,6 @@ const read = (postId: string) => {
 
   .categories {
     margin-left: 1rem;
-    flex: 1;
-
-    .button {
-      flex: 0 0 auto;
-      margin-right: .5rem;
-    }
   }
 }
 

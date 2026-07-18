@@ -22,9 +22,11 @@ import GomokuVue from './views/Gomoku.vue'
 import GomokuRoomVue from './views/GomokuRoom.vue'
 import LoginVue from './views/Login.vue'
 import DietVue from './views/Playground/Diet.vue'
+import StockVue from './views/Playground/Stock.vue'
 import PetVue from './views/Pet.vue'
 import VillageVue from './views/Village.vue'
 import UserManageVue from './views/UserManage.vue'
+import BackupManageVue from './views/BackupManage.vue'
 
 const routerOptions = {
   history: createWebHistory(),
@@ -37,6 +39,7 @@ const routerOptions = {
         { path: 'postList', component: PostListVue, name: 'postList' },
         { path: 'twit', component: MessageVue, name: 'twit' },
         { path: 'playground', component: Playground, name: 'playground' },
+        { path: 'stock', component: StockVue, name: 'stock' },
         {
           path: 'profile',
           component: Profile,
@@ -65,6 +68,12 @@ const routerOptions = {
       path: '/user-manage',
       component: UserManageVue,
       name: 'userManage',
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/backup-manage',
+      component: BackupManageVue,
+      name: 'backupManage',
       meta: { requiresAuth: true },
     },
     { path: '/siteinfo', component: SiteInfoVue, name: 'siteinfo' },

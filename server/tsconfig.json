@@ -10,6 +10,10 @@
     "sourceMap": true,
     "outDir": "./dist",
     "baseUrl": "./",
+    "paths": {
+      "shared/*": ["../shared/*"]
+    },
     "incremental": true
-  }
+  },
+  "include": ["src/**/*.ts", "../shared/**/*.ts"]
 }

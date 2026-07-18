@@ -3,12 +3,24 @@ import { AppModule } from './app.module';
 import { corsDomains } from './config';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import { existsSync, readFileSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import * as express from 'express';
 import { staticPath } from './shared/staticPath';
+import { projectRoot } from './shared/projectRoot';
 
-const appIndexPath = join(__dirname, '..', '..', 'app', 'dist', 'index.html');
+const appIndexCandidates = [
+  join(projectRoot, 'app', 'dist', 'index.html'),
+  join(__dirname, '..', '..', 'app', 'dist', 'index.html'),
+  join(process.cwd(), 'app', 'dist', 'index.html'),
+]
+const appIndexPath = appIndexCandidates.find((candidate) => existsSync(candidate)) || appIndexCandidates[0]
 
 process.on('uncaughtException', (error) => {
+  // 文件缺失（例如 SPA fallback 找不到 index.html）不应导致进程退出
+  if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+    console.error('[warn] uncaughtException (ENOENT, ignored)', error.message);
+    return;
+  }
   console.error('[fatal] uncaughtException', error);
   process.exit(1);
 });
@@ -37,6 +49,13 @@ async function bootstrap() {
   );
   app.enableShutdownHooks();
   app.useWebSocketAdapter(new IoAdapter(app));
+
+  // 单镜像部署：后端直接托管前端构建产物（app/dist），
+  // 这样前后端同源同进程，只需一个镜像、一个端口(3000)。
+  const appDistDir = dirname(appIndexPath);
+  if (existsSync(appDistDir)) {
+    app.use(express.static(appDistDir, { index: false, maxAge: '1y' }));
+  }
   const allowOriginSet = new Set(corsDomains.map((origin) => origin.replace(/\/$/, '')));
   app.enableCors({
     origin: (origin, callback) => {
@@ -68,7 +87,9 @@ async function bootstrap() {
       const resourcePath = path.replace(/^resource\//, '');
       const filePath = join(staticPath, resourcePath);
       if (existsSync(filePath)) {
-        return res.sendFile(filePath);
+        return res.sendFile(filePath, (err) => {
+          if (err) next();
+        });
       }
     }
     next();
@@ -84,12 +105,16 @@ async function bootstrap() {
 
     if (req.method === 'GET' && wantsHtml && !isStaticAsset && !isApiPath && !isResourcePath) {
       if (existsSync(appIndexPath)) {
-        return res.sendFile(appIndexPath);
+        return res.sendFile(appIndexPath, (err) => {
+          if (err) next();
+        });
       }
 
       const fallbackIndexPath = join(staticPath, 'index.html');
       if (existsSync(fallbackIndexPath)) {
-        return res.sendFile(fallbackIndexPath);
+        return res.sendFile(fallbackIndexPath, (err) => {
+          if (err) next();
+        });
       }
     }
     next();

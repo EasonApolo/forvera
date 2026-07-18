@@ -33,33 +33,45 @@ const getSource = () => {
 
 const login = async () => {
   loading.value.login = true
-  await userStore.login()
-  loading.value.login = false
+  try {
+    await userStore.login()
 
-  if (isLogin.value) {
-    toastStore.showToast({ content: '登录成功～', type: 'OK' })
-    router.replace(getRedirect())
-  } else {
+    if (isLogin.value) {
+      toastStore.showToast({ content: '登录成功～', type: 'OK' })
+      router.replace(getRedirect())
+    } else {
+      toastStore.showToast({
+        content: '登录失败，请检查用户名密码～',
+        type: 'ERR',
+      })
+    }
+  } catch {
     toastStore.showToast({
       content: '登录失败，请检查用户名密码～',
       type: 'ERR',
     })
+  } finally {
+    loading.value.login = false
   }
 }
 
 const register = async () => {
   loading.value.register = true
-  const res = await userStore.register()
-  loading.value.register = false
+  try {
+    const res = await userStore.register()
 
-  if (!res) {
+    if (!res) {
+      toastStore.showToast({ content: '注册失败，请检查输入～', type: 'ERR' })
+      return
+    }
+
+    toastStore.showToast({ content: '注册成功～', type: 'OK' })
+    router.replace(getRedirect())
+  } catch {
     toastStore.showToast({ content: '注册失败，请检查输入～', type: 'ERR' })
-    return
+  } finally {
+    loading.value.register = false
   }
-
-  await userStore.getUserInfo()
-  toastStore.showToast({ content: '注册成功～', type: 'OK' })
-  router.replace(getRedirect())
 }
 
 const handleNavSelect = (key: string) => {

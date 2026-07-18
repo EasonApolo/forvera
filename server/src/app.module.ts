@@ -20,10 +20,11 @@ import { BackupModule } from './modules/backup.module';
 import { PetModule } from './modules/pet.module';
 import { RequirementsModule } from './modules/requirements.module';
 import { DietModule } from './modules/diet.module';
+import { MarketModule } from './modules/market.module';
 
 @Module({
   imports: [
-    MongooseModule.forRoot('mongodb://127.0.0.1:27017/forvera'),
+    MongooseModule.forRoot(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/forvera'),
     PostModule,
     AuthModule,
     UsersModule,
@@ -38,8 +39,13 @@ import { DietModule } from './modules/diet.module';
     PetModule,
     RequirementsModule,
     DietModule,
+    MarketModule,
     ServeStaticModule.forRoot({
       rootPath: staticPath,
+      serveStaticOptions: {
+        index: false,
+        fallthrough: true,
+      },
     }),
   ],
   controllers: [AppController],

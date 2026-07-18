@@ -1,0 +1,23 @@
+# forvera 生产反向代理配置（DNS only 直连 + Caddy 自动签发 Let's Encrypt 证书）
+#
+# 由 start 脚本自动复制到 /etc/caddy/Caddyfile 并重载。
+# 前置条件：
+#   - Cloudflare DNS：eason-s.life A 记录 -> 47.82.96.3，DNS only（灰云）
+#   - 安全组放开 80（证书签发/HTTP 跳转）和 443（HTTPS 访问）入站
+#   - 后端跑在 localhost:3000，前端静态服务跑在 localhost:10000（纯 HTTP）
+
+eason-s.life {
+	# 压缩响应
+	encode zstd gzip
+
+	# 后端接口 / 资源文件 / websocket 转发到 NestJS(3000)
+	@backend path /api/* /resource/* /socket.io/*
+	handle @backend {
+		reverse_proxy localhost:3000
+	}
+
+	# 其余所有请求交给前端静态服务(10000)，SPA 路由由前端处理
+	handle {
+		reverse_proxy localhost:10000
+	}
+}

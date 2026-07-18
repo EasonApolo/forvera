@@ -43,6 +43,8 @@ const clickTab = async (routeName: string) => {
   router.push({ name: routeName })
 }
 
+const isTabRoute = computed(() => tabs.some((tab) => tab.routeName === activeRouteName.value))
+
 const replyTo = () => {
   messageStore.reply()
   showReplyPanel.value = true
@@ -59,7 +61,7 @@ const closeReplyPanel = () => {
     <RouterView />
   </div>
 
-  <BottomNavBar :items="navItems" @select="clickTab">
+  <BottomNavBar v-if="isTabRoute" :items="navItems" @select="clickTab">
     <template #item-postList>
         <div v-if="!isLoadingPosts">文字</div>
         <Loading class="tab-loading" v-else />

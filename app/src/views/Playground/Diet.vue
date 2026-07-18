@@ -251,26 +251,18 @@ const selectedDayRecords = computed(() => {
     const recordedKey = `${recorded.getFullYear()}-${String(recorded.getMonth() + 1).padStart(2, '0')}-${String(recorded.getDate()).padStart(2, '0')}`
     return recordedKey === selectedDayKey.value
   })
-  return [...list].sort((a, b) => new Date(a.recorded_time).getTime() - new Date(b.recorded_time).getTime())
+  return [...list].sort((a, b) => {
+    const absDiff = Math.abs(b.total_calories) - Math.abs(a.total_calories)
+    if (absDiff !== 0) return absDiff
+    return new Date(a.recorded_time).getTime() - new Date(b.recorded_time).getTime()
+  })
 })
 
 const selectedDayTotalCalories = computed(() => selectedDayRecords.value.reduce((sum, record) => sum + record.total_calories, 0))
+const selectedDayMaxItemCalories = computed(() => Math.max(...selectedDayRecords.value.map(record => Math.abs(record.total_calories)), 1))
+const selectedDayItemScaleCalories = computed(() => Math.max(dietConfig.value.standardCalories, selectedDayMaxItemCalories.value, 1))
 
 const getStoredCaloriesMultiplier = (value?: number) => value && value > 0 ? value : 100
-
-type ProgressSegment = {
-  key: string
-  name: string
-  calories: number
-  width: number
-  color: string
-  isFirstInRow: boolean
-}
-
-type ProgressRow = {
-  key: string
-  segments: ProgressSegment[]
-}
 
 const getBarFillColor = (totalCalories: number) => {
   const standard = Math.max(dietConfig.value.standardCalories, 1)
@@ -341,6 +333,17 @@ const getRecordDisplayCalories = (record: DietRecord) => {
 
 const getRecordDisplayMultiplier = (record: DietRecord) => getStoredCaloriesMultiplier(record.calories_multiplier)
 
+const getTodayItemFillStyle = (record: DietRecord) => {
+  const denominator = Math.max(selectedDayItemScaleCalories.value, 1)
+  const calories = Math.abs(record.total_calories)
+  const ratio = Math.min(1, calories / denominator)
+
+  return {
+    width: `${ratio * 100}%`,
+    background: record.total_calories < 0 ? mixBlue(50 + ratio * 200) : mixGreenToRed(ratio),
+  }
+}
+
 function mixBlue(progress: number) {
   const clamped = Math.max(0, Math.min(1, (progress - 50) / 200))
   const start = { r: 200, g: 225, b: 255 }
@@ -360,68 +363,6 @@ function mixGreenToRed(progress: number) {
   const b = Math.round(start.b + (end.b - start.b) * clamped)
   return `rgb(${r}, ${g}, ${b})`
 }
-
-const getSegmentProgress = (unitCalories: number, totalCalories: number) => {
-  const unitScore = Math.max(0, Math.min(1, (unitCalories - 100) / 400))
-  const totalScore = Math.max(0, Math.min(1, (totalCalories - 500) / 500))
-  return Math.min(1, Math.sqrt(unitScore * unitScore + totalScore * totalScore))
-}
-
-const selectedDayProgressRows = computed(() => {
-  const lineCapacity = 1500
-  const rows: ProgressRow[] = []
-  let currentRow = { key: 'row-0', segments: [] as ProgressSegment[] }
-  let rowUsed = 0
-
-  const pushRowIfNeeded = () => {
-    if (currentRow.segments.length) {
-      rows.push(currentRow)
-    }
-  }
-
-  selectedDayRecords.value
-    .slice()
-    .sort((a, b) => b.total_calories - a.total_calories)
-    .forEach((record, recordIndex) => {
-    const isNegative = record.total_calories < 0
-    let remaining = isNegative ? Math.abs(record.total_calories) : Math.max(0, record.total_calories)
-    const unitCalories = getRecordDisplayCalories(record)
-    const color = isNegative
-      ? mixBlue(Math.min(250, Math.max(50, remaining)))
-      : mixGreenToRed(getSegmentProgress(unitCalories, remaining))
-
-    while (remaining > 0) {
-      if (rowUsed >= lineCapacity) {
-        pushRowIfNeeded()
-        currentRow = { key: `row-${rows.length}`, segments: [] }
-        rowUsed = 0
-      }
-
-      const available = lineCapacity - rowUsed
-      const pieceCalories = Math.min(remaining, available)
-      currentRow.segments.push({
-        key: `${record._id}-${recordIndex}-${currentRow.segments.length}`,
-        name: record.food_name,
-        calories: pieceCalories,
-        width: (pieceCalories / lineCapacity) * 100,
-        color,
-        isFirstInRow: currentRow.segments.length === 0,
-      })
-
-      rowUsed += pieceCalories
-      remaining -= pieceCalories
-
-      if (rowUsed >= lineCapacity) {
-        pushRowIfNeeded()
-        currentRow = { key: `row-${rows.length}`, segments: [] }
-        rowUsed = 0
-      }
-    }
-  })
-
-  pushRowIfNeeded()
-  return rows
-})
 
 const loadSummary = async () => {
   loading.value = true
@@ -679,24 +620,9 @@ onMounted(async () => {
           <div class="card-sub">{{ Math.round(selectedDayTotalCalories) }} / {{ dietConfig.standardCalories }} kcal</div>
         </div>
 
-        <div class="today-progress" v-if="selectedDayRecords.length && selectedDayProgressRows.length">
-          <div v-for="row in selectedDayProgressRows" :key="row.key" class="today-progress-track">
-            <div
-              v-for="segment in row.segments"
-              :key="segment.key"
-              class="today-progress-segment"
-              :style="{
-                width: `${segment.width}%`,
-                background: segment.color,
-                borderLeft: segment.isFirstInRow ? 'none' : '1px solid rgba(255, 255, 255, 0.72)',
-              }"
-              :title="`${segment.name} ${Math.round(segment.calories)}kCal`"
-            ></div>
-          </div>
-        </div>
-
         <div class="today-items" v-if="selectedDayRecords.length">
           <div v-for="record in selectedDayRecords" :key="record._id" class="today-item">
+            <div class="today-item-fill" :style="getTodayItemFillStyle(record)"></div>
             <div class="today-item-row">
               <div class="today-item-name">{{ record.food_name }}{{ record.quantity != null && record.quantity !== 1 ? 'x' + formatDietNumber(record.quantity) : '' }}</div>
               <div class="today-item-meta">
@@ -993,34 +919,6 @@ onMounted(async () => {
   z-index: 2;
 }
 
-.today-progress {
-  margin-top: 0.75rem;
-  display: grid;
-  gap: 0.35rem;
-}
-
-.today-progress-track {
-  display: flex;
-  width: 100%;
-  height: 12px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.05);
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.05);
-}
-
-.today-progress-segment {
-  height: 100%;
-  min-width: 1px;
-  flex-shrink: 0;
-}
-
-.today-progress-empty {
-  margin-top: 0.75rem;
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-
 .today-items {
   margin-top: 0.75rem;
   display: grid;
@@ -1028,14 +926,28 @@ onMounted(async () => {
 }
 
 .today-item {
+  position: relative;
+  overflow: hidden;
   padding: 0.6rem 0.7rem;
   border-radius: 0.75rem;
   background: var(--bg);
 }
 
+.today-item-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: inherit;
+  opacity: 0.16;
+  pointer-events: none;
+}
+
 .today-item-row {
+  position: relative;
+  z-index: 1;
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 0.75rem;
 }
@@ -1044,6 +956,10 @@ onMounted(async () => {
   font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  text-align: left;
 }
 
 .today-item-meta {

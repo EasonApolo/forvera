@@ -1,5 +1,4 @@
-# compiled output
-/dist
+# compiled output（dist 已提交，服务器免编译部署时直接使用）
 /node_modules
 
 # Logs

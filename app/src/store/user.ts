@@ -81,13 +81,18 @@ export const useUserStore = defineStore('user', {
     },
     async register() {
       if (!this.validateLoginForm()) return false
-      let payload = this.loginData
+      const payload = this.loginData
       const { token } = await request(
         'auth/register',
         'POST',
         JSON.stringify(payload)
       )
-      Object.assign(this.userInfo, { token, username: this.loginData.username })
+      if (token) {
+        localStorage.token = token
+        Object.assign(this.userInfo, { token: `Bearer ${token}` })
+        await this.getUserInfo()
+      }
+      return token
     },
     async updateSettings(settings: Record<string, any>) {
       if (!this.isLogin) return

@@ -56,6 +56,7 @@ const onTouchMove = (event: TouchEvent) => {
 .horizontal-scroll {
   display: flex;
   align-items: center;
+  gap: 0.5rem;
   overflow-x: auto;
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;

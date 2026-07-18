@@ -9,7 +9,7 @@ import List from '../components/layout/List.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
-const defaultCardOrder = ['taxonomy', 'requirements', 'diet', 'holdem', 'gomoku', 'village', 'pet', 'rating', 'mihoyo']
+const defaultCardOrder = ['taxonomy', 'requirements', 'diet', 'stock', 'holdem', 'gomoku', 'village', 'pet', 'rating', 'mihoyo']
 
 type PlaygroundCard =
   | { key: string; type: 'route'; title: string; routeName: string; soon?: string }
@@ -23,6 +23,7 @@ const cardMap: Record<string, PlaygroundCard> = {
   taxonomy: { key: 'taxonomy', type: 'route', title: '🌳Taxonomy', routeName: 'taxonomy' },
   requirements: { key: 'requirements', type: 'route', title: '🧩需求拆解', routeName: 'requirements' },
   diet: { key: 'diet', type: 'route', title: '🍽Diet', routeName: 'diet' },
+  stock: { key: 'stock', type: 'route', title: '📈Market', routeName: 'stock' },
   holdem: { key: 'holdem', type: 'route', title: '🃏德扑', routeName: 'holdem' },
   gomoku: { key: 'gomoku', type: 'route', title: '⚫五子棋', routeName: 'gomoku' },
   village: { key: 'village', type: 'route', title: '🏘Village', routeName: 'village' },

@@ -131,6 +131,12 @@ export class UserService implements OnModuleInit {
       userData._id = new Types.ObjectId(createUserDTO._id);
     }
 
+    // 第一个注册的用户（用户表当前为空）自动成为管理员。
+    const userCount = await this.userModel.estimatedDocumentCount().exec();
+    if (userCount === 0) {
+      userData.role = 3;
+    }
+
     const newUser = new this.userModel(userData);
     return newUser.save();
   }

@@ -1,3 +1,3 @@
-import { join } from 'path'
+import { assetsRoot } from './projectRoot'
 
-export const staticPath: string = join(__dirname, '..', '..', '..', '..', 'assets')
+export const staticPath: string = assetsRoot
