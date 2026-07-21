@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 这个脚本用于在本地或服务器上启动 forvera 的生产服务（始终免编译）。
+# 这个脚本用于在本地或服务器上启动 forvera 的生产服务（启动时会先构建）。
 # 1. 计算项目根目录和运行目录。
 # 2. 检查 Node.js 版本、配置 npm 镜像并准备运行目录。
-# 3. 停止旧进程，直接使用仓库中已提交的 dist（前端免依赖，后端仅装运行时依赖）。
+# 3. 停止旧进程，安装依赖并构建前后端 dist。
 # 4. 后台启动 server 和 app，并等待健康检查通过。
-# 如需重新构建产物，请在本地运行 ./deploy.sh（内含构建步骤）。
+# 启动前会自动执行 build（server + app）。
 
 # 计算项目根目录及各子目录、运行时目录（日志、PID、控制文件）的绝对路径。
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -28,6 +28,7 @@ WATCHDOG_INTERVAL="${WATCHDOG_INTERVAL:-300}"
 APP_PORT="${APP_PORT:-10000}"
 SERVER_PORT="${SERVER_PORT:-3000}"
 ENABLE_CADDY="${ENABLE_CADDY:-1}"
+CADDY_DOMAIN="${CADDY_DOMAIN:-eason-s.life}"
 SSL_CERT_PATH="${SSL_CERT_PATH:-/etc/letsencrypt/live/eason-s.life/fullchain.pem}"
 SSL_KEY_PATH="${SSL_KEY_PATH:-/etc/letsencrypt/live/eason-s.life/privkey.pem}"
 # 生产用 Caddy 统一终结 HTTPS，后端(3000)与前端(10000)默认跑纯 HTTP。
@@ -233,16 +234,6 @@ if [[ "${1:-}" == "--watchdog" ]]; then
   exit 0
 fi
 
-# 读取当前 Node.js 主/次版本号，用于下面的版本校验。
-NODE_MAJOR="$(node -p "process.versions.node.split('.')[0]")"
-NODE_MINOR="$(node -p "process.versions.node.split('.')[1]")"
-
-# 要求 Node.js >= 18.17，版本过低直接退出。
-if (( NODE_MAJOR < 18 )) || { (( NODE_MAJOR == 18 )) && (( NODE_MINOR < 17 )); }; then
-  echo "Error: Node.js $(node -v) is too old. Please use Node.js >= 18.17, recommended: 20 LTS."
-  exit 1
-fi
-
 echo "[0/4] Configuring npm mirrors..."
 npm config set registry "$NPM_REGISTRY"
 
@@ -430,23 +421,24 @@ if ! command -v zip >/dev/null 2>&1; then
   exit 1
 fi
 
-# 始终免编译：直接使用已同步到服务器的 dist。
-# 前端 serve-static.js 不需要依赖，后端仍需安装运行时依赖。
-echo "[1-3/4] Using committed dist (build is done by ./deploy.sh)..."
+# 安装依赖并构建产物（server + app）。
+echo "[1-3/4] Installing dependencies and building..."
 
-if [[ ! -d "$SERVER_DIR/dist" ]]; then
-  echo "[pre] Error: $SERVER_DIR/dist not found. Please run ./deploy.sh first."
-  exit 1
-fi
-if [[ ! -d "$APP_DIR/dist" ]]; then
-  echo "[pre] Error: $APP_DIR/dist not found. Please run ./deploy.sh first."
-  exit 1
-fi
-
-# 后端运行时仍需要生产依赖（不含 devDependencies）。
-echo "[deps] Installing server runtime dependencies..."
+echo "[deps] Installing server dependencies..."
 cd "$SERVER_DIR"
-npm install --omit=dev
+npm install
+
+echo "[deps] Installing app dependencies..."
+cd "$APP_DIR"
+npm install
+
+echo "[build] Building server..."
+cd "$SERVER_DIR"
+npm run build
+
+echo "[build] Building app..."
+cd "$APP_DIR"
+npm run build
 
 # 根据 PID 文件停掉可能仍在运行的旧进程。
 stop_if_running "server"
@@ -483,9 +475,9 @@ wait_for_http "app" "$APP_PROTO://127.0.0.1:$APP_PORT/" "$LOG_DIR/app.log" 20 "$
 
 if [[ "$ENABLE_CADDY" == "1" ]]; then
   if [[ "$(id -u)" -ne 0 ]]; then
-    echo "[caddy] Warning: ENABLE_CADDY=1 but current user is not root, skipping Caddy setup"
+    echo "[caddy] Warning: ENABLE_CADDY=1 but current user is not root, skipping Caddy setup (80/443 will not be managed by this script)"
   elif ! command -v systemctl >/dev/null 2>&1; then
-    echo "[caddy] Warning: systemctl not found, skipping Caddy setup"
+    echo "[caddy] Warning: systemctl not found, skipping Caddy setup (80/443 will not be managed by this script)"
   else
     install_caddy_if_needed
     configure_caddy

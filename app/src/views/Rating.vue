@@ -783,8 +783,9 @@ const filteredDocuments = computed(() => {
         text-align: left;
       }
       .content {
-        margin-top: 8px;
+        margin-top: 4px;
         text-align: left;
+        font-size: 0.875rem;
       }
     }
   }

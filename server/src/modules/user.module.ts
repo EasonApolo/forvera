@@ -131,9 +131,9 @@ export class UserService implements OnModuleInit {
       userData._id = new Types.ObjectId(createUserDTO._id);
     }
 
-    // 第一个注册的用户（用户表当前为空）自动成为管理员。
-    const userCount = await this.userModel.estimatedDocumentCount().exec();
-    if (userCount === 0) {
+    // 第一个“真实注册用户”自动成为管理员；anonymous 账号不计入。
+    const realUserCount = await this.userModel.countDocuments({ username: { $ne: 'anonymous' } }).exec();
+    if (createUserDTO.username !== 'anonymous' && realUserCount === 0) {
       userData.role = 3;
     }
 
