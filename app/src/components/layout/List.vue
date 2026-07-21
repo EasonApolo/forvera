@@ -14,7 +14,7 @@
   overflow-x: hidden;
 
   .layout-list {
-    padding: 1rem 0.5rem 8rem;
+    padding: 0.625rem 0.5rem 8rem;
 
     .card:not(:first-child) {
       margin-top: 0.5rem;

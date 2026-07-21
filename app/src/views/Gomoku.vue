@@ -8,6 +8,8 @@ import { useToastStore } from '../store/toast'
 import Card from '../components/Card.vue'
 import Btn from '../components/Btn.vue'
 import GreyText from '../components/GreyText.vue'
+import PageHeader from '@/components/layout/PageHeader.vue'
+import List from '@/components/layout/List.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -125,15 +127,24 @@ onUnmounted(() => {
 </script>
 
 <template>
-	<div class="gomoku-container">
-		<template v-if="isAdmin">
-			<div class="admin-toolbar">
+	<List>
+		<template #content v-if="isAdmin">
+			<PageHeader>
+				<template #left>
+					五子棋房间列表（管理员）
+				</template>
+				<template #right>
+					<Btn small @click="fetchRooms" :loading="loading">刷新</Btn>
+					<Btn small type="primary" @click="createRoom">创建房间</Btn>
+				</template>
+			</PageHeader>
+			<!-- <div class="admin-toolbar">
 				<GreyText>五子棋房间列表（管理员）</GreyText>
 				<div class="toolbar-actions">
 					<Btn small @click="fetchRooms" :loading="loading">刷新</Btn>
 					<Btn small type="primary" @click="createRoom">创建房间</Btn>
 				</div>
-			</div>
+			</div> -->
 
 			<div v-if="loading" class="empty">加载中...</div>
 			<div v-else-if="!rooms.length" class="empty">暂无房间</div>
@@ -182,7 +193,7 @@ onUnmounted(() => {
 				</Card>
 			</div>
 		</template>
-	</div>
+	</List>
 </template>
 
 <style lang="less" scoped>

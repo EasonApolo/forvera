@@ -768,16 +768,8 @@ onMounted(async () => {
   flex: 0 0 auto;
 }
 
-.summary-card,
-.today-card,
 .modal {
   border-radius: 0.9rem;
-}
-
-.summary-card,
-.today-card {
-  padding: 0.85rem;
-  margin-bottom: 0.75rem;
 }
 
 .summary-head,

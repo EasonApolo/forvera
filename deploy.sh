@@ -39,6 +39,6 @@ echo "updated to $(git rev-parse --short HEAD) on branch $current_branch"
 EOF
 
 echo "[2/2] Starting remote service ..."
-ssh -i "$KEY_PATH" -o IdentitiesOnly=yes "$SSH_TARGET" "bash -lc 'cd /root/forvera && bash ./start.sh'"
+ssh -i "$KEY_PATH" -o IdentitiesOnly=yes "$SSH_TARGET" "bash -ic 'cd /root/forvera && bash ./start.sh'"
 
 echo "Deployment complete"

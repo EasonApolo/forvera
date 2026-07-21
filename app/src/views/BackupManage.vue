@@ -363,11 +363,6 @@ onMounted(() => {
 </template>
 
 <style scoped lang="less">
-.title {
-  font-weight: 600;
-  font-size: 1rem;
-}
-
 .upload-input {
   display: none;
 }

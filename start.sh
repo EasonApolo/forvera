@@ -40,44 +40,6 @@ NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmmirror.com}"
 SHARP_BINARY_HOST="${SHARP_BINARY_HOST:-https://npmmirror.com/mirrors/sharp}"
 SHARP_LIBVIPS_HOST="${SHARP_LIBVIPS_HOST:-https://npmmirror.com/mirrors/sharp-libvips}"
 APP_FALLBACK_PORTS="${APP_FALLBACK_PORTS:-4173 5173}"
-
-stop_by_pid_file() {
-  local name="$1"
-  local pid_file="$PID_DIR/${name}.pid"
-
-  if [[ ! -f "$pid_file" ]]; then
-    echo "[$name] pid file not found: $pid_file"
-    return 1
-  fi
-
-  local pid
-  pid="$(cat "$pid_file")"
-  if [[ -z "${pid}" ]]; then
-    echo "[$name] pid file is empty"
-    rm -f "$pid_file"
-    return 1
-  fi
-
-  if ! kill -0 "$pid" 2>/dev/null; then
-    echo "[$name] process not running (pid=$pid)"
-    rm -f "$pid_file"
-    return 1
-  fi
-
-  echo "[$name] stopping pid=$pid"
-  kill "$pid" || true
-  sleep 1
-
-  if kill -0 "$pid" 2>/dev/null; then
-    echo "[$name] force killing pid=$pid"
-    kill -9 "$pid" || true
-  fi
-
-  rm -f "$pid_file"
-  echo "[$name] stopped"
-  return 0
-}
-
 stop_by_port() {
   local name="$1"
   local port="$2"

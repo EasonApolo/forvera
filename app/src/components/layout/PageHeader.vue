@@ -17,11 +17,12 @@
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.5rem;
 }
 
 .page-header__left,
 .page-header__right {
+  font-size: .875rem;
   display: flex;
   align-items: center;
   gap: 0.75rem;
