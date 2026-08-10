@@ -92,9 +92,7 @@ const openRoom = (roomId: string) => {
 	router.push({ name: 'gomokuRoomWithUser', params: { id: roomId, userId: genShareUserId() } })
 }
 
-const enterAsUser = (roomId: string, playerId: string) => {
-	router.push({ name: 'gomokuRoomWithUser', params: { id: roomId, userId: playerId } })
-}
+// removed per-user quick-enter on admin page
 
 const closeRoom = async (roomId: string) => {
 	if (!isAdmin.value) return
@@ -138,13 +136,6 @@ onUnmounted(() => {
 					<Btn small type="primary" @click="createRoom">创建房间</Btn>
 				</template>
 			</PageHeader>
-			<!-- <div class="admin-toolbar">
-				<GreyText>五子棋房间列表（管理员）</GreyText>
-				<div class="toolbar-actions">
-					<Btn small @click="fetchRooms" :loading="loading">刷新</Btn>
-					<Btn small type="primary" @click="createRoom">创建房间</Btn>
-				</div>
-			</div> -->
 
 			<div v-if="loading" class="empty">加载中...</div>
 			<div v-else-if="!rooms.length" class="empty">暂无房间</div>
@@ -186,7 +177,6 @@ onUnmounted(() => {
 							</div>
 							<div class="player-actions">
 								<Btn small @click="copyLink(room.id, player.id)">分享</Btn>
-								<Btn small @click="enterAsUser(room.id, player.id)">进入</Btn>
 							</div>
 						</div>
 					</div>

@@ -15,6 +15,8 @@ import { FileModule } from './modules/file.module';
 import { AuthModule } from './modules/auth.module';
 import { HoldemModule } from './modules/holdem.module';
 import { GomokuModule } from './modules/gomoku.module';
+import { DrawGuessModule } from './modules/drawguess.module';
+import { GameModule } from './modules/game.module';
 import { TaxonomyModule } from './modules/taxonomy.module';
 import { BackupModule } from './modules/backup.module';
 import { PetModule } from './modules/pet.module';
@@ -34,6 +36,8 @@ import { MarketModule } from './modules/market.module';
     RatingModule,
     HoldemModule,
     GomokuModule,
+    DrawGuessModule,
+    GameModule,
     TaxonomyModule,
     BackupModule,
     PetModule,

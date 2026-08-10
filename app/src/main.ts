@@ -20,6 +20,8 @@ import HoldemVue from './views/Holdem.vue'
 import HoldemRoomVue from './views/HoldemRoom.vue'
 import GomokuVue from './views/Gomoku.vue'
 import GomokuRoomVue from './views/GomokuRoom.vue'
+import GameVue from './views/Playground/Game.vue'
+import GameAdminVue from './views/Playground/GameAdmin.vue'
 import LoginVue from './views/Login.vue'
 import DietVue from './views/Playground/Diet.vue'
 import StockVue from './views/Playground/Stock.vue'
@@ -96,6 +98,8 @@ const routerOptions = {
     { path: '/gomoku', component: GomokuVue, name: 'gomoku' },
     { path: '/gomoku/:id', component: GomokuRoomVue, name: 'gomokuRoom' },
     { path: '/gomoku/:id/:userId', component: GomokuRoomVue, name: 'gomokuRoomWithUser' },
+    { path: '/game', component: GameAdminVue, name: 'game' },
+    { path: '/game/:id/:userId', component: GameVue, name: 'gameRoomWithUser' },
     { path: '/pet', component: PetVue, name: 'pet' },
     { path: '/village', component: VillageVue, name: 'village' },
   ],

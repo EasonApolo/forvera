@@ -8,7 +8,7 @@ const props = withDefaults(
     mobileSize?: number
     mobileFontSize?: number
     variant?: 'muted' | 'overlay'
-    icon?: 'chevron-left' | 'chevron-right' | 'chevron-up' | 'chevron-down' | 'rotate-left' | 'rotate-right' | 'close'
+    icon?: 'chevron-left' | 'chevron-right' | 'chevron-up' | 'chevron-down' | 'rotate-left' | 'rotate-right' | 'close' | 'auto-adjust-zoom'
     ariaLabel?: string
   }>(),
   {
@@ -61,11 +61,28 @@ const styleVars = computed(() => ({
     <svg v-else-if="icon === 'close'" class="circle-btn-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path d="M6.5 6.5l11 11m0-11l-11 11" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
     </svg>
+    <span v-else-if="icon === 'auto-adjust-zoom'" class="auto-adjust-zoom-icon" aria-hidden="true"></span>
     <slot v-else></slot>
   </button>
 </template>
 
 <style scoped lang="less">
+.auto-adjust-zoom-icon {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  opacity: .4;
+  background:
+    linear-gradient(var(--text) 0 0) left top/5px 1.5px no-repeat,
+    linear-gradient(var(--text) 0 0) left top/1.5px 5px no-repeat,
+    linear-gradient(var(--text) 0 0) right top/5px 1.5px no-repeat,
+    linear-gradient(var(--text) 0 0) right top/1.5px 5px no-repeat,
+    linear-gradient(var(--text) 0 0) left bottom/5px 1.5px no-repeat,
+    linear-gradient(var(--text) 0 0) left bottom/1.5px 5px no-repeat,
+    linear-gradient(var(--text) 0 0) right bottom/5px 1.5px no-repeat,
+    linear-gradient(var(--text) 0 0) right bottom/1.5px 5px no-repeat;
+
+}
 .circle-btn {
   appearance: none;
   -webkit-appearance: none;

@@ -90,9 +90,7 @@ const openRoom = (roomId: string) => {
 	router.push({ name: 'holdemRoomWithUser', params: { id: roomId, userId: genShareUserId() } })
 }
 
-const enterAsUser = (roomId: string, playerId: string) => {
-	router.push({ name: 'holdemRoomWithUser', params: { id: roomId, userId: playerId } })
-}
+// removed per-user quick-enter on admin page
 
 const closeRoom = async (roomId: string) => {
 	if (!isAdmin.value) return
@@ -175,7 +173,6 @@ onUnmounted(() => {
 							</div>
 							<div class="player-actions">
 								<Btn small @click="copyLink(room.id, player.id)">分享</Btn>
-								<Btn small @click="enterAsUser(room.id, player.id)">进入</Btn>
 							</div>
 						</div>
 					</div>

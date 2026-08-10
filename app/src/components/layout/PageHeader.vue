@@ -25,6 +25,6 @@
   font-size: .875rem;
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.25rem;
 }
 </style>

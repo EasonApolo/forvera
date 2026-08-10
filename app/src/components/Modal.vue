@@ -10,6 +10,7 @@ const props = withDefaults(
     confirmText?: string
     confirmLoading?: boolean
     closeOnMask?: boolean
+    blurBackdrop?: boolean
     placement?: 'bottom' | 'center'
     hideFooter?: boolean
   }>(),
@@ -19,6 +20,7 @@ const props = withDefaults(
     confirmText: '确认',
     confirmLoading: false,
     closeOnMask: true,
+    blurBackdrop: true,
     placement: 'center',
     hideFooter: false,
   }
@@ -33,6 +35,7 @@ const emit = defineEmits<{
 const maskClass = computed(() => ({
   'placement-bottom': props.placement === 'bottom',
   'placement-center': props.placement === 'center',
+  'no-backdrop-blur': !props.blurBackdrop,
 }))
 
 const close = () => {
@@ -58,7 +61,9 @@ const handleConfirm = () => {
         </div>
         <div v-if="!hideFooter" class="modal-actions">
           <Btn @click="handleCancel">{{ cancelText }}</Btn>
-          <Btn type="primary" :loading="confirmLoading" @click="handleConfirm">{{ confirmText }}</Btn>
+          <Btn type="primary" :loading="confirmLoading" @click="handleConfirm">{{
+            confirmText
+          }}</Btn>
         </div>
       </div>
     </div>
@@ -75,6 +80,11 @@ const handleConfirm = () => {
   padding: 16px;
   background: rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(2px);
+
+  &.no-backdrop-blur {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
 
   &.placement-bottom {
     align-items: flex-end;
@@ -102,13 +112,27 @@ const handleConfirm = () => {
   font-size: 15px;
   font-weight: 700;
   color: var(--text);
-  margin-bottom: 12px;
+  margin-bottom: .75rem;
 }
 
 .modal-content {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: .625rem;
+
+  /deep/ .item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    .label {
+      font-weight: normal;
+      color: var(--text-secondary);
+    }
+    .value {
+      font-weight: normal;
+      color: var(--text);
+    }
+  }
 }
 
 .modal-actions {

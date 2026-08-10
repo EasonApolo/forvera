@@ -13,7 +13,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
-    console.log('validate!!!!!!!!', payload);
     // The payload contains the data you signed in the token
     return {
       userId: payload.sub,

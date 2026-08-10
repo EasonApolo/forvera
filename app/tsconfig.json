@@ -17,7 +17,8 @@
       "views/*": ["src/views/*"],
       "stores/*": ["src/stores/*"],
       "shared/*": ["../shared/*"]
-    }
+    },
+    "allowImportingTsExtensions": true
   },
   "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.vue", "../shared/**/*.ts"]
 }
