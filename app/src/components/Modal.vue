@@ -12,6 +12,7 @@ const props = withDefaults(
     closeOnMask?: boolean
     blurBackdrop?: boolean
     placement?: 'bottom' | 'center'
+    paddingBottom?: boolean
     hideFooter?: boolean
   }>(),
   {
@@ -22,6 +23,7 @@ const props = withDefaults(
     closeOnMask: true,
     blurBackdrop: true,
     placement: 'center',
+    paddingBottom: true,
     hideFooter: false,
   }
 )
@@ -35,6 +37,7 @@ const emit = defineEmits<{
 const maskClass = computed(() => ({
   'placement-bottom': props.placement === 'bottom',
   'placement-center': props.placement === 'center',
+  'padding-bottom': props.paddingBottom && props.placement === 'bottom',
   'no-backdrop-blur': !props.blurBackdrop,
 }))
 
@@ -77,7 +80,7 @@ const handleConfirm = () => {
   z-index: 1200;
   display: flex;
   justify-content: center;
-  padding: 16px;
+  padding: 8px;
   background: rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(2px);
 
@@ -93,6 +96,10 @@ const handleConfirm = () => {
   &.placement-center {
     align-items: center;
   }
+
+  &.placement-bottom.padding-bottom {
+    padding-bottom: 84px;
+  }
 }
 
 .modal-panel {
@@ -102,7 +109,7 @@ const handleConfirm = () => {
   border-radius: 0.5rem;
   background: var(--card-bg);
   box-shadow: 0 16px 42px rgba(0, 0, 0, 0.18);
-  padding: 0.95rem;
+  padding: 0.625rem;
   -webkit-font-smoothing: antialiased;
   font-size: 13px;
   line-height: 1.45;
@@ -118,7 +125,7 @@ const handleConfirm = () => {
 .modal-content {
   display: flex;
   flex-direction: column;
-  gap: .625rem;
+  gap: .5rem;
 
   /deep/ .item {
     display: flex;

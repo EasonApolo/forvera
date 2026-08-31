@@ -5,8 +5,11 @@ import { IoAdapter } from '@nestjs/platform-socket.io';
 import { existsSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import * as express from 'express';
+import { config as loadDotenv } from 'dotenv';
 import { staticPath } from './shared/staticPath';
 import { projectRoot } from './shared/projectRoot';
+
+loadDotenv({ path: join(projectRoot, '.env') });
 
 const appIndexCandidates = [
   join(projectRoot, 'app', 'dist', 'index.html'),

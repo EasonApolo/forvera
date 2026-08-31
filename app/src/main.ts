@@ -29,6 +29,7 @@ import PetVue from './views/Pet.vue'
 import VillageVue from './views/Village.vue'
 import UserManageVue from './views/UserManage.vue'
 import BackupManageVue from './views/BackupManage.vue'
+import DictionaryVue from './views/Playground/Dictionary.vue'
 
 const routerOptions = {
   history: createWebHistory(),
@@ -102,6 +103,9 @@ const routerOptions = {
     { path: '/game/:id/:userId', component: GameVue, name: 'gameRoomWithUser' },
     { path: '/pet', component: PetVue, name: 'pet' },
     { path: '/village', component: VillageVue, name: 'village' },
+    { path: '/dictionary', component: DictionaryVue, name: 'dictionary' },
+    { path: '/dictionary/root/:rootSlug', component: DictionaryVue, name: 'dictionaryRoot' },
+    { path: '/dictionary/:word', component: DictionaryVue, name: 'dictionaryWord' },
   ],
 }
 

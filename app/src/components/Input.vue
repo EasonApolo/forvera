@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import CircleBtn from './CircleBtn.vue';
 
 const props = withDefaults(
   defineProps<{
@@ -8,6 +9,7 @@ const props = withDefaults(
     small?: boolean
     password?: boolean
     type?: string
+    allowClear?: boolean
   }>(),
   {
     modelValue: '',
@@ -15,6 +17,7 @@ const props = withDefaults(
     small: false,
     password: false,
     type: 'text',
+    allowClear: true,
   }
 )
 
@@ -30,18 +33,40 @@ const onInput = (event: Event) => {
 </script>
 
 <template>
-  <input
-    v-bind="$attrs"
-    class="input"
-    :class="{ small: small }"
-    :type="inputType"
-    :value="modelValue"
-    :placeholder="placeholder"
-    @input="onInput"
-  />
+  <div class="input-wrapper">
+    <input
+      v-bind="$attrs"
+      class="input"
+      :class="{ small: small }"
+      :type="inputType"
+      :value="modelValue"
+      :placeholder="placeholder"
+      @input="onInput"
+    />
+    <CircleBtn
+      v-if="allowClear && modelValue"
+      class="search-clear-btn"
+      icon="close"
+      :size="small ? 16 : 20"
+      :font-size="11"
+      aria-label="清除"
+      @click="emit('update:modelValue', '')"
+    />
+  </div>
 </template>
 
 <style scoped lang="less">
+.input-wrapper {
+  position: relative;
+
+  .search-clear-btn {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 100;
+  }
+}
 .input {
   width: 100%;
   min-width: 0;

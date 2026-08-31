@@ -60,6 +60,7 @@ themeStore.init()
   --reply-shadow: 1px 2px 6px 1px rgba(0, 0, 0, 0.08);
   --toc-shadow: 0 12px 36px rgba(0, 0, 0, 0.22);
   --card-font: var(--text);
+  --primary: #42b983;
 }
 
 /* ── Dark mode variables ── */
@@ -98,6 +99,7 @@ themeStore.init()
   --toc-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
   /* Card text should remain dark even in dark mode since cards are white */
   --card-font: #111111;
+  --primary: #42b983;
 }
 
 body {

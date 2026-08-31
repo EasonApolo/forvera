@@ -5,6 +5,7 @@ app/dist
 server/dist
 
 # local env files
+.env
 .env.local
 .env.*.local
 

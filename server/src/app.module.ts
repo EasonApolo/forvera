@@ -23,6 +23,7 @@ import { PetModule } from './modules/pet.module';
 import { RequirementsModule } from './modules/requirements.module';
 import { DietModule } from './modules/diet.module';
 import { MarketModule } from './modules/market.module';
+import { DictionaryModule } from './modules/dictionary.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { MarketModule } from './modules/market.module';
     RequirementsModule,
     DietModule,
     MarketModule,
+    DictionaryModule,
     ServeStaticModule.forRoot({
       rootPath: staticPath,
       serveStaticOptions: {

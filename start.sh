@@ -19,6 +19,15 @@ CONTROL_DIR="$RUNTIME_DIR/control"
 SERVER_STOP_FILE="$CONTROL_DIR/server.stop"
 WATCHDOG_STOP_FILE="$CONTROL_DIR/watchdog.stop"
 
+ENV_FILE="$ROOT_DIR/.env"
+if [[ -f "$ENV_FILE" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+  echo "[env] loaded $ENV_FILE"
+fi
+
 # 守护进程配置：每隔 WATCHDOG_INTERVAL 秒检测一次前后端存活，挂了就重新执行 start。
 # 设置 ENABLE_WATCHDOG=0 可关闭守护进程。
 ENABLE_WATCHDOG="${ENABLE_WATCHDOG:-1}"
