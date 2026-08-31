@@ -521,6 +521,7 @@ onMounted(() => {
           <div class="search-wrapper">
             <Input
               class="search-input"
+              small
               placeholder="搜索节点"
               v-model="searchKeyword"
               @focus="onSearchFocus"
@@ -719,9 +720,6 @@ onMounted(() => {
 
     .search-input {
       width: 96px;
-      height: 32px;
-      padding: 0 0.5rem;
-      box-sizing: border-box;
     }
 
     .search-panel {

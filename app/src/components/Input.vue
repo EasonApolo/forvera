@@ -23,12 +23,18 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
+  (e: 'clear'): void
 }>()
 
 const inputType = computed(() => (props.password ? 'password' : props.type))
 
 const onInput = (event: Event) => {
   emit('update:modelValue', (event.target as HTMLInputElement).value)
+}
+
+const onClickClear = () => {
+  emit('update:modelValue', '')
+  emit('clear')
 }
 </script>
 
@@ -50,7 +56,7 @@ const onInput = (event: Event) => {
       :size="small ? 16 : 20"
       :font-size="11"
       aria-label="清除"
-      @click="emit('update:modelValue', '')"
+      @click="onClickClear"
     />
   </div>
 </template>

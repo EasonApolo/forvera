@@ -32,20 +32,13 @@ const fetchMessages = async () => {
   const trimmedKeyword = keyword.value.trim()
   const keywordParam = isAdmin.value ? trimmedKeyword : undefined
   const yearParam = isAdmin.value && !trimmedKeyword ? year.value : undefined
-  await messageStore.fetchMessages(
-    isLogin.value,
-    yearParam,
-    keywordParam
-  )
+  await messageStore.fetchMessages(isLogin.value, yearParam, keywordParam)
 }
 
 const fetchBySearch = debounce(fetchMessages, 300)
 
 const clearSearch = () => {
-  if (keyword.value) {
-    keyword.value = ''
-    fetchMessages()
-  }
+  fetchMessages()
 }
 
 // computed
@@ -132,19 +125,13 @@ watch(
           </div>
           <div class="filter-row">
             <div class="filter-label">搜索</div>
-            <div class="search-wrapper">
-              <div class="search-row">
-                  <Input
-                  v-model="keyword"
-                  class="search-input"
-                  @input="fetchBySearch"
-                  placeholder="输入关键词"
-                />
-                <button v-if="keyword" class="clear-btn" @click.stop="clearSearch">
-                  取消
-                </button>
-              </div>
-            </div>
+            <Input
+              v-model="keyword"
+              class="search-input"
+              @input="fetchBySearch"
+              @clear="clearSearch"
+              placeholder="输入关键词"
+            />
           </div>
         </Card>
       </div>
@@ -160,16 +147,15 @@ watch(
             <span
               v-if="isAdmin && message.level === 0"
               @click.stop="toggleMessageStatus(message)"
-            >{{ message.status === 1 ? '隐藏' : '显示' }}</span>
-            <span v-if="isAdmin" @click.stop="deleteMessage(message)">删除</span>{{ formatDate(message.created_time) }}
+              >{{ message.status === 1 ? '隐藏' : '显示' }}</span
+            >
+            <span v-if="isAdmin" @click.stop="deleteMessage(message)">删除</span
+            >{{ formatDate(message.created_time) }}
           </div>
         </div>
-        <div
-          class="content selectable"
-          @mousedown.stop
-          @touchstart.stop
-          @touchmove.stop
-        >{{ message.content }}</div>
+        <div class="content selectable" @mousedown.stop @touchstart.stop @touchmove.stop>
+          {{ message.content }}
+        </div>
         <Gallery
           v-if="message.files.length"
           class="gallery"
@@ -177,32 +163,26 @@ watch(
           :onClick="clickImage"
         ></Gallery>
         <div class="reply-wrapper" v-if="message.descendants?.length > 0">
-          <div
-            class="reply"
-            v-for="reply in message.descendants"
-          >
+          <div class="reply" v-for="reply in message.descendants">
             <div class="header">
               <div class="name">{{ reply.user.username }}</div>
               <div class="name" v-if="getReplyToUsername(message, reply)">
                 : {{ getReplyToUsername(message, reply) }}
               </div>
             </div>
-            <div class="date"><span @click.stop="replyTo(reply)">回复</span><span v-if="isAdmin" @click.stop="deleteMessage(reply)">删除</span>{{ formatDate(reply.created_time) }}</div>
-            <div
-              class="content selectable"
-              @mousedown.stop
-              @touchstart.stop
-              @touchmove.stop
-            >{{ reply.content }}</div>
+            <div class="date">
+              <span @click.stop="replyTo(reply)">回复</span
+              ><span v-if="isAdmin" @click.stop="deleteMessage(reply)">删除</span
+              >{{ formatDate(reply.created_time) }}
+            </div>
+            <div class="content selectable" @mousedown.stop @touchstart.stop @touchmove.stop>
+              {{ reply.content }}
+            </div>
           </div>
         </div>
       </Card>
       <div class="ending">—— 完 ——</div>
-      <div
-        v-if="showReplyPanel"
-        class="reply-overlay"
-        @click.self="closeReplyPanel"
-      >
+      <div v-if="showReplyPanel" class="reply-overlay" @click.self="closeReplyPanel">
         <div class="reply-panel">
           <AddMessage :floating="true" @close="closeReplyPanel" />
         </div>
@@ -212,7 +192,6 @@ watch(
 </template>
 
 <style lang="less" scoped>
-
 .admin-card {
   text-align: left;
   border: 1px solid var(--border-light);
@@ -239,8 +218,7 @@ watch(
   font-size: 13px;
 }
 
-.nav-btn,
-.clear-btn {
+.nav-btn {
   border: none;
   outline: none;
   cursor: pointer;
@@ -256,15 +234,8 @@ watch(
   font-size: 18px;
 }
 
-.nav-btn:hover,
-.clear-btn:hover {
+.nav-btn:hover {
   background: var(--btn-hover);
-}
-
-.search-wrapper {
-  flex: 1;
-  display: flex;
-  align-items: center;
 }
 
 .search-row {
@@ -274,37 +245,8 @@ watch(
   gap: 0.5rem;
 }
 
-.search-input {
-  flex: 1;
-  min-width: 0;
-  padding: 0.65rem 0.85rem;
-  border: 1px solid var(--border-light);
-  border-radius: 0.75rem;
-  font-size: 14px;
-  background: var(--bg);
-  color: var(--text);
-
-  &:hover {
-    border-color: var(--accent-color);
-  }
-}
-
-.search-input:focus {
-  outline: none;
-  border-color: var(--accent-color);
-  background: var(--card-bg);
-}
-
-.clear-btn {
-  padding: 0.6rem 0.85rem;
-  border-radius: 0.75rem;
-  background: var(--btn-bg);
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-
 .message {
-  padding: 0.375rem .75rem;
+  padding: 0.375rem 0.75rem;
   text-align: left;
 
   .header {

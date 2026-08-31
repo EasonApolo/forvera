@@ -399,6 +399,7 @@ const filteredDocuments = computed(() => {
                 class="login-input"
                 v-model="search.query"
                 placeholder="title"
+                small
                 @keypress.enter="searchMovie"
               />
               <Btn type="primary" @click="searchMovie" :loading="loading.search"
@@ -457,6 +458,7 @@ const filteredDocuments = computed(() => {
                   class="login-input"
                   v-model="movieFilters.query"
                   placeholder="输入关键词"
+                  small
                 />
                 <Btn v-if="movieFilters.query" @click="clearMovieQuery"
                   >取消</Btn
@@ -598,8 +600,9 @@ const filteredDocuments = computed(() => {
   .search-input {
     display: flex;
     height: 34px;
+    align-items: center;
     .button {
-      margin-left: 16px;
+      margin-left: 12px;
       flex: 0 0 auto;
     }
   }
