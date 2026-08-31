@@ -94,6 +94,7 @@ const resetCanvasView = () => {
 
 const onWheel = (event: WheelEvent) => {
   event.preventDefault()
+  if (!allowPinching) return
   setZoom(event.deltaY < 0 ? 0.08 : -0.08, event.offsetX, event.offsetY)
 }
 
@@ -220,9 +221,6 @@ defineExpose({
 const showAutoAdjustBtn = computed(() => {
   return allowPanning || allowPinching
 })
-const showControls = computed(() => {
-  return showAutoAdjustBtn.value || slots['control-left'] || slots['control-right']
-})
 
 onMounted(() => {
   setCanvasSize()
@@ -252,7 +250,7 @@ onMounted(() => {
     </div>
   </div>
 
-  <div class="board-controls" v-if="showControls">
+  <div class="board-controls">
     <div class="left">
       <slot name="control-left"></slot>
     </div>
@@ -316,12 +314,22 @@ onMounted(() => {
 .board-controls {
   display: flex;
   margin-top: 6px;
+  align-items: center;
+  justify-content: space-between;
 
   .left {
-    flex: 1 1 auto;
+    display: flex;
+    gap: 4px;
+    align-items: center;
   }
 
   .right {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+  }
+  &:not(:has(.left > *)):not(:has(.right > *)) {
+    display: none;
   }
 }
 </style>

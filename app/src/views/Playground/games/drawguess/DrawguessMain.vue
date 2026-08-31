@@ -2,7 +2,9 @@
 import Btn from '@/components/Btn.vue'
 import Card from '@/components/Card.vue'
 import GameBoard from '@/components/GameBoard.vue'
+import LoadingEllipsis from '@/components/LoadingEllipsis.vue'
 import Modal from '@/components/Modal.vue'
+import { request } from '@/utils/request'
 import { Coord, IGameRoom, WsCustomMsg, WsCustomMsgName, WsEventMsg } from 'shared/types/game'
 import {
   DrawGuessCustomMsgTypes,
@@ -10,10 +12,25 @@ import {
   IDrawGuessRoom,
   StrokeChunk,
   SyncStrokeDTO,
+  ReplayData,
+  Vote,
+  VoteDTO,
 } from 'shared/types/games/drawguess'
-import { displayTime } from 'shared/utils'
+import { coordTransform, displayTime, TaskQueue, ThrottledDataResolver } from 'shared/utils'
 import { Socket } from 'socket.io-client'
-import { computed, nextTick, onMounted, onUnmounted, Ref, ref, watch } from 'vue'
+import {
+  computed,
+  inject,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  Ref,
+  ref,
+  watch,
+  watchEffect,
+} from 'vue'
+import VoteComp from '@/components/Vote.vue'
+import { useToastStore } from '@/store/toast'
 
 const { room, userId, socket } = defineProps<{
   room: IDrawGuessRoom
@@ -24,7 +41,7 @@ const { room, userId, socket } = defineProps<{
 const CANVAS_WIDTH = 800
 const CANVAS_HEIGHT = 600
 
-const COLOR_OPTIONS = ['#000000', '#ff4d4f', '#faad14', '#13c2c2', '#52c41a', '#1890ff', '#722ed1']
+const COLOR_OPTIONS = ['black', 'white', 'red', 'orange', 'yellow', 'green', 'blue', 'purple']
 const LINE_WIDTH_OPTIONS = [1, 3, 5, 10]
 
 const GameBoardRef = ref<InstanceType<typeof GameBoard> | null>(null)
@@ -39,22 +56,24 @@ const selectedLineWidth = ref(LINE_WIDTH_OPTIONS[1])
 
 // ==================== 动作映射到绘制 ====================
 
-const currentStrokes: StrokeChunk[] = []
+const sendQueue: StrokeChunk[] = []
 let currentStrokeId = 0 // 用于后续连接
 let lastPoint: Coord | null = null // 用于画线
 
 const onPointerDown = (coord: Coord) => {
   if (!canDraw.value) return
 
-  const newStrokeId = Date.now()
-  currentStrokeId = newStrokeId
+  const now = Date.now()
+  currentStrokeId = now
   const newStroke = {
-    id: newStrokeId,
+    id: now,
+    start: now,
+    end: now,
     color: selectedColor.value,
     width: selectedLineWidth.value,
     points: [[coord.x, coord.y]] as [number, number][],
   }
-  currentStrokes.push(newStroke)
+  sendQueue.push(newStroke)
   lastPoint = coord
 }
 const onPointerMove = (coord: Coord) => {
@@ -66,18 +85,23 @@ const onPointerMove = (coord: Coord) => {
     return
   }
 
-  let currentStroke = currentStrokes.at(-1)
+  const now = Date.now()
+  let currentStroke = sendQueue.at(-1)
   if (currentStroke) {
     currentStroke.points.push([coord.x, coord.y])
+    currentStroke.end = now
   } else {
     currentStroke = {
       id: currentStrokeId,
+      start: now,
+      end: now,
       color: selectedColor.value,
       width: selectedLineWidth.value,
       points: [[coord.x, coord.y]] as [number, number][],
     }
-    currentStrokes.push(currentStroke)
+    sendQueue.push(currentStroke)
   }
+
   if (lastPoint) {
     drawLine(lastPoint, coord, selectedColor.value, selectedLineWidth.value)
   }
@@ -96,6 +120,11 @@ const onPointerUp = (coord: Coord) => {
     drawLine(lastPoint, coord, selectedColor.value, selectedLineWidth.value)
     lastPoint = null
   }
+}
+const onClearCanvas = () => {
+  if (!canDraw.value) return
+  socket.emit(DrawGuessCustomMsgTypes.ClearCanvas)
+  drawBackground()
 }
 
 // ==================== draw ====================
@@ -139,27 +168,65 @@ const drawStroke = (chunk: StrokeChunk, latest?: boolean) => {
   }
   GameBoardRef.value?.draw(drawFunc)
 }
-const drawStrokes = (strokes: StrokeChunk[]) => {
+const drawAllStrokes = (strokes: StrokeChunk[]) => {
   strokes.forEach(chunk => {
     drawStroke(chunk)
   })
 }
 
+// ==================== animation ====================
+
+const animateStroke = async (stroke: StrokeChunk) => {
+  return new Promise<void>(resolve => {
+    const strokeDuration = stroke.end - stroke.start
+    const strokeLength = stroke.points.length
+    let currentFrame = 0
+    let startTime = Date.now()
+    const currentPoint = coordTransform(stroke.points[0])
+    if (currentStrokeId === stroke.id && lastPoint) {
+      // 接着画，先连上第一个点
+      drawLine(lastPoint, currentPoint, stroke.color, stroke.width)
+      lastPoint = currentPoint
+    } else {
+      // 新的stroke，设置lastPoint
+      lastPoint = currentPoint
+    }
+    function drawFrame() {
+      const nextFrame = Math.round(((Date.now() - startTime) / strokeDuration) * strokeLength)
+      if (nextFrame > currentFrame) {
+        if (nextFrame >= strokeLength) {
+          // 画完了
+          resolve()
+          return
+        }
+        // need draw
+        currentFrame = nextFrame
+        const currentPoint = coordTransform(stroke.points[currentFrame])
+        drawLine(lastPoint!, currentPoint, stroke.color, stroke.width)
+        lastPoint = currentPoint
+      }
+      requestAnimationFrame(drawFrame)
+    }
+    requestAnimationFrame(drawFrame)
+  })
+}
+const animatedStrokesQueue = new TaskQueue<StrokeChunk>(animateStroke)
+
 // ==================== sync ====================
 
 let syncTimer: number | null = null
-const sendStrokes = (strokes: StrokeChunk[]) => {
-  socket.emit(DrawGuessCustomMsgTypes.DrawStroke, strokes)
+const sendStrokes = () => {
+  if (sendQueue.length > 0) {
+    socket.emit(DrawGuessCustomMsgTypes.DrawStroke, sendQueue)
+    sendQueue.length = 0
+  }
 }
 onMounted(() => {
   syncTimer = setInterval(() => {
-    if (currentStrokes.length > 0) {
-      sendStrokes(currentStrokes)
-      currentStrokes.length = 0
-    }
+    sendStrokes()
   }, 1000)
   socket.on(DrawGuessCustomMsgTypes.SyncStrokes, (data: SyncStrokeDTO) => {
-    drawStrokes(data)
+    animatedStrokesQueue.addTask(data)
   })
   socket.on('clearCanvas', () => {
     drawBackground()
@@ -175,16 +242,140 @@ onUnmounted(() => {
 
 // ==================== 倒计时 ====================
 
-const timerValue = ref(displayTime(DrawGuessDurations.TurnDuration))
+const timerValue = ref(displayTime(DrawGuessDurations.TurnBeforeDuration))
 let countdownTimer: number | null = null
 const updateTimerValue = () => {
   timerValue.value = displayTime(room.duration - (Date.now() - room.startTime))
 }
 
+// ==================== round结束展示本回合所有画作 ====================
+
+const replayData = ref<{ [turn: number]: ReplayData }>({})
+const replayIndex = ref(1) // start from 1
+const replayCurRound = computed(() => `${replayIndex.value}/${room.maxRounds}`)
+const replayCurDrawerName = computed(() => {
+  const drawerId = replayData.value[replayIndex.value]?.drawerId
+  return `${replayData.value[replayIndex.value]?.word || ''} by ${room.users[drawerId || '']?.name || ''}`
+})
+const showPrevReplay = () => {
+  const cur = replayIndex.value
+  const total = room.maxRounds
+  const next = ((cur - 2 + total) % total) + 1
+  replayIndex.value = next
+  selectReplayTurn(next)
+}
+const showNextReplay = () => {
+  const cur = replayIndex.value
+  const total = room.maxRounds
+  const next = (cur % total) + 1
+  replayIndex.value = next
+  selectReplayTurn(next)
+}
+const selectReplayTurn = (turn: number) => {
+  if (replayData.value[turn]) {
+    replayIndex.value = turn
+    drawBackground()
+    drawAllStrokes(replayData.value[turn].strokes)
+  } else {
+    socket.emit(DrawGuessCustomMsgTypes.SyncReplayData, { turn })
+  }
+}
+socket.on(DrawGuessCustomMsgTypes.SyncReplayData, (data: ReplayData) => {
+  const turn = data.turn
+  replayData.value[turn] = data
+  selectReplayTurn(turn)
+})
+
+// ==================== 聊天 ====================
+
+const { clearMessages, toggleChat, setChatTitle, toggleCanSend, addMessage } = inject(
+  'GameChat'
+) as any
+watch(
+  () => room.turnStatus + room.roundStatus,
+  () => {
+    if (room.turnStatus === 'ing') {
+      clearMessages()
+      setChatTitle('猜词')
+      toggleChat(true)
+      addMessage({
+        id: `system-${Date.now()}`,
+        type: 'system',
+        content: `第${room.turn}回合开始，${room.users[room.drawerId]?.name || ''}正在作画`,
+      })
+    } else {
+      setChatTitle()
+    }
+    if (room.turnStatus === 'after') {
+      addMessage({
+        id: `system-${Date.now()}`,
+        type: 'system',
+        content: `第${room.turn}回合结束，${
+          room.correctUserIds.length > 0 ? `${room.correctUserIds.length}个人` : `没有人`
+        }猜对${room.correctUserIds.length > 0 ? '了' : ''}，答案是：${room.word}`,
+      })
+    }
+    if (room.roundStatus === 'after') {
+      addMessage({
+        id: `system-${Date.now()}`,
+        type: 'system',
+        content: '本局游戏结束',
+      })
+    }
+    toggleCanSend(!(imDrawer.value && room.turnStatus === 'ing'))
+  }
+)
+onUnmounted(() => {
+  setChatTitle()
+})
+
+// ==================== 换词 ====================
+
+const toastStore = useToastStore()
+const onChangeWord = () => {
+  toastStore.showToast({ content: '减少了这个词出现的频率', type: 'OK' })
+  socket.emit(DrawGuessCustomMsgTypes.ChangeWord)
+}
+
+// ==================== 点赞点踩 ====================
+const voteRef = ref<any | null>(null)
+const voteSender = new ThrottledDataResolver<Vote>(1000, async (votes: VoteDTO) => {
+  socket.emit(DrawGuessCustomMsgTypes.Vote, votes)
+  votes.length = 0
+})
+const onClickGood = () => {
+  voteRef.value?.addVote(1)
+  voteSender.addData(1)
+}
+const onClickBad = () => {
+  voteRef.value?.addVote(0)
+  voteSender.addData(0)
+}
+socket.on(DrawGuessCustomMsgTypes.Vote, (votes: VoteDTO) => {
+  voteRef.value?.addVote(votes)
+})
+
+// ==================== lifecycle ====================
+
 watch(
   () => room.turnStatus,
   (newStatus, oldStatus) => {
     updateTimerValue()
+  },
+  { immediate: true }
+)
+watch(
+  () => room.roundStatus,
+  (newStatus, oldStatus) => {
+    // round开始，初始化
+    if (newStatus === 'ing') {
+      drawBackground()
+      replayIndex.value = 1
+      replayData.value = {}
+    } else if (newStatus === 'after') {
+      // round结束，展示第一回合画作
+      selectReplayTurn(1)
+    }
   },
   { immediate: true }
 )
@@ -195,13 +386,12 @@ watch(
     if (room.status === 'playing') {
       nextTick(() => {
         drawBackground()
-        drawStrokes(newStrokes)
+        drawAllStrokes(newStrokes)
       })
     }
   },
   { immediate: true }
 )
-
 onMounted(() => {
   countdownTimer = setInterval(() => {
     updateTimerValue()
@@ -216,8 +406,13 @@ onUnmounted(() => {
 
 <template>
   <div v-if="room.status === 'playing'">
-    <div class="info-bar">
-      <div class="hint">
+    <!-- turn进行中提示 -->
+    <div v-if="room.turnStatus === 'before'" class="flex-lr-box bar">
+      <div class="left">{{ imDrawer ? '你画' : '你猜' }}</div>
+      <div class="right">{{ timerValue }}秒后开始</div>
+    </div>
+    <div v-if="room.turnStatus === 'ing'" class="info-bar bar flex-lr-box">
+      <div class="left">
         <template v-if="imDrawer">
           <div>请画：</div>
           <div class="word-to-draw">{{ room.word }}</div>
@@ -226,9 +421,34 @@ onUnmounted(() => {
           <div>提示：</div>
           <div v-if="room.category" class="word-category">{{ room.category || '' }}</div>
           <div v-if="room.wordLength" class="word-length">，{{ room.wordLength }}个字</div>
+          <LoadingEllipsis v-if="!room.category || !room.wordLength"></LoadingEllipsis>
         </template>
       </div>
-      <div class="timer">{{ timerValue }}秒</div>
+      <div class="right">{{ timerValue }}秒</div>
+    </div>
+    <!-- turn结束展示答案 -->
+    <div
+      v-else-if="room.turnStatus === 'after' && room.roundStatus === 'ing'"
+      class="turn-result-bar flex-lr-box bar"
+    >
+      <div class="left">
+        答案：
+        <div class="result">{{ room.word }}</div>
+        <Btn class="dislike-btn" small @click="onChangeWord">不喜欢这个词</Btn>
+      </div>
+      <div class="right">{{ timerValue }}秒后继续</div>
+    </div>
+    <!-- round结束浏览本回合画作 -->
+    <div v-else-if="room.roundStatus === 'after'" class="round-result-bar flex-lr-box bar">
+      <div class="left">
+        浏览作品
+        <Btn small @click="showPrevReplay">上一个</Btn>
+        <Btn small @click="showNextReplay">下一个</Btn>
+        <div>{{ replayCurRound }}</div>
+      </div>
+      <div class="right">
+        <div>{{ replayCurDrawerName }}</div>
+      </div>
     </div>
     <GameBoard
       :width="CANVAS_WIDTH"
@@ -242,7 +462,7 @@ onUnmounted(() => {
       @pointerup="onPointerUp"
       :highlight="imDrawing"
     >
-      <template #control-left>
+      <template #control-left v-if="imDrawing">
         <div class="draw-options">
           <div class="color-select">
             <div
@@ -254,7 +474,7 @@ onUnmounted(() => {
               @click="selectedColor = color"
             ></div>
           </div>
-          <div class="line-width-select">
+          <div class="line-width-select" v-if="imDrawing">
             <div
               v-for="width in LINE_WIDTH_OPTIONS"
               :key="width"
@@ -266,42 +486,30 @@ onUnmounted(() => {
           </div>
         </div>
       </template>
+      <template #control-right v-if="imDrawing">
+        <Btn type="danger" small @click="onClearCanvas">清空</Btn>
+      </template>
     </GameBoard>
-    <Modal
-      :show="room.turnStatus === 'after' && room.roundStatus === 'ing'"
-      :hide-footer="true"
-      :blur-backdrop="false"
-      :placement="'bottom'"
-    >
-      <div class="turn-result">
-        <div class="result-row">
-          答案：
-          <div class="result">{{ room.word }}</div>
-        </div>
-        <div class="reply">
-          <Btn type="primary" small>&nbsp;&nbsp;赞&nbsp;&nbsp;</Btn>
-          <Btn type="danger" small>&nbsp;&nbsp;踩&nbsp;&nbsp;</Btn>
-        </div>
-      </div>
-    </Modal>
+    <div class="vote-panel" v-if="room.roundStatus === 'ing' && room.turnStatus === 'after'">
+      <Btn type="primary" small @click="onClickGood">&nbsp;&nbsp;赞&nbsp;&nbsp;</Btn>
+      <VoteComp class="vote-comp" ref="voteRef"></VoteComp>
+      <Btn type="danger" small @click="onClickBad">&nbsp;&nbsp;踩&nbsp;&nbsp;</Btn>
+    </div>
   </div>
 </template>
 
 <style lang="less" scoped>
-.info-bar {
-  display: flex;
-  align-items: center;
+.bar {
+  margin: 2px 0 6px 0;
   color: var(--text);
   font-size: 14px;
-  height: 100%;
-  margin: 2px 0 6px 0;
-
-  .hint {
+}
+.info-bar {
+  .left {
     flex: 1 1 auto;
-    display: flex;
     line-height: 14px;
-    align-items: center;
     margin-left: 1px;
+    gap: 0;
 
     .word-to-draw,
     .word-length,
@@ -310,13 +518,28 @@ onUnmounted(() => {
     }
   }
 }
+.turn-result-bar {
+  .left {
+    gap: 0;
+    .result {
+      font-weight: bold;
+    }
+    .dislike-btn {
+      margin-left: 8px;
+    }
+  }
+}
+.round-result-bar {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
 
 .draw-options {
   display: flex;
-  gap: 8px;
+  gap: 4px;
   .color-select {
     display: flex;
-    gap: 4px;
+    gap: 2px;
     .color-option {
       width: 14px;
       height: 14px;
@@ -332,7 +555,7 @@ onUnmounted(() => {
   }
   .line-width-select {
     display: flex;
-    gap: 4px;
+    gap: 0px;
     align-items: center;
     .line-width-option {
       width: 20px;
@@ -352,6 +575,19 @@ onUnmounted(() => {
         background-color: var(--text);
       }
     }
+  }
+}
+
+.vote-panel {
+  margin-top: 6px;
+  display: flex;
+  align-items: flex-start;
+  .button {
+    margin-top: 4px;
+    flex: 0 0 auto;
+  }
+  .vote-comp {
+    flex: 1 1 auto;
   }
 }
 

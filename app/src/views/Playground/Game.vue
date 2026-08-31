@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, provide, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import io, { Socket } from 'socket.io-client'
 import { ip } from '../../config'
@@ -12,12 +12,14 @@ import EditableInput from '../../components/EditableInput.vue'
 import { useToastStore } from '../../store/toast'
 import List from '@/components/layout/List.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
-import { IGameRoom, WsCustomMsgName, WsEventMsg } from 'shared/types/game'
+import { IGameRoom, IGameUser, WsCustomMsg, WsCustomMsgName, WsEventMsg } from 'shared/types/game'
+import { ReliableEngine, ReliablePacket } from 'shared/reliableEngine'
 import StepperFilter from '@/components/StepperFilter.vue'
 import DrawGuess from './games/drawguess/main.ts'
 import Table from '@/components/Table.vue'
 import { create2DArray } from 'shared/utils.ts'
 import Card from '@/components/Card.vue'
+import CircleBtn from '@/components/CircleBtn.vue'
 
 // ==================== 基础 ====================
 
@@ -52,14 +54,14 @@ const isMeActing = computed(() => {
   return (
     room.status === 'playing' &&
     room.roundStatus === 'ing' &&
-    selectedGame.value?.isMeActing?.({ room, userId: userId.value })
+    selectedGame.value?.imActing?.({ room, userId: userId.value, ws })
   )
 })
 const joinError = ref('')
 const hasRoom = computed(() => !!room.id && !!userId.value)
 
 function startGame() {
-  selectedGame.value?.setup?.({ room, userId: userId.value, ws: socket as unknown as WebSocket })
+  selectedGame.value?.setup?.({ room, userId: userId.value, ws })
   socket?.emit('startGame', { roomId: room.id, userId: userId.value }, wsErrorHandler)
 }
 function endGame() {
@@ -94,20 +96,62 @@ function onSyncRoom(newData: IGameRoom) {
 // ==================== WebSocket ====================
 
 let socket: Socket | null = null
-let sendSeq = 0
-let recvSeq = 0
-let recvT = 0
-function emit(type: string, data: any) {
-  socket?.emit(WsCustomMsgName, { seq: sendSeq++, t: Date.now(), data: { type, data } } as WsEventMsg)
-}
-function on(type: string, callback: (data: any) => void) {
-  socket?.on(type, (msg: WsEventMsg) => {
-    callback(msg.data)
+let reliable = new ReliableEngine<any>()
+let customMsgReliable = new ReliableEngine<WsCustomMsg>()
+const reliableWrappedHandlers = new Map<
+  string,
+  Map<(data: any) => void, (msg: WsEventMsg) => void>
+>()
+
+function createIncomingReliableEngine() {
+  reliable = new ReliableEngine<any>({
+    gapTimeoutMs: 1200,
+    onGapTimeout: ({ expectedSeq, highestSeq }) => {
+      seqGaps.value += Math.max(0, highestSeq - expectedSeq + 1)
+      socket?.emit('requestResend', { fromSeq: expectedSeq, toSeq: highestSeq })
+    },
   })
 }
-function off(type: string, callback?: (data: any) => void) {
-  socket?.off(type, callback)
+
+function createOutgoingReliableEngine() {
+  customMsgReliable = new ReliableEngine<WsCustomMsg>()
 }
+
+function emit(type: string, data: any) {
+  const packet = customMsgReliable.createOutgoingPacket({ type, data })
+  socket?.emit(WsCustomMsgName, packet)
+}
+function on(type: string, callback: (data: any) => void) {
+  const wrapped = (msg: WsEventMsg) => {
+    const packet = msg as unknown as ReliablePacket<any>
+    reliable.consumeIncomingPacket(packet, delivered => {
+      trackSeq(delivered.seq)
+      callback(delivered.data)
+    })
+  }
+  if (!reliableWrappedHandlers.has(type)) {
+    reliableWrappedHandlers.set(type, new Map())
+  }
+  reliableWrappedHandlers.get(type)!.set(callback, wrapped)
+  socket?.on(type, wrapped)
+}
+function off(type: string, callback?: (data: any) => void) {
+  if (!callback) {
+    const callbackMap = reliableWrappedHandlers.get(type)
+    if (callbackMap) {
+      for (const wrapped of callbackMap.values()) {
+        socket?.off(type, wrapped)
+      }
+      callbackMap.clear()
+    }
+    return
+  }
+  const wrapped = reliableWrappedHandlers.get(type)?.get(callback)
+  if (!wrapped) return
+  socket?.off(type, wrapped)
+  reliableWrappedHandlers.get(type)?.delete(callback)
+}
+const ws = { emit, on, off } as any as WebSocket
 const wsErrorHandler = (resp: any) => {
   if (resp?.success === false) {
     toastStore.showToast({ content: resp.message || '操作失败', type: '!' })
@@ -131,6 +175,10 @@ function setupHandlers() {
 
   socket.on('connect', () => {
     connected.value = true
+    createIncomingReliableEngine()
+    createOutgoingReliableEngine()
+    lastSeq.value = 0
+    seqGaps.value = 0
     socket!.emit('joinRoom', { roomId: roomId, userId: userId.value }, (resp: any) => {
       if (resp?.success === false) {
         joinError.value = resp.message || '加入房间失败'
@@ -153,17 +201,29 @@ function setupHandlers() {
     joinError.value = error?.message || '连接失败'
   })
 
-  socket.on('syncRoom', (msg: WsEventMsg) => {
-    // trackSeq(msg?.seq)
-    onSyncRoom(msg.data)
+  on('syncRoom', data => {
+    onSyncRoom(data as IGameRoom)
+  })
+
+  socket.on('ackClientMessage', (payload: { seq: number }) => {
+    if (!Number.isFinite(payload?.seq)) return
+    customMsgReliable.ack(Math.floor(payload.seq))
+  })
+
+  socket.on('requestClientResend', (payload: { fromSeq: number; toSeq?: number }) => {
+    const fromSeq = Math.max(1, Math.floor(payload?.fromSeq || 1))
+    const toSeq = Number.isFinite(payload?.toSeq) ? Math.floor(payload.toSeq as number) : undefined
+    const packets = customMsgReliable.getOutgoingRange(fromSeq, toSeq)
+    for (const packet of packets) {
+      socket?.emit(WsCustomMsgName, { ...packet, t: Date.now() })
+    }
   })
 
   on('message', GameMsg => {
-    messages.value.push(GameMsg)
-    if (messages.value.length > 200) messages.value.splice(0, messages.value.length - 200)
+    addMessage(GameMsg)
   })
 
-  socket.on('roomClosed', () => {
+  on('roomClosed', () => {
     joinError.value = '房间已关闭'
     toastStore.showToast({ content: '房间已被关闭', type: '!' })
   })
@@ -184,20 +244,25 @@ function setupHandlers() {
 
 // ==================== 游戏选择 ====================
 
+export interface GameOptionHookParams {
+  room: IGameRoom
+  userId: string
+  ws: WebSocket
+}
 export interface GameOptions {
   gameinfo?: any
   main?: any
   customBadges?: any
   customChatMsg?: any
-  setup?: (params: { room: any; userId: string; ws: WebSocket }) => void
-  isMeActing?: (params: { room: any; userId: string }) => boolean
+  setup?: (params: GameOptionHookParams) => void
+  imActing?: (params: GameOptionHookParams) => boolean
 }
 
 const gameList = [
   {
     key: 'drawguess',
     name: '你画我猜',
-    options: DrawGuess as GameOptions,
+    options: DrawGuess,
   },
 ]
 const allowChangeGame = ref(false)
@@ -257,10 +322,8 @@ function trackSeq(seq: number) {
   } else if (seq === lastSeq.value + 1) {
     lastSeq.value = seq
   } else if (seq > lastSeq.value + 1) {
-    // 检测到缺口 —— 视为丢包/乱序，补拉全量。
     seqGaps.value += seq - lastSeq.value - 1
     lastSeq.value = seq
-    socket?.emit('resync')
   }
   // 收到即确认（消息确认）。
   socket?.emit('ackMessage', { seq })
@@ -280,48 +343,83 @@ interface ChatMessage {
   content: string
 }
 
-const messages = ref<ChatMessage[]>([])
-const seenSeq = new Set<number>()
-const chatText = ref('')
-const chatVisible = ref(false)
-const chatMessagesRef = ref<HTMLElement | null>(null)
-const lastPreview = ref('')
-let previewTimer: number | null = null
-
-watch(messages, (newVal, oldVal) => {
-  if (!Array.isArray(newVal) || newVal.length === 0) return
-  if (!oldVal || newVal.length <= oldVal.length) return
-  const latest = newVal[newVal.length - 1]
-  if (chatVisible.value) {
-    nextTick(() => {
-      if (chatMessagesRef.value) {
-        chatMessagesRef.value.scrollTop = chatMessagesRef.value.scrollHeight
-      }
-    })
-  } else {
-    const name = latest?.userName || ''
-    const text = latest?.content || ''
-    lastPreview.value = name ? `${name}: ${text}` : text
-    if (previewTimer) {
-      clearTimeout(previewTimer)
-    }
-    previewTimer = window.setTimeout(() => {
-      lastPreview.value = ''
-      previewTimer = null
-    }, 5000)
-  }
+const chatConfig = reactive({
+  title: '聊天',
+  visible: true,
+  canSend: true,
 })
+const messages = ref<ChatMessage[]>([])
+const chatText = ref('')
+const chatMessagesRef = ref<HTMLElement | null>(null)
+const isChatAtBottom = ref(true)
 
+watch(
+  () => chatConfig.visible,
+  () => {
+    if (chatConfig.visible) {
+      scrollToBottom()
+    }
+  }
+)
+const onChatScroll = () => {
+  if (!chatMessagesRef.value) return
+  const el = chatMessagesRef.value
+  isChatAtBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 10
+}
+function onClickToBottom() {
+  scrollToBottom()
+}
+function autoScrollToBottom() {
+  console.log('autoScrollToBottom', isChatAtBottom.value, chatConfig.visible)
+  if (!isChatAtBottom.value) { return }
+  scrollToBottom()
+}
+function scrollToBottom() {
+  nextTick(() => {
+    if (chatMessagesRef.value) {
+      chatMessagesRef.value.scrollTop = chatMessagesRef.value.scrollHeight
+    }
+  })
+}
 function sendMessage() {
   const text = chatText.value.trim()
   if (!text) return
   socket?.emit('sendMessage', { text }, wsErrorHandler)
   chatText.value = ''
 }
-
-function toggleChat() {
-  chatVisible.value = !chatVisible.value
+function setChatTitle(title?: string) {
+  chatConfig.title = title || '聊天'
 }
+function toggleChat(value?: boolean | MouseEvent) {
+  if (typeof value === 'boolean') {
+    chatConfig.visible = value
+  } else {
+    chatConfig.visible = !chatConfig.visible
+  }
+}
+function clearMessages() {
+  messages.value = []
+}
+function toggleCanSend(value?: boolean | MouseEvent) {
+  if (typeof value === 'boolean') {
+    chatConfig.canSend = value
+  } else {
+    chatConfig.canSend = !chatConfig.canSend
+  }
+}
+function addMessage(newMsg: ChatMessage) {
+  messages.value.push(newMsg)
+  if (messages.value.length > 200) messages.value.splice(0, messages.value.length - 200)
+  autoScrollToBottom()
+}
+provide('GameChat', {
+  clearMessages,
+  setChatTitle,
+  sendMessage,
+  toggleChat,
+  toggleCanSend,
+  addMessage,
+})
 
 // ==================== 对局结果 ====================
 const roundResultsData = reactive({
@@ -488,7 +586,7 @@ onUnmounted(() => {
           v-if="selectedGame?.main"
           :room="room"
           :userId="userId"
-          :socket="{ emit, on, off }"
+          :socket="ws"
         ></component>
 
         <!-- 对局记录 -->
@@ -501,45 +599,55 @@ onUnmounted(() => {
           ></Table>
         </div>
 
-        <!-- 聊天功能（复用 Holdem 的样式与行为，支持 system/chat） -->
+        <!-- 聊天 -->
         <div class="chat-container">
           <div class="chat-header" @click="toggleChat">
-            <div class="chat-toggle">{{ chatVisible ? '−' : '+' }}</div>
+            <div class="chat-toggle">
+              {{ chatConfig.visible ? '−' : '+' }}
+            </div>
             <div class="chat-title">
-              聊天
-              <span class="chat-latest" v-if="lastPreview && !chatVisible">{{ lastPreview }}</span>
+              {{ chatConfig.title }}
             </div>
           </div>
 
-          <div v-if="chatVisible" class="chat-body">
-            <div class="chat-messages" ref="chatMessagesRef">
+          <div v-if="chatConfig.visible" class="chat-body">
+            <div class="chat-messages" ref="chatMessagesRef" @scroll="onChatScroll">
+              <CircleBtn
+                v-if="!isChatAtBottom"
+                class="to-top"
+                :size="24"
+                icon="chevron-down"
+                @click="onClickToBottom"
+              ></CircleBtn>
               <template v-if="!messages.length">
                 <div class="chat-empty">暂无消息</div>
               </template>
               <template v-else>
-                <template v-for="message in messages" :key="message.id">
-                  <div v-if="message.type === 'chat'" class="chat-message chat">
-                    <div class="username">{{ message.userName }}:</div>
-                    <div class="content">{{ message.content }}</div>
-                  </div>
-                  <div v-else-if="message.type === 'system'" class="chat-message system">
-                    {{ message.content }}
-                  </div>
-                  <component
-                    class="chat-message"
-                    v-else
-                    :is="selectedGame?.customChatMsg"
-                    :msg="message"
-                  ></component>
-                </template>
+                <TransitionGroup name="slide-right" tag="div" class="message-list">
+                  <template v-for="message in messages" :key="message.id">
+                    <div v-if="message.type === 'chat'" class="chat-message chat">
+                      <div class="username">{{ message.userName }}:</div>
+                      <div class="content">{{ message.content }}</div>
+                    </div>
+                    <div v-else-if="message.type === 'system'" class="chat-message system">
+                      {{ message.content }}
+                    </div>
+                    <component
+                      class="chat-message"
+                      v-else
+                      :is="selectedGame?.customChatMsg"
+                      :msg="message"
+                    ></component>
+                  </template>
+                </TransitionGroup>
               </template>
             </div>
 
-            <div class="chat-input-area">
+            <div v-if="chatConfig.canSend" class="chat-input-area">
               <Input
                 v-model="chatText"
                 class="chat-input"
-                placeholder="输入消息..."
+                placeholder="输入..."
                 @keyup.enter="sendMessage"
               />
               <button class="chat-send-btn" :disabled="!chatText.trim()" @click="sendMessage">
@@ -783,12 +891,26 @@ onUnmounted(() => {
       padding: 8px;
       overflow-y: auto;
       background-color: rgba(var(--card-bg-rgb), 0.06);
+      overflow-x: hidden;
 
       .chat-empty {
         text-align: left;
         color: var(--text-secondary);
         font-size: 12px;
         margin-left: 1px;
+      }
+
+      .to-top {
+        position: absolute;
+        bottom: 60px;
+        right: 12px;
+        opacity: 0.7;
+        z-index: 10;
+        box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+      }
+
+      .message-list {
+        position: relative;
       }
 
       .chat-message {
@@ -828,6 +950,27 @@ onUnmounted(() => {
           margin-right: 6px;
           color: var(--accent-color);
         }
+      }
+
+      .slide-right-enter-active {
+        transition: all 0.35s cubic-bezier(0.25, 1, 0.5, 1);
+      }
+
+      .slide-right-enter-from {
+        opacity: 0;
+        transform: translateX(30px) translateY(2px);
+      }
+
+      .slide-right-enter-to {
+        opacity: 1;
+        transform: translateX(0) translateY(0);
+      }
+
+      .slide-right-leave-active {
+        transition: all 0.2s ease;
+      }
+      .slide-right-leave-to {
+        opacity: 0;
       }
     }
 

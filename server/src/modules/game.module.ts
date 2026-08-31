@@ -5,11 +5,13 @@ import {
   Delete,
   Get,
   Module,
+  OnModuleInit,
   Param,
   Post,
   UseFilters,
   WsExceptionFilter,
 } from '@nestjs/common';
+import { InjectConnection, MongooseModule } from '@nestjs/mongoose';
 import {
   WebSocketGateway,
   WebSocketServer,
@@ -35,8 +37,10 @@ import {
   TurnStatus,
   WsCustomMsg,
 } from 'shared/types/game';
+import { ReliableEngine, ReliablePacket } from 'shared/reliableEngine';
 import { shuffle } from 'shared/utils';
 import DrawGuess from './games/drawguess';
+import mongoose, { Connection } from 'mongoose';
 
 const GAME_MAP: Record<string, any> = {
   drawguess: DrawGuess,
@@ -61,6 +65,7 @@ export interface Game {
   onIngTurnStart?: (params: GameHookParams) => GameHookReturn;
   onAfterTurnStart?: (params: GameHookParams) => GameHookReturn;
   onAfterTurnEnd?: (params: GameHookParams) => void;
+  onUnmounted?: (params: GameHookParams) => void;
   onMsg?: ({
     type,
     room,
@@ -181,6 +186,9 @@ export class GameUser extends AutoSyncData implements IGameUser {
 
   ackedSeq: number;
   seq: number;
+  reliable: ReliableEngine<any>;
+  incomingReliable: ReliableEngine<WsCustomMsg>;
+  sendEventsBySeq: Map<number, string>;
 
   [key: string]: any; // 允许附加自定义字段
 
@@ -197,6 +205,9 @@ export class GameUser extends AutoSyncData implements IGameUser {
     this.readyStatus = null;
     this.ackedSeq = 0;
     this.seq = 0;
+    this.reliable = new ReliableEngine<any>();
+    this.incomingReliable = new ReliableEngine<WsCustomMsg>();
+    this.sendEventsBySeq = new Map<number, string>();
   }
 }
 
@@ -374,12 +385,39 @@ export class GameRoom extends AutoSyncData implements IGameRoom {
   }) {
     user = user || this.users[userId!];
     if (!user || !user.clientId || user.connectStatus !== 'connected') return;
-    user.seq = (user.seq || 0) + 1;
+    const packet = user.reliable.createOutgoingPacket(data);
+    user.seq = packet.seq;
+    user.sendEventsBySeq.set(packet.seq, event);
     this.gateway.emitToUser({
       clientId: user.clientId,
       event,
-      payload: { seq: user.seq, t: Date.now(), data },
+      payload: packet,
     });
+  }
+
+  resendToUser({
+    user,
+    fromSeq,
+    toSeq,
+  }: {
+    user: GameUser;
+    fromSeq: number;
+    toSeq?: number;
+  }) {
+    if (!user || !user.clientId || user.connectStatus !== 'connected') return;
+    const packets = user.reliable.getOutgoingRange(fromSeq, toSeq);
+    for (const packet of packets) {
+      const payload: ReliablePacket<any> = {
+        ...packet,
+        t: Date.now(),
+      };
+      const event = user.sendEventsBySeq.get(packet.seq) || 'syncRoom';
+      this.gateway.emitToUser({
+        clientId: user.clientId,
+        event,
+        payload,
+      });
+    }
   }
 
   addUser({
@@ -390,6 +428,7 @@ export class GameRoom extends AutoSyncData implements IGameRoom {
     clientId: string;
   }): GameUser {
     const newUser = new GameUser(userId, clientId);
+    this.setupIncomingReliable(newUser);
     this.userOrder.push(newUser.id);
     this.setDirty('userOrder');
     this.users[newUser.id] = newUser;
@@ -407,8 +446,27 @@ export class GameRoom extends AutoSyncData implements IGameRoom {
       // exist, reconnect
       user.clientId = clientId;
       user.connectStatus = 'connected';
+      user.seq = 0;
+      user.ackedSeq = 0;
+      user.reliable = new ReliableEngine<any>();
+      user.sendEventsBySeq.clear();
+      this.setupIncomingReliable(user);
     }
     this.sync({ syncAll: [userId] });
+  }
+
+  private setupIncomingReliable(user: GameUser) {
+    user.incomingReliable = new ReliableEngine<WsCustomMsg>({
+      gapTimeoutMs: 1200,
+      onGapTimeout: ({ expectedSeq, highestSeq }) => {
+        if (!user.clientId || user.connectStatus !== 'connected') return;
+        this.gateway.emitToUser({
+          clientId: user.clientId,
+          event: 'requestClientResend',
+          payload: { fromSeq: expectedSeq, toSeq: highestSeq },
+        });
+      },
+    });
   }
 
   userDisconnect({ userId }: { userId: string }) {
@@ -477,6 +535,7 @@ export class GameRoom extends AutoSyncData implements IGameRoom {
   gotoBeforeGame() {
     this.clearTimer();
     // reset the game
+    this.game?.onUnmounted?.({ room: this });
     this.status = 'waiting';
     this.turn = 0;
     this.round = 0;
@@ -487,7 +546,7 @@ export class GameRoom extends AutoSyncData implements IGameRoom {
   gotoIngGame() {
     this.clearTimer();
     this.status = 'playing';
-    this.game = new GAME_MAP[this.gameKey]();
+    this.game = new GAME_MAP[this.gameKey]({ room: this });
     this.game?.onStartGame?.({ room: this });
     this.gotoBeforeRound();
   }
@@ -508,12 +567,12 @@ export class GameRoom extends AutoSyncData implements IGameRoom {
       this.gotoIngRound();
       return;
     }
-    this.sync();
     if (duration) {
-      setTimeout(() => {
+      this.setTimer(() => {
         this.gotoIngRound();
       }, duration);
     }
+    this.sync();
   }
 
   gotoIngRound() {
@@ -530,18 +589,18 @@ export class GameRoom extends AutoSyncData implements IGameRoom {
   gotoBeforeTurn() {
     this.turnStatus = 'before';
     this.turn += 1;
-    const { duration, skip = true } =
+    const { duration = 0, skip } =
       this.game?.onBeforeTurnStart?.({ room: this }) || {};
     if (skip) {
       this.gotoIngTurn();
       return;
     }
-    this.sync();
     if (duration) {
-      setTimeout(() => {
+      this.setTimer(() => {
         this.gotoIngTurn();
       }, duration);
     }
+    this.sync();
   }
 
   gotoIngTurn() {
@@ -584,7 +643,7 @@ export class GameRoom extends AutoSyncData implements IGameRoom {
       round: this.round,
       users,
     };
-    this.roundResults = [...this.roundResults, roundResult];
+    this.roundResults = [roundResult, ...this.roundResults];
   }
 
   setUserStatus({ userId, status }: { userId: string; status: ReadyStatus }) {
@@ -666,19 +725,37 @@ export class GlobalWsExceptionFilter implements WsExceptionFilter {
 
 @UseFilters(new GlobalWsExceptionFilter())
 @WebSocketGateway({ cors: true, namespace: 'game' })
-export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class GameGateway
+  implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit
+{
   @WebSocketServer() server: Server;
 
   rooms = new Map<string, GameRoom>();
   private socketToRoom = new Map<string, string>();
   private socketToUser = new Map<string, string>();
 
-  constructor() {
+  constructor(@InjectConnection() private readonly connection: Connection) {
     this.server = {} as Server;
   }
 
   // ===== 连接生命周期 =====
   handleConnection(client: Socket) {}
+
+  onModuleInit() {
+    // 2. 提供给游戏注册的通用工具函数
+    const createModel = (name: string, schema: mongoose.Schema) => {
+      return this.connection.model(name, schema);
+    };
+
+    // 3. 自动触发所有已定义 registerModels 的游戏
+    for (const GameClass of Object.values(GAME_MAP)) {
+      if (typeof (GameClass as any).registerModels === 'function') {
+        (GameClass as any).registerModels(createModel);
+      }
+    }
+    
+    console.log('All game models successfully registered to NestJS connection.');
+  }
 
   handleDisconnect(client: Socket) {
     const roomId = this.socketToRoom.get(client.id);
@@ -760,11 +837,29 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   @SubscribeMessage('msg')
   onCustomMessage(
-    @MessageBody() data: WsCustomMsg,
+    @MessageBody() data: any,
     @ConnectedSocket() client: Socket,
   ) {
     const { user, room } = this.getRoomAndUser(client);
-    room.game?.onMsg?.({ type: data.type, room, user, data: data.data });
+    const packet = data as ReliablePacket<WsCustomMsg>;
+    if (Number.isFinite(packet?.seq) && packet?.data) {
+      user.incomingReliable.consumeIncomingPacket(packet, (deliveredPacket) => {
+        const delivered = deliveredPacket.data;
+        room.game?.onMsg?.({ type: delivered.type, room, user, data: delivered.data });
+      });
+      const ackSeq = user.incomingReliable.getExpectedIncomingSeq() - 1;
+      if (ackSeq > 0) {
+        this.emitToUser({
+          clientId: client.id,
+          event: 'ackClientMessage',
+          payload: { seq: ackSeq },
+        });
+      }
+      return;
+    }
+
+    const legacy = data as WsCustomMsg;
+    room.game?.onMsg?.({ type: legacy.type, room, user, data: legacy.data });
     // client.to(roomId).emit('gameMessage', {
     //   userId: user.id,
     //   name: user.name,
@@ -882,8 +977,26 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     const { user } = this.getRoomAndUser(client);
     if (user && Number.isFinite(data?.seq)) {
-      user.ackedSeq = Math.max(user.ackedSeq, Math.floor(data.seq));
+      const ackSeq = Math.floor(data.seq);
+      user.ackedSeq = Math.max(user.ackedSeq, ackSeq);
+      user.reliable.ack(ackSeq);
+      for (const seq of Array.from(user.sendEventsBySeq.keys())) {
+        if (seq <= ackSeq) user.sendEventsBySeq.delete(seq);
+      }
     }
+  }
+
+  @SubscribeMessage('requestResend')
+  onRequestResend(
+    @MessageBody() data: { fromSeq: number; toSeq?: number },
+    @ConnectedSocket() client: Socket,
+  ) {
+    const { user, room } = this.getRoomAndUser(client);
+    const fromSeq = Math.max(1, Math.floor(data?.fromSeq || 1));
+    const toSeq = Number.isFinite(data?.toSeq)
+      ? Math.floor(data.toSeq as number)
+      : undefined;
+    room.resendToUser({ user, fromSeq, toSeq });
   }
 
   // ===== 延迟 / 丢包：ping-pong =====

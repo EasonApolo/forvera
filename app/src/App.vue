@@ -165,6 +165,22 @@ body {
   }
 }
 
+.flex-lr-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  .left {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+  }
+  .right {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+  }
+}
+
 .link {
   color: var(--accent-color);
   cursor: pointer;

@@ -96,10 +96,10 @@ const handleConfirm = () => {
 }
 
 .modal-panel {
-  width: min(100%, 720px);
+  width: min(calc(100% - 16px), 725px);
   max-height: calc(100vh - 32px);
   overflow: auto;
-  border-radius: 0.9rem;
+  border-radius: 0.5rem;
   background: var(--card-bg);
   box-shadow: 0 16px 42px rgba(0, 0, 0, 0.18);
   padding: 0.95rem;

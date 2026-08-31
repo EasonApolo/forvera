@@ -79,6 +79,7 @@ const formatBytes = (bytes?: number) => {
   font-size: 14px;
   position: relative;
   overflow: hidden;
+  user-select: none;
   
   &:hover {
     background-color: var(--btn-hover);

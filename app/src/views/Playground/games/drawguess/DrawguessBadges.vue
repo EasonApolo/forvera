@@ -13,7 +13,7 @@ const { room, user, userId } = defineProps<{
 const totalScore = computed(() => {
   return {
     show: room.status === 'playing',
-    text: `总分：${user.totalScore || 0}`,
+    text: `总分: ${user.totalScore || 0}`,
   }
 })
 const status = computed(() => {
@@ -36,7 +36,7 @@ const status = computed(() => {
     }
   }
   return {
-    show: room.status === 'playing',
+    show: room.status === 'playing' && room.roundStatus === 'ing',
     loading: room.status === 'playing' && room.turnStatus === 'ing' && (user.turnScore || 0) === 0,
     color: user.id === room.drawerId ? '#13c2c2' : '#faad14',
     text,
