@@ -7,24 +7,27 @@ import {
   Module,
   Post,
   Query,
-} from '@nestjs/common'
-import { InjectModel, MongooseModule } from '@nestjs/mongoose'
-import { Model, Schema, Document } from 'mongoose'
-import { GoogleGenAI, Type, type Schema as GenAISchema } from '@google/genai'
-import { Public } from 'src/guards/jwt-auth.guard'
-import { OptionalParseIntPipe } from 'src/shared/parse-int.pipe'
-import { DictionaryRecord, DictionaryWordAnalysis } from 'shared/types/dictionary'
+} from '@nestjs/common';
+import { InjectModel, MongooseModule } from '@nestjs/mongoose';
+import { Model, Schema, Document } from 'mongoose';
+import { GoogleGenAI, Type, type Schema as GenAISchema } from '@google/genai';
+import { Public } from 'src/guards/jwt-auth.guard';
+import { OptionalParseIntPipe } from 'src/shared/parse-int.pipe';
+import {
+  DictionaryRecord,
+  DictionaryWordAnalysis,
+} from 'shared/types/dictionary';
 
-const DICTIONARY_MODEL_NAME = 'DictionaryRecord'
+const DICTIONARY_MODEL_NAME = 'DictionaryRecord';
 
 interface DictionaryDocument extends Document {
-  word: string
-  wordLower: string
-  root: string
-  modelName: string
-  analysis: DictionaryWordAnalysis
-  createdAt?: Date
-  updatedAt?: Date
+  word: string;
+  wordLower: string;
+  root: string;
+  modelName: string;
+  analysis: DictionaryWordAnalysis;
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 const DictionarySchema = new Schema<DictionaryDocument>(
@@ -39,7 +42,7 @@ const DictionarySchema = new Schema<DictionaryDocument>(
     collection: 'dictionary',
     timestamps: true,
   },
-)
+);
 
 const WordAnalysisSchema: GenAISchema = {
   type: Type.OBJECT,
@@ -61,7 +64,10 @@ const WordAnalysisSchema: GenAISchema = {
       description: '非法输入时原因',
       nullable: true,
     },
-    word: { type: Type.STRING, description: '最终用于展示和入库的词形（与 canonicalWord 一致）' },
+    word: {
+      type: Type.STRING,
+      description: '最终用于展示和入库的词形（与 canonicalWord 一致）',
+    },
     rootAnalysis: {
       type: Type.OBJECT,
       description: '词根解析、词源演变故事及同根词',
@@ -69,11 +75,13 @@ const WordAnalysisSchema: GenAISchema = {
       properties: {
         root: {
           type: Type.STRING,
-          description: '纯英文词根/前后缀，只能包含英文字母和连字符；若无独立词根，回退为 canonicalWord',
+          description:
+            '纯英文词根/前后缀，只能包含英文字母和连字符；若无独立词根，回退为 canonicalWord',
         },
         rootMeaning: {
           type: Type.STRING,
-          description: '词根中文含义和来源说明；若无独立词根需注明原生词/拟声词/借词等',
+          description:
+            '词根中文含义和来源说明；若无独立词根需注明原生词/拟声词/借词等',
         },
         etymologyStory: {
           type: Type.STRING,
@@ -109,7 +117,10 @@ const WordAnalysisSchema: GenAISchema = {
             items: {
               type: Type.OBJECT,
               properties: {
-                meaning: { type: Type.STRING, description: '极简中文释义，禁止冗余括号解释' },
+                meaning: {
+                  type: Type.STRING,
+                  description: '极简中文释义，禁止冗余括号解释',
+                },
                 example: { type: Type.STRING, description: '英文例句' },
                 exampleTranslation: {
                   type: Type.STRING,
@@ -122,16 +133,35 @@ const WordAnalysisSchema: GenAISchema = {
                     type: Type.OBJECT,
                     properties: {
                       term: { type: Type.STRING, description: '词或短语' },
-                      isOriginalWord: { type: Type.BOOLEAN, description: '是否原词' },
-                      usageShare: { type: Type.NUMBER, description: '该词义下使用率百分比' },
-                      usageContext: { type: Type.STRING, description: '语境差异' },
+                      isOriginalWord: {
+                        type: Type.BOOLEAN,
+                        description: '是否原词',
+                      },
+                      usageShare: {
+                        type: Type.NUMBER,
+                        description: '该词义下使用率百分比',
+                      },
+                      usageContext: {
+                        type: Type.STRING,
+                        description: '语境差异',
+                      },
                       note: { type: Type.STRING, description: '补充说明' },
                     },
-                    required: ['term', 'isOriginalWord', 'usageShare', 'usageContext'],
+                    required: [
+                      'term',
+                      'isOriginalWord',
+                      'usageShare',
+                      'usageContext',
+                    ],
                   },
                 },
               },
-              required: ['meaning', 'example', 'exampleTranslation', 'synonymsAnalysis'],
+              required: [
+                'meaning',
+                'example',
+                'exampleTranslation',
+                'synonymsAnalysis',
+              ],
             },
           },
         },
@@ -139,33 +169,37 @@ const WordAnalysisSchema: GenAISchema = {
       },
     },
   },
-  required: ['isWordValid', 'searchedWord', 'canonicalWord', 'word', 'meanings'],
-}
+  required: [
+    'isWordValid',
+    'searchedWord',
+    'canonicalWord',
+    'word',
+    'meanings',
+  ],
+};
 
 class AnalyzeWordDTO {
-  word!: string
-  isoverwirte?: boolean
+  word!: string;
+  isoverwirte?: boolean;
 }
 
 class OverwriteWordDTO {
-  word!: string
+  word!: string;
 }
 
 class DeleteWordDTO {
-  word!: string
+  word!: string;
 }
 
 @Injectable()
 class DictionaryService {
-  private readonly modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
-  private tempOverwrite:
-    | {
-        word: string
-        wordLower: string
-        analysis: DictionaryWordAnalysis
-        updatedAt: Date
-      }
-    | null = null
+  private readonly modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+  private tempOverwrite: {
+    word: string;
+    wordLower: string;
+    analysis: DictionaryWordAnalysis;
+    updatedAt: Date;
+  } | null = null;
 
   constructor(
     @InjectModel(DICTIONARY_MODEL_NAME)
@@ -173,53 +207,62 @@ class DictionaryService {
   ) {}
 
   private formatErrorDetail(err: unknown) {
-    const parts: string[] = []
-    const target = (err || {}) as any
+    const parts: string[] = [];
+    const target = (err || {}) as any;
 
-    if (target.name) parts.push(`name=${target.name}`)
-    if (target.message) parts.push(`message=${target.message}`)
-    if (target.code) parts.push(`code=${target.code}`)
+    if (target.name) parts.push(`name=${target.name}`);
+    if (target.message) parts.push(`message=${target.message}`);
+    if (target.code) parts.push(`code=${target.code}`);
 
-    const cause = target.cause as any
+    const cause = target.cause as any;
     if (cause) {
-      if (cause.name) parts.push(`cause.name=${cause.name}`)
-      if (cause.message) parts.push(`cause.message=${cause.message}`)
-      if (cause.code) parts.push(`cause.code=${cause.code}`)
+      if (cause.name) parts.push(`cause.name=${cause.name}`);
+      if (cause.message) parts.push(`cause.message=${cause.message}`);
+      if (cause.code) parts.push(`cause.code=${cause.code}`);
     }
 
-    if (target.response?.status) parts.push(`response.status=${target.response.status}`)
-    if (target.response?.statusText) parts.push(`response.statusText=${target.response.statusText}`)
+    if (target.response?.status)
+      parts.push(`response.status=${target.response.status}`);
+    if (target.response?.statusText)
+      parts.push(`response.statusText=${target.response.statusText}`);
 
-    return parts.filter(Boolean).join('; ') || String(err)
+    return parts.filter(Boolean).join('; ') || String(err);
   }
 
   private isSubsequence(text: string, pattern: string) {
-    let i = 0
-    let j = 0
+    let i = 0;
+    let j = 0;
     while (i < text.length && j < pattern.length) {
       if (text[i] === pattern[j]) {
-        j++
+        j++;
       }
-      i++
+      i++;
     }
-    return j === pattern.length
+    return j === pattern.length;
   }
 
   private getMatchRank(wordLower: string, keywordLower: string) {
-    if (!keywordLower) return 0
-    if (wordLower.startsWith(keywordLower)) return 0
-    if (wordLower.includes(keywordLower)) return 1
-    if (this.isSubsequence(wordLower, keywordLower)) return 2
-    return 3
+    if (!keywordLower) return 0;
+    if (wordLower.startsWith(keywordLower)) return 0;
+    if (wordLower.includes(keywordLower)) return 1;
+    if (this.isSubsequence(wordLower, keywordLower)) return 2;
+    return 3;
   }
 
-  private normalizeWordAnalysis(inputWord: string, raw: DictionaryWordAnalysis) {
-    const canonicalWord = `${raw?.canonicalWord || raw?.word || inputWord}`.trim() || inputWord
-    const isWordValid = !!raw?.isWordValid
-    const fallbackRoot = canonicalWord
-    const normalizedRoot = `${raw?.rootAnalysis?.root || ''}`.trim() || fallbackRoot
-    const normalizedRootMeaning = `${raw?.rootAnalysis?.rootMeaning || ''}`.trim()
-    const normalizedEtymologyStory = `${raw?.rootAnalysis?.etymologyStory || ''}`.trim()
+  private normalizeWordAnalysis(
+    inputWord: string,
+    raw: DictionaryWordAnalysis,
+  ) {
+    const canonicalWord =
+      `${raw?.canonicalWord || raw?.word || inputWord}`.trim() || inputWord;
+    const isWordValid = !!raw?.isWordValid;
+    const fallbackRoot = canonicalWord;
+    const normalizedRoot =
+      `${raw?.rootAnalysis?.root || ''}`.trim() || fallbackRoot;
+    const normalizedRootMeaning =
+      `${raw?.rootAnalysis?.rootMeaning || ''}`.trim();
+    const normalizedEtymologyStory =
+      `${raw?.rootAnalysis?.etymologyStory || ''}`.trim();
 
     return {
       isWordValid,
@@ -261,16 +304,22 @@ class DictionaryService {
               : [],
           }))
         : [],
-    } as DictionaryWordAnalysis
+    } as DictionaryWordAnalysis;
   }
 
   private async generateWordAnalysis(word: string) {
-    const apiKey = (process.env.GEMINI_API_KEY || '').trim()
+    const apiKey = (process.env.GEMINI_API_KEY || '').trim();
     if (!apiKey) {
-      throw new BadRequestException('GEMINI_API_KEY is empty')
+      throw new BadRequestException('GEMINI_API_KEY is empty');
     }
 
-    const ai = new GoogleGenAI({ apiKey })
+    const ai = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      // 将域名指向你的 Cloudflare Workers 代理地址
+      httpOptions: {
+        baseUrl: 'https://gemini.waterlilyapolo.workers.dev/',
+      },
+    });
     const prompt = `你是一个严谨的英语词典分析助手。请分析输入的字符串："${word}"。
 
   严格遵守以下要求：
@@ -295,9 +344,10 @@ class DictionaryService {
   4. 同义词层级：
   - 先按词性分类，再按词义分类。
   - 同义词辨析必须绑定在每个词义 definitions 的 synonymsAnalysis 中。
-  - 每个词义下必须包含原词本身、同义词和同义短语，usageShare 加和必须为 100。`
+  - 每个词义下必须包含原词本身、同义词和同义短语，usageShare 加和必须为 100。
+  - 如果 "${word}" 在它的某个词义下是小众词汇，则usageShare要以通用词汇为整体，例如chopper指一种特殊的摩托车，它的usageShare以所有摩托车作为整体，chopper仅占少数，motorcycle占大多数，而不是仅考虑chopper这一小类摩托车，被查询词在usageShare中不是最多的是合理的。`;
 
-    let response: any
+    let response: any;
     try {
       response = await ai.models.generateContent({
         model: this.modelName,
@@ -307,37 +357,37 @@ class DictionaryService {
           responseSchema: WordAnalysisSchema,
           temperature: 0.2,
         },
-      })
+      });
     } catch (err) {
       throw new BadRequestException(
         `Gemini request failed: ${this.formatErrorDetail(err)}`,
-      )
+      );
     }
 
     if (!response.text) {
       throw new BadRequestException(
         `Gemini empty response: ${this.formatErrorDetail(response)}`,
-      )
+      );
     }
 
     try {
-      return JSON.parse(response.text) as DictionaryWordAnalysis
+      return JSON.parse(response.text) as DictionaryWordAnalysis;
     } catch (err) {
-      const textSnippet = String(response.text || '').slice(0, 500)
+      const textSnippet = String(response.text || '').slice(0, 500);
       throw new BadRequestException(
         `Gemini returned invalid JSON: ${this.formatErrorDetail(err)}; response.text=${textSnippet}`,
-      )
+      );
     }
   }
 
   async analyzeWord(dto: AnalyzeWordDTO) {
-    const searchedWord = `${dto?.word || ''}`.trim()
+    const searchedWord = `${dto?.word || ''}`.trim();
     if (!searchedWord) {
-      throw new BadRequestException('word is required')
+      throw new BadRequestException('word is required');
     }
 
-    const searchedWordLower = searchedWord.toLowerCase()
-    const isoverwirte = !!dto?.isoverwirte
+    const searchedWordLower = searchedWord.toLowerCase();
+    const isoverwirte = !!dto?.isoverwirte;
 
     if (this.tempOverwrite?.wordLower === searchedWordLower && !isoverwirte) {
       return {
@@ -349,13 +399,13 @@ class DictionaryService {
         data: this.tempOverwrite.analysis,
         recordId: null,
         updatedAt: this.tempOverwrite.updatedAt,
-      }
+      };
     }
 
     const cached = await this.dictionaryModel
       .findOne({ wordLower: searchedWordLower })
       .sort({ createdAt: -1 })
-      .lean()
+      .lean();
 
     if (cached && !isoverwirte) {
       return {
@@ -367,13 +417,13 @@ class DictionaryService {
         data: cached.analysis,
         recordId: String(cached._id),
         updatedAt: cached.updatedAt,
-      }
+      };
     }
 
-    const generated = await this.generateWordAnalysis(searchedWord)
-    const analysis = this.normalizeWordAnalysis(searchedWord, generated)
-    const canonicalWord = `${analysis.canonicalWord || searchedWord}`.trim()
-    const canonicalWordLower = canonicalWord.toLowerCase()
+    const generated = await this.generateWordAnalysis(searchedWord);
+    const analysis = this.normalizeWordAnalysis(searchedWord, generated);
+    const canonicalWord = `${analysis.canonicalWord || searchedWord}`.trim();
+    const canonicalWordLower = canonicalWord.toLowerCase();
 
     if (!analysis.isWordValid) {
       return {
@@ -386,7 +436,7 @@ class DictionaryService {
         data: analysis,
         recordId: null,
         updatedAt: null,
-      }
+      };
     }
 
     if (!isoverwirte) {
@@ -400,13 +450,13 @@ class DictionaryService {
           data: this.tempOverwrite.analysis,
           recordId: null,
           updatedAt: this.tempOverwrite.updatedAt,
-        }
+        };
       }
 
       const canonicalCached = await this.dictionaryModel
         .findOne({ wordLower: canonicalWordLower })
         .sort({ createdAt: -1 })
-        .lean()
+        .lean();
 
       if (canonicalCached) {
         return {
@@ -418,7 +468,7 @@ class DictionaryService {
           data: canonicalCached.analysis,
           recordId: String(canonicalCached._id),
           updatedAt: canonicalCached.updatedAt,
-        }
+        };
       }
     }
 
@@ -428,7 +478,7 @@ class DictionaryService {
         wordLower: canonicalWordLower,
         analysis,
         updatedAt: new Date(),
-      }
+      };
 
       return {
         success: true,
@@ -439,7 +489,7 @@ class DictionaryService {
         data: analysis,
         recordId: null,
         updatedAt: this.tempOverwrite.updatedAt,
-      }
+      };
     }
 
     const created = await this.dictionaryModel.create({
@@ -448,7 +498,7 @@ class DictionaryService {
       root: analysis.rootAnalysis.root,
       modelName: this.modelName,
       analysis,
-    })
+    });
 
     return {
       success: true,
@@ -459,22 +509,22 @@ class DictionaryService {
       data: analysis,
       recordId: String(created._id),
       updatedAt: created.updatedAt,
-    }
+    };
   }
 
   async overwriteWord(dto: OverwriteWordDTO) {
-    const word = `${dto?.word || ''}`.trim()
+    const word = `${dto?.word || ''}`.trim();
     if (!word) {
-      throw new BadRequestException('word is required')
+      throw new BadRequestException('word is required');
     }
 
     if (!this.tempOverwrite) {
-      throw new BadRequestException('temporary overwrite result not found')
+      throw new BadRequestException('temporary overwrite result not found');
     }
 
-    const wordLower = word.toLowerCase()
+    const wordLower = word.toLowerCase();
     if (this.tempOverwrite.wordLower !== wordLower) {
-      throw new BadRequestException('temporary overwrite word mismatch')
+      throw new BadRequestException('temporary overwrite word mismatch');
     }
 
     const record = await this.dictionaryModel
@@ -492,9 +542,9 @@ class DictionaryService {
           new: true,
         },
       )
-      .lean()
+      .lean();
 
-    this.tempOverwrite = null
+    this.tempOverwrite = null;
 
     return {
       success: true,
@@ -505,66 +555,71 @@ class DictionaryService {
         root: record?.root || '',
         modelName: record?.modelName,
         analysis: record?.analysis,
-        createdAt: record?.createdAt ? record.createdAt.toISOString() : undefined,
-        updatedAt: record?.updatedAt ? record.updatedAt.toISOString() : undefined,
+        createdAt: record?.createdAt
+          ? record.createdAt.toISOString()
+          : undefined,
+        updatedAt: record?.updatedAt
+          ? record.updatedAt.toISOString()
+          : undefined,
       } as DictionaryRecord,
-    }
+    };
   }
 
   async deleteWord(dto: DeleteWordDTO) {
-    const word = `${dto?.word || ''}`.trim()
+    const word = `${dto?.word || ''}`.trim();
     if (!word) {
-      throw new BadRequestException('word is required')
+      throw new BadRequestException('word is required');
     }
 
-    const wordLower = word.toLowerCase()
-    const deleted = await this.dictionaryModel.deleteMany({ wordLower })
+    const wordLower = word.toLowerCase();
+    const deleted = await this.dictionaryModel.deleteMany({ wordLower });
 
-    const tempCleared = !!this.tempOverwrite && this.tempOverwrite.wordLower === wordLower
+    const tempCleared =
+      !!this.tempOverwrite && this.tempOverwrite.wordLower === wordLower;
     if (tempCleared) {
-      this.tempOverwrite = null
+      this.tempOverwrite = null;
     }
 
     return {
       success: true,
       deletedCount: deleted.deletedCount || 0,
       tempCleared,
-    }
+    };
   }
 
   async searchWords(keyword: string, limit = 20) {
-    const normalized = `${keyword || ''}`.trim().toLowerCase()
-    const safeLimit = Math.min(Math.max(limit, 1), 50)
+    const normalized = `${keyword || ''}`.trim().toLowerCase();
+    const safeLimit = Math.min(Math.max(limit, 1), 50);
 
     const rows = await this.dictionaryModel
       .find({}, { word: 1, wordLower: 1, updatedAt: 1, createdAt: 1 })
       .sort({ updatedAt: -1, createdAt: -1 })
       .limit(500)
-      .lean()
+      .lean();
 
-    const dedup = new Map<string, any>()
+    const dedup = new Map<string, any>();
     for (const row of rows) {
-      if (!row.wordLower || dedup.has(row.wordLower)) continue
-      dedup.set(row.wordLower, row)
+      if (!row.wordLower || dedup.has(row.wordLower)) continue;
+      dedup.set(row.wordLower, row);
     }
 
     const ranked = Array.from(dedup.values())
       .map((row) => {
-        const rank = this.getMatchRank(row.wordLower, normalized)
+        const rank = this.getMatchRank(row.wordLower, normalized);
         return {
           row,
           rank,
           index: normalized ? row.wordLower.indexOf(normalized) : 0,
           ts: row.updatedAt ? row.updatedAt.getTime() : 0,
-        }
+        };
       })
       .filter((item) => (normalized ? item.rank < 3 : true))
       .sort((a, b) => {
-        if (a.rank !== b.rank) return a.rank - b.rank
-        if (a.index !== b.index) return a.index - b.index
-        return b.ts - a.ts
+        if (a.rank !== b.rank) return a.rank - b.rank;
+        if (a.index !== b.index) return a.index - b.index;
+        return b.ts - a.ts;
       })
-      .slice(0, normalized ? safeLimit : Math.min(safeLimit, 5))
+      .slice(0, normalized ? safeLimit : Math.min(safeLimit, 5));
 
     return {
       success: true,
@@ -574,91 +629,102 @@ class DictionaryService {
         wordLower: row.wordLower,
         updatedAt: row.updatedAt ? row.updatedAt.toISOString() : undefined,
       })) as Partial<DictionaryRecord>[],
-    }
+    };
   }
 
   async getRecent(limit = 20) {
-    const safeLimit = Math.min(Math.max(limit, 1), 100)
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
     const rows = await this.dictionaryModel
-      .find({}, { word: 1, wordLower: 1, root: 1, modelName: 1, createdAt: 1, updatedAt: 1 })
+      .find(
+        {},
+        {
+          word: 1,
+          wordLower: 1,
+          root: 1,
+          modelName: 1,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      )
       .sort({ createdAt: -1 })
       .limit(safeLimit)
-      .lean()
+      .lean();
 
     return {
       success: true,
-      items: rows.map((row) => ({
-        _id: String(row._id),
-        word: row.word,
-        wordLower: row.wordLower,
-        root: row.root || '',
-        modelName: row.modelName,
-        createdAt: row.createdAt ? row.createdAt.toISOString() : undefined,
-        updatedAt: row.updatedAt ? row.updatedAt.toISOString() : undefined,
-      } as Partial<DictionaryRecord>)),
-    }
+      items: rows.map(
+        (row) =>
+          ({
+            _id: String(row._id),
+            word: row.word,
+            wordLower: row.wordLower,
+            root: row.root || '',
+            modelName: row.modelName,
+            createdAt: row.createdAt ? row.createdAt.toISOString() : undefined,
+            updatedAt: row.updatedAt ? row.updatedAt.toISOString() : undefined,
+          }) as Partial<DictionaryRecord>,
+      ),
+    };
   }
 
   async getRootGroups() {
     const rows = await this.dictionaryModel
       .find({}, { word: 1, wordLower: 1, root: 1, updatedAt: 1 })
       .sort({ updatedAt: -1, createdAt: -1 })
-      .lean()
+      .lean();
 
-    const latestByWord = new Map<string, any>()
+    const latestByWord = new Map<string, any>();
     for (const row of rows) {
-      if (!row.wordLower || latestByWord.has(row.wordLower)) continue
-      latestByWord.set(row.wordLower, row)
+      if (!row.wordLower || latestByWord.has(row.wordLower)) continue;
+      latestByWord.set(row.wordLower, row);
     }
 
     const groups = new Map<
       string,
       {
-        root: string
-        count: number
-        words: { word: string; wordLower: string; updatedAt?: string }[]
+        root: string;
+        count: number;
+        words: { word: string; wordLower: string; updatedAt?: string }[];
       }
-    >()
+    >();
 
     for (const row of latestByWord.values()) {
-      const rootValue = `${row.root || ''}`.trim()
-      const key = rootValue || '__NO_ROOT__'
-      const group =
-        groups.get(key) ||
-        {
-          root: rootValue,
-          count: 0,
-          words: [],
-        }
+      const rootValue = `${row.root || ''}`.trim();
+      const key = rootValue || '__NO_ROOT__';
+      const group = groups.get(key) || {
+        root: rootValue,
+        count: 0,
+        words: [],
+      };
 
       group.words.push({
         word: row.word,
         wordLower: row.wordLower,
         updatedAt: row.updatedAt ? row.updatedAt.toISOString() : undefined,
-      })
-      group.count += 1
-      groups.set(key, group)
+      });
+      group.count += 1;
+      groups.set(key, group);
     }
 
     const items = Array.from(groups.values())
       .sort((a, b) => {
-        const aIsEmpty = !a.root
-        const bIsEmpty = !b.root
-        if (aIsEmpty !== bIsEmpty) return aIsEmpty ? 1 : -1
-        if (a.root !== b.root) return a.root.localeCompare(b.root)
-        return b.count - a.count
+        const aIsEmpty = !a.root;
+        const bIsEmpty = !b.root;
+        if (aIsEmpty !== bIsEmpty) return aIsEmpty ? 1 : -1;
+        if (a.root !== b.root) return a.root.localeCompare(b.root);
+        return b.count - a.count;
       })
       .map((group) => ({
         root: group.root,
         label: group.root || '无词根',
         count: group.count,
         words: group.words.sort((a, b) => a.word.localeCompare(b.word)),
-      }))
+      }));
 
     return {
       success: true,
       items,
-    }
+    };
   }
 }
 
@@ -669,19 +735,19 @@ class DictionaryController {
   @Public()
   @Post('analyze')
   async analyze(@Body() dto: AnalyzeWordDTO) {
-    return this.dictionaryService.analyzeWord(dto)
+    return this.dictionaryService.analyzeWord(dto);
   }
 
   @Public()
   @Post('overwrite')
   async overwrite(@Body() dto: OverwriteWordDTO) {
-    return this.dictionaryService.overwriteWord(dto)
+    return this.dictionaryService.overwriteWord(dto);
   }
 
   @Public()
   @Post('delete')
   async delete(@Body() dto: DeleteWordDTO) {
-    return this.dictionaryService.deleteWord(dto)
+    return this.dictionaryService.deleteWord(dto);
   }
 
   @Public()
@@ -689,7 +755,7 @@ class DictionaryController {
   async recent(
     @Query('limit', new OptionalParseIntPipe()) limit: number | undefined,
   ) {
-    return this.dictionaryService.getRecent(limit)
+    return this.dictionaryService.getRecent(limit);
   }
 
   @Public()
@@ -698,13 +764,13 @@ class DictionaryController {
     @Query('q') q: string,
     @Query('limit', new OptionalParseIntPipe()) limit: number | undefined,
   ) {
-    return this.dictionaryService.searchWords(q, limit)
+    return this.dictionaryService.searchWords(q, limit);
   }
 
   @Public()
   @Get('roots')
   async roots() {
-    return this.dictionaryService.getRootGroups()
+    return this.dictionaryService.getRootGroups();
   }
 }
 

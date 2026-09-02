@@ -106,6 +106,7 @@ body {
   margin: 0;
   background-color: var(--bg);
   transition: background-color 0.25s ease, color 0.25s ease;
+  font-family: Avenir, Helvetica, Arial, sans-serif;
 }
 
 #app {
