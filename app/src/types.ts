@@ -27,6 +27,7 @@ interface Category {
   _id: string
   title: string
   description: string
+  order?: number
 }
 
 interface Post {

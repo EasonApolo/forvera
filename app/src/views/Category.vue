@@ -4,6 +4,7 @@ import Btn from '../components/Btn.vue'
 import Card from '../components/Card.vue'
 import Input from '../components/Input.vue'
 import List from '../components/layout/List.vue'
+import SortableList from '../components/SortableList.vue'
 import { useCategories } from '../store/category'
 import { usePostDetail } from '../store/postDetail'
 import { computed } from 'vue'
@@ -26,6 +27,11 @@ const submit = async ({ remove = false }) => {
   }
   categoryStore.fetchCategories()
 }
+
+// 排序完成：把新顺序的 id 列表提交给后端
+const onReorder = (list: Category[]) => {
+  categoryStore.reorder(list.map(cat => cat._id))
+}
 </script>
 
 <template>
@@ -44,11 +50,15 @@ const submit = async ({ remove = false }) => {
           <Btn class="right" @click="submit({ remove: true })">删除</Btn>
         </div>
       </Card>
-      <Card v-for="cat in categories" class="category">
-        <span>{{ cat.title }}</span
-        ><span class="description">{{ cat.description }}</span>
-        <Btn class="right" @click="categoryStore.editing = cat">编辑</Btn>
-      </Card>
+      <SortableList class="cat-list" :model-value="categories" item-key="_id" @confirm="onReorder">
+        <template #default="{ item: cat, sortMode }">
+          <Card class="category">
+            <span class="title">{{ cat.title }}</span
+            ><span class="description">{{ cat.description }}</span>
+            <Btn v-if="!sortMode" class="right" @click="categoryStore.editing = cat">编辑</Btn>
+          </Card>
+        </template>
+      </SortableList>
     </template>
   </List>
 </template>
@@ -68,12 +78,19 @@ const submit = async ({ remove = false }) => {
     }
   }
 }
+.cat-list {
+  margin-top: 0.5rem;
+}
 .category {
   display: flex;
   align-items: center;
+  .title {
+    flex: 0 0 auto;
+  }
   .description {
     margin-left: 0.5rem;
     font-size: 14px;
+    text-align: left;
     color: var(--text-secondary);
   }
   .right {
