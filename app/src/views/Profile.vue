@@ -139,9 +139,9 @@ const saveConfig = async () => {
         <Card class="item card-group">
           <HorizontalScroll>
             <Btn @click="create" :loading="loading.write">写文章</Btn>
-            <Btn @click="goCategory">编辑分类</Btn>
             <span v-if="isAdmin" class="nav-divider"></span>
-            <Btn v-if="isAdmin" @click="goUserManage">管理用户</Btn>
+            <Btn @click="goCategory">分类管理</Btn>
+            <Btn v-if="isAdmin" @click="goUserManage">用户管理</Btn>
             <Btn v-if="isAdmin" @click="goBackupManage">备份管理</Btn>
             <span class="nav-divider"></span>
             <Btn @click="openConfig">配置</Btn>

@@ -56,7 +56,18 @@ const sendFile = (filePath, res) => {
 
 const serverHandler = (req, res) => {
   const reqUrl = new URL(req.url || '/', 'http://localhost');
-  let pathname = decodeURIComponent(reqUrl.pathname || '/');
+  let pathname;
+  // 非法的百分号编码（扫描器常见）会让 decodeURIComponent 抛错，捕获后返回 400，避免整个进程崩溃。
+  try {
+    pathname = decodeURIComponent(reqUrl.pathname || '/');
+  } catch {
+    // 记录畸形 URL（一般是扫描器），便于排查来源
+    console.warn(`[serve-static] 400 malformed URL: ${req.url}`);
+    res.statusCode = 400;
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.end('Bad Request');
+    return;
+  }
 
   if (pathname === '/') {
     pathname = '/index.html';

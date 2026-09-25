@@ -44,6 +44,12 @@ export const useCategories = defineStore('category', {
     },
     mapCategoryName (catIds: string[]): string[] {
       return catIds.map(id => this.categoryMap[id].title)
+    },
+    // 按新顺序保存分类排序
+    async reorder(ids: string[]) {
+      this.categories = await request('cat/reorder', 'POST', JSON.stringify({ ids }))
+      this.categoryMap = {}
+      this.categories.forEach(cat => (this.categoryMap[cat._id] = cat))
     }
   }
 })
