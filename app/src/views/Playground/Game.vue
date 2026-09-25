@@ -544,7 +544,7 @@ onUnmounted(() => {
                 />
                 <Badge
                   v-if="room.roundStatus === 'after' && user.readyStatus === 'ready'"
-                  color="var(--accent-color)"
+                  color="var(--primary-color)"
                   text-color="white"
                   text="已准备"
                 />
@@ -948,7 +948,7 @@ onUnmounted(() => {
         .username {
           font-weight: bold;
           margin-right: 6px;
-          color: var(--accent-color);
+          color: var(--primary-color);
         }
       }
 
@@ -989,11 +989,11 @@ onUnmounted(() => {
         outline: none;
 
         &:hover {
-          border-color: var(--accent-color);
+          border-color: var(--primary-color);
         }
 
         &:focus {
-          border-color: var(--accent-color);
+          border-color: var(--primary-color);
           box-shadow: none;
         }
       }
@@ -1001,7 +1001,7 @@ onUnmounted(() => {
       .chat-send-btn {
         margin-left: 8px;
         padding: 6px 16px;
-        background-color: var(--accent-color);
+        background-color: var(--primary-color);
         color: white;
         border: none;
         border-radius: 4px;

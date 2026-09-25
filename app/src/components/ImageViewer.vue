@@ -98,6 +98,9 @@ const closeViewer = () => {
 }
 
 const onOriginalLoad = () => {
+  if (imageStore.url) {
+    imageStore.markOriginalLoaded(imageStore.url)
+  }
   updateLayout()
 }
 
@@ -290,6 +293,7 @@ watch(
           @dblclick="resetTransform"
         >
           <img
+            v-if="imageStore.thumbUrl"
             class="thumb-layer"
             :src="imageStore.thumbUrl"
             :style="{

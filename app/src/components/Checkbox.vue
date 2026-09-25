@@ -56,12 +56,12 @@ const toggle = () => {
   transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
 
   &:hover {
-    border-color: var(--accent-color);
+    border-color: var(--primary-color);
   }
 
   &.checked {
-    background: var(--accent-color);
-    border-color: var(--accent-color);
+    background: var(--primary-color);
+    border-color: var(--primary-color);
   }
 }
 

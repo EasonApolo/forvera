@@ -27,6 +27,7 @@ const navItems = computed(() =>
     key: tab.routeName,
     label: tab.label,
     active: activeRouteName.value === tab.routeName,
+    href: `/${tab.routeName === 'postList' ? '' : tab.routeName}`.replace(/\/$/, ''),
   }))
 )
 

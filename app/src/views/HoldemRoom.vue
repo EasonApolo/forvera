@@ -1026,7 +1026,7 @@ h2 {
 }
 
 .user-item.current-player {
-  border: 1px solid var(--accent-color);
+  border: 1px solid var(--primary-color);
 }
 .user-item.current-player-is-me {
   box-shadow: var(--reply-shadow);
@@ -1502,7 +1502,7 @@ h2 {
     .message-username {
       font-weight: bold;
       margin-right: 6px;
-      color: var(--accent-color);
+      color: var(--primary-color);
     }
   }
 }
@@ -1522,11 +1522,11 @@ h2 {
     outline: none;
 
     &:hover {
-      border-color: var(--accent-color);
+      border-color: var(--primary-color);
     }
 
     &:focus {
-      border-color: var(--accent-color);
+      border-color: var(--primary-color);
       box-shadow: none;
     }
   }
@@ -1534,7 +1534,7 @@ h2 {
   .chat-send-btn {
     margin-left: 8px;
     padding: 6px 16px;
-    background-color: var(--accent-color);
+    background-color: var(--primary-color);
     color: white;
     border: none;
     border-radius: 4px;

@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { request } from '../utils/request'
+import type { AiSetting, SetAiSettingDto } from 'shared/types/user'
 
 export const useUserStore = defineStore('user', {
   state: () => ({
@@ -100,6 +101,15 @@ export const useUserStore = defineStore('user', {
       Object.assign(this.userInfo, {
         settings: res?.settings || this.userInfo.settings || {},
       })
+    },
+    async getAiSetting(): Promise<AiSetting> {
+      if (!this.isLogin) return {}
+      const res = await request('user/ai-setting', 'GET')
+      return res?.aiSetting || {}
+    },
+    async setAiSetting(payload: SetAiSettingDto): Promise<AiSetting> {
+      const res = await request('user/ai-setting', 'POST', JSON.stringify(payload))
+      return res?.aiSetting || {}
     },
   },
 })

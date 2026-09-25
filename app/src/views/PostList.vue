@@ -82,6 +82,11 @@ const filteredPosts = computed(() => {
 const read = (postId: string) => {
   mainStore.router.push({ name: 'post', params: { postId } })
 }
+
+const postLink = (postId: string) => ({
+  name: 'post',
+  params: { postId },
+})
 </script>
 
 <template>
@@ -100,17 +105,25 @@ const read = (postId: string) => {
       </Card>
       <div v-for="group in groupedPosts" :key="group.name" class="post-group">
         <div class="group-name">{{ group.name }}</div>
-        <Card class="post" v-for="post in group.posts" @click="read(post._id)">
-          <div class="left">{{ post.title || '无标题' }}</div>
-          <div class="right">
-            <div class="date">{{ formatDate(post.updated_time) }}</div>
-            <div class="post-cat" v-if="categories">
-              <div v-for="cat in post.category">
-                {{ categories.find(catInfo => catInfo._id === cat)?.title }}
+        <router-link
+          v-for="post in group.posts"
+          :key="post._id"
+          custom
+          :to="postLink(post._id)"
+          v-slot="{ navigate }"
+        >
+          <Card class="post" @click="navigate">
+            <div class="left">{{ post.title || '无标题' }}</div>
+            <div class="right">
+              <div class="date">{{ formatDate(post.updated_time) }}</div>
+              <div class="post-cat" v-if="categories">
+                <div v-for="cat in post.category">
+                  {{ categories.find(catInfo => catInfo._id === cat)?.title }}
+                </div>
               </div>
             </div>
-          </div>
-        </Card>
+          </Card>
+        </router-link>
       </div>
     </template>
   </List>
@@ -140,6 +153,19 @@ const read = (postId: string) => {
     color: var(--text-muted);
     font-family: Avenir, Helvetica, Arial, sans-serif;
   }
+
+  a {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+  }
+
+  a:hover,
+  a:visited,
+  a:active {
+    text-decoration: none;
+  }
+
   .post {
     display: flex;
     justify-content: space-between;

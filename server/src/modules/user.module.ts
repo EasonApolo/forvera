@@ -17,6 +17,7 @@ import { InjectModel, MongooseModule } from '@nestjs/mongoose';
 import { Model, Document, Types } from 'mongoose';
 import { anonymousNameList } from 'src/config';
 import { Public, Roles } from 'src/guards/jwt-auth.guard';
+import { AiSetting, SetAiSettingDto } from 'shared/types/user';
 
 // DTO
 export class CreateUserDTO {
@@ -51,6 +52,7 @@ export interface User extends Document {
       standardCalories?: number;
       dietStartDate?: string | null;
     };
+    aiSetting?: AiSetting;
   };
 }
 
@@ -178,6 +180,42 @@ export class UserService implements OnModuleInit {
     return await this.userModel.findById(userId).select('-password').exec();
   }
 
+  async getAiSetting(user: any): Promise<{ aiSetting: AiSetting }> {
+    const target = await this.userModel.findById(user?.userId).select('settings').exec();
+    if (!target) {
+      throw new UnauthorizedException('User not found');
+    }
+    const settings: any =
+      target.settings && typeof target.settings === 'object' ? target.settings : {};
+    return { aiSetting: settings.aiSetting || {} };
+  }
+
+  async setAiSetting(user: any, dto: SetAiSettingDto): Promise<{ aiSetting: AiSetting }> {
+    const userId = user?.userId;
+    const target = await this.userModel.findById(userId).exec();
+    if (!target) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    const currentSettings: any =
+      target.settings && typeof target.settings === 'object' ? { ...target.settings } : {};
+    const currentAi: AiSetting =
+      currentSettings.aiSetting && typeof currentSettings.aiSetting === 'object'
+        ? currentSettings.aiSetting
+        : {};
+
+    const nextAi: AiSetting = { ...currentAi };
+    if (typeof dto?.geminiKey === 'string') {
+      nextAi.geminiKey = dto.geminiKey.trim();
+    }
+
+    currentSettings.aiSetting = nextAi;
+    (target as any).settings = currentSettings;
+    await target.save();
+
+    return { aiSetting: nextAi };
+  }
+
   async listUsers(): Promise<User[]> {
     return await this.userModel
       .find({})
@@ -245,6 +283,16 @@ export class UserController {
   @Post('settings')
   async updateUserSettings(@Request() req: any, @Body() body: UpdateUserSettingsDTO) {
     return await this.userService.updateUserSettings(req.user, body);
+  }
+
+  @Get('ai-setting')
+  async getAiSetting(@Request() req: any) {
+    return await this.userService.getAiSetting(req.user);
+  }
+
+  @Post('ai-setting')
+  async setAiSetting(@Request() req: any, @Body() body: SetAiSettingDto) {
+    return await this.userService.setAiSetting(req.user, body);
   }
 
   @Roles(3)

@@ -1,12 +1,24 @@
 <template>
-  <div class="title"></div>
-  <div class="long"></div>
-  <div class="long"></div>
-  <div class="short"></div>
+  <div class="skeleton">
+    <div class="title"></div>
+    <div class="long"></div>
+    <div class="long"></div>
+    <div class="short"></div>
+  </div>
 </template>
 
 <style lang="less" scoped>
-div {
+.skeleton {
+  --skeleton-base: #ececec;
+  --skeleton-highlight: #f7f7f7;
+}
+
+:global(:root.dark) .skeleton {
+  --skeleton-base: #2f2f2f;
+  --skeleton-highlight: #3a3a3a;
+}
+
+.skeleton > div {
   background-image: linear-gradient(
     90deg,
     var(--skeleton-base) 25%,

@@ -672,7 +672,7 @@ const infoLabels = computed(() => {
                 stroke-width="1"
                 stroke-dasharray="4 4"
               />
-              <path :d="svgPath" fill="none" stroke="var(--accent-color)" stroke-width="1.5" />
+              <path :d="svgPath" fill="none" stroke="var(--primary-color)" stroke-width="1.5" />
               <g v-if="hoverPoint">
                 <line
                   :x1="hoverPoint.x"
@@ -687,7 +687,7 @@ const infoLabels = computed(() => {
                   :cx="hoverPoint.x"
                   :cy="hoverPoint.y"
                   r="3"
-                  fill="var(--accent-color)"
+                  fill="var(--primary-color)"
                   stroke="#fff"
                   stroke-width="1"
                 />
@@ -1047,7 +1047,7 @@ const infoLabels = computed(() => {
 }
 
 .range-button.active {
-  background: var(--accent-color);
+  background: var(--primary-color);
   color: white;
 }
 

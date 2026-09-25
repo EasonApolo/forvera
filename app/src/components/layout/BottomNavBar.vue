@@ -3,6 +3,7 @@ type NavItem = {
   key: string
   label: string
   active?: boolean
+  href?: string
 }
 
 defineProps<{
@@ -16,17 +17,18 @@ const emit = defineEmits<{
 
 <template>
   <div class="nav">
-    <div
+    <a
       class="nav-item"
       v-for="item in items"
       :key="item.key"
       :class="{ active: item.active }"
-      @click="emit('select', item.key)"
+      :href="item.href || '#!'"
+      @click.prevent="emit('select', item.key)"
     >
       <slot :name="`item-${item.key}`" :item="item">
         {{ item.label }}
       </slot>
-    </div>
+    </a>
   </div>
 </template>
 
@@ -70,7 +72,7 @@ const emit = defineEmits<{
   }
 
   .active {
-    color: var(--accent-color) !important;
+    color: var(--primary-color) !important;
   }
 }
 </style>

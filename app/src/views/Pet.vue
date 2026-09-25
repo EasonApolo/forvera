@@ -1369,7 +1369,7 @@ onUnmounted(() => {
 
     .skill-progress {
       height: 100%;
-      background: var(--accent-color);
+      background: var(--primary-color);
       position: relative;
       z-index: 1;
     }
@@ -1397,7 +1397,7 @@ onUnmounted(() => {
   }
 
   .active {
-    background: var(--accent-color);
+    background: var(--primary-color);
     color: #fff;
   }
 }
@@ -1424,7 +1424,7 @@ onUnmounted(() => {
   cursor: pointer;
 
   &.active {
-    background: var(--accent-color);
+    background: var(--primary-color);
     color: #fff;
   }
 }
@@ -1440,7 +1440,7 @@ onUnmounted(() => {
   align-items: center;
 
   &.equipped {
-    border-color: var(--accent-color);
+    border-color: var(--primary-color);
   }
 
   .name {
@@ -1553,7 +1553,7 @@ onUnmounted(() => {
 .time-track-progress {
   position: absolute;
   inset: 0 auto 0 0;
-  background: var(--accent-color);
+  background: var(--primary-color);
   z-index: 1;
 }
 

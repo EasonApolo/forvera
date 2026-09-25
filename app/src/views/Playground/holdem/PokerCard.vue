@@ -39,6 +39,7 @@ defineProps<{
 
 <style lang="less" scoped>
 .poker-card {
+  --card-font: #111111;
   width: 33px;
   height: 44px;
   border: 1px solid var(--border-light);
@@ -52,6 +53,7 @@ defineProps<{
   background-color: #fff;
   color: var(--card-font);
   transition: all 0.3s ease;
+
   &.facedown {
     background-color: #333;
     color: #fff;

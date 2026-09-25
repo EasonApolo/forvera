@@ -25,81 +25,65 @@ themeStore.init()
 </template>
 
 <style lang="less">
-/* ── Light mode variables (default) ── */
 :root {
-  --bg: #f6f6f6;
-  --card-bg: #ffffff;
+  /* ── Base palette (light) · 唯一存放色值的地方 ── */
+  --c-brand: #42b983;
+  --c-surface: #ffffff; /* 卡片等前景面 */
+  --c-bg: #f6f6f6; /* 页面底色 */
+  --c-subtle: #f3f3f3; /* 下沉填充：代码块 / 引用 / toggle */
+  --c-line-1: #eeeeee; /* 最浅分割线 */
+  --c-line-2: #dddddd; /* 中等分割线 / 滚动条 */
+  --c-line-3: #cccccc; /* 强边框 */
+  --c-fg: #2c3e50; /* 主文字 */
+  --c-fg-1: #666666; /* 次强文字 / 引用文字 */
+  --c-fg-2: #888888; /* 次要文字 */
+  --c-fg-3: #aaaaaa; /* 弱化文字 */
+
+  /* ── 语义色（组件里优先用这些）── */
+  --bg: var(--c-bg);
+  --card-bg: var(--c-surface);
   --card-bg-rgb: 255, 255, 255;
-  --text: #2c3e50;
-  --text-secondary: #888888;
-  --text-muted: #aaaaaa;
-  --border: #cccccc;
-  --border-light: #eeeeee;
-  --btn-bg: #ebebec;
-  --btn-hover: #dddde0;
+  --text: var(--c-fg);
+  --text-secondary: var(--c-fg-2);
+  --text-muted: var(--c-fg-3);
+  --border: var(--c-line-3);
+  --border-light: var(--c-line-1);
+  --primary-color: var(--c-brand);
+
+  /* ── 派生别名（都指向基础色，仅按语义命名）── */
+  --btn-bg: var(--c-line-1);
+  --btn-hover: var(--c-line-2);
   --btn-text: rgba(0, 0, 0, 0.6);
-  --scrollbar-track: #f6f6f6;
-  --scrollbar-thumb: #dddddd;
-  --nav-shadow: #cccccc;
-  --code-bg: #f3f3f3;
-  --quote-bg: #f8f8f8;
-  --quote-border: #dddddd;
-  --quote-text: #666666;
-  --toc-item-color: #666666;
-  --toc-toggle-bg: #f3f3f3;
-  --toc-toggle-color: #555555;
-  --hidden-post-bg: #eeeeee;
-  --accent-color: #42b983;
-  --skeleton-base: #ececec;
-  --skeleton-highlight: #f7f7f7;
-  --toast-bg: #ffffff;
-  --toast-border: transparent;
-  --toast-text: var(--text);
-  --toast-shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
-  --toast-accent: rgba(66, 185, 131, 0.9);
+  --scrollbar-track: var(--c-bg);
+  --scrollbar-thumb: var(--c-line-2);
+  --nav-shadow: var(--c-line-3);
+  --code-bg: var(--c-subtle);
+  --quote-bg: var(--c-subtle);
+  --quote-border: var(--c-line-2);
+  --quote-text: var(--c-fg-1);
+  --toc-toggle-bg: var(--c-subtle);
   --reply-shadow: 1px 2px 6px 1px rgba(0, 0, 0, 0.08);
-  --toc-shadow: 0 12px 36px rgba(0, 0, 0, 0.22);
-  --card-font: var(--text);
-  --primary: #42b983;
 }
 
-/* ── Dark mode variables ── */
 :root.dark {
-  --bg: #181818;
-  --card-bg: #252525;
+  /* ── Base palette (dark) · 只覆盖基础层，语义/别名自动跟随 ── */
+  --c-brand: #42b983;
+  --c-surface: #252525;
+  --c-bg: #181818;
+  --c-subtle: #2d2d2d;
+  --c-line-1: #333333;
+  --c-line-2: #444444;
+  --c-line-3: #444444;
+  --c-fg: #e4e4e4;
+  --c-fg-1: #aaaaaa;
+  --c-fg-2: #999999;
+  --c-fg-3: #777777;
+
+  /* ── 无法从基础色派生、需按模式覆盖的少数项 ── */
   --card-bg-rgb: 37, 37, 37;
-  --text: #e4e4e4;
-  --text-secondary: #999999;
-  --text-muted: #777777;
-  --border: #444444;
-  --border-light: #333333;
-  --btn-bg: #3a3a3a;
-  --btn-hover: #4a4a4a;
   --btn-text: rgba(255, 255, 255, 0.75);
-  --scrollbar-track: #181818;
-  --scrollbar-thumb: #444444;
   --nav-shadow: rgba(0, 0, 0, 0.5);
-  --code-bg: #2d2d2d;
-  --quote-bg: #2a2a2a;
-  --quote-border: #555555;
-  --quote-text: #aaaaaa;
-  --toc-item-color: #aaaaaa;
-  --toc-toggle-bg: #333333;
-  --toc-toggle-color: #aaaaaa;
-  --hidden-post-bg: #333333;
-  --accent-color: #42b983;
-  --skeleton-base: #2f2f2f;
-  --skeleton-highlight: #3a3a3a;
-  --toast-bg: rgba(52, 52, 52, 1);
-  --toast-border: transparent;
-  --toast-text: #ccc;
-  --toast-shadow: 0 16px 36px rgba(0, 0, 0, 0.45);
-  --toast-accent: rgba(66, 185, 131, 0.95);
   --reply-shadow: 0 8px 18px rgba(0, 0, 0, 0.45);
-  --toc-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
-  /* Card text should remain dark even in dark mode since cards are white */
-  --card-font: #111111;
-  --primary: #42b983;
 }
 
 body {
@@ -144,6 +128,10 @@ body {
   }
 }
 
+a {
+  text-decoration: none;
+}
+
 .flex {
   display: flex;
 }
@@ -160,11 +148,11 @@ body {
   color: var(--text);
 
   &:hover {
-    border: 1px solid var(--accent-color);
+    border: 1px solid var(--primary-color);
   }
 
   &:focus {
-    border: 1px solid var(--accent-color);
+    border: 1px solid var(--primary-color);
   }
 }
 
@@ -185,7 +173,7 @@ body {
 }
 
 .link {
-  color: var(--accent-color);
+  color: var(--primary-color);
   cursor: pointer;
 }
 

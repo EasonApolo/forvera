@@ -52,6 +52,9 @@ const getToastSymbol = (type: string) => {
 
 <style lang="less" scoped>
 .toast-wrapper {
+  --toast-bg: #ffffff;
+  --toast-text: var(--text);
+  --toast-shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
   position: fixed;
   top: 0;
   left: 0;
@@ -61,6 +64,12 @@ const getToastSymbol = (type: string) => {
   z-index: 1000;
   padding: 0.75rem 0.75rem 0;
   pointer-events: none;
+}
+
+:global(:root.dark) .toast-wrapper {
+  --toast-bg: rgba(52, 52, 52, 1);
+  --toast-text: #ccc;
+  --toast-shadow: 0 16px 36px rgba(0, 0, 0, 0.45);
 }
 
 .toast-stack {
@@ -86,7 +95,7 @@ const getToastSymbol = (type: string) => {
 
   .icon-btn {
     flex: 0 0 auto;
-    color: var(--accent-color);
+    color: var(--primary-color);
     background: var(--card-bg);
     box-shadow: none;
   }

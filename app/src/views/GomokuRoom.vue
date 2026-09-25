@@ -2154,7 +2154,7 @@ onUnmounted(() => {
               />
               <Badge
                 v-if="user.readyStatus === 'ready'"
-                color="var(--accent-color)"
+                color="var(--primary-color)"
                 text-color="white"
                 text="已准备"
               />

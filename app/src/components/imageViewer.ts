@@ -84,7 +84,11 @@ export const bindContentImagesForViewer = (
     image.onclick = (event) => {
       event.stopPropagation()
       const original = image.getAttribute('data-original') || image.src
-      onPreview(toViewerOriginalUrl(original))
+      const originalUrl = toViewerOriginalUrl(original)
+      if (image.src !== originalUrl) {
+        image.src = originalUrl
+      }
+      onPreview(originalUrl)
     }
   })
 }

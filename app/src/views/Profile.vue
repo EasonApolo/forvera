@@ -14,6 +14,8 @@ import { formatDate } from '../utils/common'
 import { useWriteStore } from '../store/write'
 import { useToastStore } from '../store/toast'
 import { useThemeStore } from '../store/theme'
+import Modal from '../components/Modal.vue'
+import Input from '../components/Input.vue'
 
 const [userStore, mainStore, postStore, writeStore, toastStore] = [
   useUserStore(),
@@ -86,6 +88,30 @@ const themeModeText = computed(() => {
   if (mode.value === 'system') return '跟随设备'
   return isDark.value ? '暗黑模式' : '浅色模式'
 })
+
+// AI 配置弹窗
+const showConfig = ref(false)
+const configLoading = ref(false)
+const configForm = ref({ geminiKey: '' })
+
+const openConfig = async () => {
+  showConfig.value = true
+  const aiSetting = await userStore.getAiSetting()
+  configForm.value.geminiKey = aiSetting.geminiKey || ''
+}
+
+const saveConfig = async () => {
+  configLoading.value = true
+  try {
+    await userStore.setAiSetting({ geminiKey: configForm.value.geminiKey.trim() })
+    toastStore.showToast({ content: '已保存～', type: 'OK' })
+    showConfig.value = false
+  } catch {
+    toastStore.showToast({ content: '保存失败', type: 'ERR' })
+  } finally {
+    configLoading.value = false
+  }
+}
 </script>
 
 <template>
@@ -114,8 +140,11 @@ const themeModeText = computed(() => {
           <HorizontalScroll>
             <Btn @click="create" :loading="loading.write">写文章</Btn>
             <Btn @click="goCategory">编辑分类</Btn>
+            <span v-if="isAdmin" class="nav-divider"></span>
             <Btn v-if="isAdmin" @click="goUserManage">管理用户</Btn>
             <Btn v-if="isAdmin" @click="goBackupManage">备份管理</Btn>
+            <span class="nav-divider"></span>
+            <Btn @click="openConfig">配置</Btn>
           </HorizontalScroll>
         </Card>
       </div>
@@ -144,6 +173,19 @@ const themeModeText = computed(() => {
       </div>
     </template>
   </List>
+
+  <Modal
+    v-model:show="showConfig"
+    title="配置"
+    confirm-text="保存"
+    :confirm-loading="configLoading"
+    @confirm="saveConfig"
+  >
+    <div class="config-item">
+      <div class="label">Gemini Key</div>
+      <Input v-model="configForm.geminiKey" placeholder="请输入 Gemini API Key" :password="true" />
+    </div>
+  </Modal>
 </template>
 
 <style lang="less" scoped>
@@ -224,5 +266,25 @@ const themeModeText = computed(() => {
   .hidden {
     background-color: rgba(127, 127, 127, 0.12);
   }
+}
+
+.config-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  text-align: left;
+
+  .label {
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+}
+
+.nav-divider {
+  flex: 0 0 auto;
+  align-self: stretch;
+  width: 1px;
+  min-height: 1.4rem;
+  background: var(--border-light);
 }
 </style>

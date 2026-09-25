@@ -99,7 +99,7 @@ const formatBytes = (bytes?: number) => {
     left: 0;
     bottom: 0;
     width: 0;
-    background-color: var(--accent-color);
+    background-color: var(--primary-color);
     transition: width 0.35s linear;
     z-index: 0;
   }
@@ -193,9 +193,9 @@ const formatBytes = (bytes?: number) => {
 }
 .primary {
   color: white;
-  background-color: var(--accent-color);
+  background-color: var(--primary-color);
   &:hover {
-    background-color: var(--accent-color);
+    background-color: var(--primary-color);
   }
 }
 

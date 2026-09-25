@@ -211,83 +211,95 @@ onBeforeRouteLeave(() => {
 <template>
   <List>
     <template v-slot:content>
-      <GreyText>by {{ post.author?.username || '' }}</GreyText>
-      <Card>
-        <Skeleton v-if="!post._id" />
-        <div class="meta" v-else>
-          <div class="left">
-            <div class="title">{{ post.title }}</div>
-            <div class="categories">
-              {{
-                categoryStore.mapCategoryName(post.category || []).join(' / ')
-              }}
+      <div class="post-page">
+        <GreyText>by {{ post.author?.username || '' }}</GreyText>
+        <Card>
+          <Skeleton v-if="!post._id" />
+          <div class="meta" v-else>
+            <div class="left">
+              <div class="title">{{ post.title }}</div>
+              <div class="categories">
+                {{
+                  categoryStore.mapCategoryName(post.category || []).join(' / ')
+                }}
+              </div>
+            </div>
+            <div class="right">
+              <div class="time" v-if="post.created_time !== post.updated_time">
+                => {{ formatDate(post.updated_time) }}
+              </div>
+              <div class="time">{{ formatDate(post.created_time) }}</div>
             </div>
           </div>
-          <div class="right">
-            <div class="time" v-if="post.created_time !== post.updated_time">
-              => {{ formatDate(post.updated_time) }}
+        </Card>
+        <Card class="main">
+          <Skeleton v-if="!post._id" />
+          <div v-else>
+            <div class="description" v-if="post.description">
+              {{ post.description }}
             </div>
-            <div class="time">{{ formatDate(post.created_time) }}</div>
+            <div class="content" ref="contentRef" v-html="post.content"></div>
           </div>
-        </div>
-      </Card>
-      <Card class="main">
-        <Skeleton v-if="!post._id" />
-        <div v-else>
-          <div class="description" v-if="post.description">
-            {{ post.description }}
-          </div>
-          <div class="content" ref="contentRef" v-html="post.content"></div>
-        </div>
-      </Card>
+        </Card>
 
-      <div v-if="tocList.length > 0" class="toc toc-desktop">
-        <div class="toc-title">目录</div>
-        <div class="toc-list">
-          <div
-            class="toc-item"
-            :class="{ active: activeTocId === item.id }"
-            :data-toc-id="item.id"
-            v-for="item in tocListWithDepth"
-            :key="item.id"
-            :style="{ paddingLeft: item.depth * 1.25 + 'rem' }"
-            @click="scrollToHeading(item.id)"
-          >
-            {{ item.title }}
-          </div>
-        </div>
-      </div>
-
-      <div
-        v-if="tocList.length > 0 && tocExpanded"
-        class="toc toc-mobile"
-      >
-        <div class="toc-header">
+        <div v-if="tocList.length > 0" class="toc toc-desktop">
           <div class="toc-title">目录</div>
-        </div>
-        <div class="toc-list">
-          <div
-            class="toc-item"
-            :class="{ active: activeTocId === item.id }"
-            :data-toc-id="item.id"
-            v-for="item in tocListWithDepth"
-            :key="`${item.id}-m`"
-            :style="{ paddingLeft: item.depth * 1.25 + 'rem' }"
-            @click="scrollToHeading(item.id)"
-          >
-            {{ item.title }}
+          <div class="toc-list">
+            <div
+              class="toc-item"
+              :class="{ active: activeTocId === item.id }"
+              :data-toc-id="item.id"
+              v-for="item in tocListWithDepth"
+              :key="item.id"
+              :style="{ paddingLeft: item.depth * 1.25 + 'rem' }"
+              @click="scrollToHeading(item.id)"
+            >
+              {{ item.title }}
+            </div>
           </div>
         </div>
+
+        <div
+          v-if="tocList.length > 0 && tocExpanded"
+          class="toc toc-mobile"
+        >
+          <div class="toc-header">
+            <div class="toc-title">目录</div>
+          </div>
+          <div class="toc-list">
+            <div
+              class="toc-item"
+              :class="{ active: activeTocId === item.id }"
+              :data-toc-id="item.id"
+              v-for="item in tocListWithDepth"
+              :key="`${item.id}-m`"
+              :style="{ paddingLeft: item.depth * 1.25 + 'rem' }"
+              @click="scrollToHeading(item.id)"
+            >
+              {{ item.title }}
+            </div>
+        </div>
       </div>
+      
+        <div class="ending" v-if="post">—— 完 ——</div>
 
-      <div class="ending" v-if="post">—— 完 ——</div>
-
-      <BottomNavBar :items="navItems" @select="onNavSelect" />
+        <BottomNavBar :items="navItems" @select="onNavSelect" />
+      </div>
     </template>
   </List>
 </template>
 
 <style scoped lang="less">
+.post-page {
+  --toc-shadow: 0 12px 36px rgba(0, 0, 0, 0.22);
+  --toc-item-color: #666666;
+}
+
+:global(:root.dark) .post-page {
+  --toc-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
+  --toc-item-color: #aaaaaa;
+}
+
 .meta {
   display: flex;
   align-items: center;

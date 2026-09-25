@@ -52,12 +52,12 @@ const onInput = (event: Event) => {
   transition: border-color 0.125s ease, background-color 0.125s ease;
 
   &:hover {
-    border-color: var(--accent-color);
+    border-color: var(--primary-color);
   }
 
   &:focus {
     outline: none;
-    border-color: var(--accent-color);
+    border-color: var(--primary-color);
     background: var(--card-bg);
   }
 
