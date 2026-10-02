@@ -7,36 +7,35 @@ import {
   Module,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
 import { InjectModel, MongooseModule } from '@nestjs/mongoose';
 import { Model, Schema, Document } from 'mongoose';
-import { GoogleGenAI, Type, type Schema as GenAISchema } from '@google/genai';
-import { Public } from 'src/guards/jwt-auth.guard';
-import { OptionalParseIntPipe } from 'src/shared/parse-int.pipe';
+import { Type, type Schema as GenAISchema } from '@google/genai';
+import { Public } from '../guards/jwt-auth.guard';
+import { OptionalParseIntPipe } from '../shared/parse-int.pipe';
 import {
+  DictionaryDTO,
   DictionaryRecord,
   DictionaryWordAnalysis,
 } from 'shared/types/dictionary';
+import { Response } from 'express';
+import { AiModule, AiService } from './ai.module';
 
 const DICTIONARY_MODEL_NAME = 'DictionaryRecord';
+const DICTIONARY_BIZ_ID = 'dictionary_look_up_word';
 
 interface DictionaryDocument extends Document {
   word: string;
-  wordLower: string;
-  root: string;
-  modelName: string;
-  analysis: DictionaryWordAnalysis;
+  aiRecordId: string;
   createdAt?: Date;
   updatedAt?: Date;
 }
 
 const DictionarySchema = new Schema<DictionaryDocument>(
   {
-    word: { type: String, required: true, index: true },
-    wordLower: { type: String, required: true, index: true },
-    root: { type: String, required: true, default: '' },
-    modelName: { type: String, required: true },
-    analysis: { type: Schema.Types.Mixed, required: true },
+    word: { type: String, required: true, unique: true },
+    aiRecordId: { type: String, required: true, default: '' },
   },
   {
     collection: 'dictionary',
@@ -76,7 +75,7 @@ const WordAnalysisSchema: GenAISchema = {
         root: {
           type: Type.STRING,
           description:
-            '纯英文词根/前后缀，只能包含英文字母和连字符；若无独立词根，回退为 canonicalWord',
+            '用于同根词归类的小写英文词根/前后缀，不加连字符；若无独立词根，回退为 canonicalWord',
         },
         rootMeaning: {
           type: Type.STRING,
@@ -178,55 +177,80 @@ const WordAnalysisSchema: GenAISchema = {
   ],
 };
 
-class AnalyzeWordDTO {
-  word!: string;
-  isoverwirte?: boolean;
-}
-
-class OverwriteWordDTO {
-  word!: string;
-}
-
 class DeleteWordDTO {
   word!: string;
 }
 
 @Injectable()
 class DictionaryService {
-  private readonly modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-  private tempOverwrite: {
-    word: string;
-    wordLower: string;
-    analysis: DictionaryWordAnalysis;
-    updatedAt: Date;
-  } | null = null;
-
   constructor(
     @InjectModel(DICTIONARY_MODEL_NAME)
     private readonly dictionaryModel: Model<DictionaryDocument>,
+    private readonly aiService: AiService,
   ) {}
 
-  private formatErrorDetail(err: unknown) {
-    const parts: string[] = [];
-    const target = (err || {}) as any;
+  normalizeWord(word: string) {
+    return word?.trim().toLowerCase() || '';
+  }
 
-    if (target.name) parts.push(`name=${target.name}`);
-    if (target.message) parts.push(`message=${target.message}`);
-    if (target.code) parts.push(`code=${target.code}`);
+  public buildPrompt({ word }: { word: string }) {
+    const prompt = `你是一个严谨的英语词典分析助手。请分析输入的字符串："${word}"。
 
-    const cause = target.cause as any;
-    if (cause) {
-      if (cause.name) parts.push(`cause.name=${cause.name}`);
-      if (cause.message) parts.push(`cause.message=${cause.message}`);
-      if (cause.code) parts.push(`cause.code=${cause.code}`);
+  严格遵守以下要求：
+  1. 有效性与原形检查：
+  - 若不是有效单词，isWordValid 设为 false。
+  - 若输入是变形词（如 added, buzzing），searchedWord 保留原输入，canonicalWord 返回原形（如 add, buzz）。
+
+  2. 词根与演变故事：
+  - root 是用于同根词归类的标识，只填小写英文字母，不要添加任何连字符、中文、括号或其他符号；前缀、后缀也不要加表示位置的连字符。
+  - 原词与派生词必须使用完全相同的 root。例如 chop 和 chopper 的 root 都是 "chop"，不要把 chopper 写成 "chop-"。
+  - 正确示例："chop"、"ad"、"vis"；错误示例："chop-"、"ad-"、"chop (切，砍)"。
+  - 如果该单词没有独立词根（如 cat/dog、buzz、外来借词等），root 必须直接回退为 canonicalWord 的值（例如 buzz）。
+  - rootMeaning 给出简短词源出处与原始含义。
+  - etymologyStory 必须提供一段详细、通俗且有画面感的演变故事。若涉及词义转化（如具体器物含义如何演变为抽象含义），必须解释历史或文化背景中的逻辑链。
+  - 当触发回退时，rootMeaning 需要明确说明“原生词/拟声词/借词，无独立词根”。
+  - 同根词必须是对象数组，每项包含 word 与 explanation。
+  - 若无相关派生词，cognates 返回空数组 []。
+
+  3. 释义简洁性：
+  - meaning 必须极简直白，严禁括号补充说明。
+
+  4. 同义词层级：
+  - 先按词性分类，再按词义分类。
+  - 同义词辨析必须绑定在每个词义 definitions 的 synonymsAnalysis 中。
+  - 每个词义下必须包含原词本身、同义词和同义短语，usageShare 加和必须为 100。
+  - 如果 "${word}" 在它的某个词义下是小众词汇，则usageShare要以通用词汇为整体，例如chopper指一种特殊的摩托车，它的usageShare以所有摩托车作为整体，chopper仅占少数，motorcycle占大多数，而不是仅考虑chopper这一小类摩托车，被查询词在usageShare中不是最多的是合理的。`;
+
+    return prompt;
+  }
+
+  async findByWord({ word }: { word: string }) {
+    return this.dictionaryModel.findOne({ word });
+  }
+
+  async upsertAiLink(word: string, aiRecordId: string) {
+    return this.dictionaryModel.findOneAndUpdate(
+      { word },
+      { $set: { aiRecordId }, $unset: { analysis: '', root: '' } },
+      { upsert: true, new: true },
+    );
+  }
+
+  async getAiRecords(recordIds: string[]) {
+    const records = await this.aiService.getRecords(recordIds);
+    return new Map(records.map((record) => [String(record._id), record]));
+  }
+
+  getRoot(content?: string) {
+    if (!content) return '';
+    try {
+      return `${(JSON.parse(content) as DictionaryWordAnalysis).rootAnalysis?.root || ''}`
+        .trim()
+        .replace(/^-+|-+$/g, '')
+        .toLowerCase();
+    } catch {
+      return '';
     }
-
-    if (target.response?.status)
-      parts.push(`response.status=${target.response.status}`);
-    if (target.response?.statusText)
-      parts.push(`response.statusText=${target.response.statusText}`);
-
-    return parts.filter(Boolean).join('; ') || String(err);
   }
 
   private isSubsequence(text: string, pattern: string) {
@@ -249,341 +273,18 @@ class DictionaryService {
     return 3;
   }
 
-  private normalizeWordAnalysis(
-    inputWord: string,
-    raw: DictionaryWordAnalysis,
-  ) {
-    const canonicalWord =
-      `${raw?.canonicalWord || raw?.word || inputWord}`.trim() || inputWord;
-    const isWordValid = !!raw?.isWordValid;
-    const fallbackRoot = canonicalWord;
-    const normalizedRoot =
-      `${raw?.rootAnalysis?.root || ''}`.trim() || fallbackRoot;
-    const normalizedRootMeaning =
-      `${raw?.rootAnalysis?.rootMeaning || ''}`.trim();
-    const normalizedEtymologyStory =
-      `${raw?.rootAnalysis?.etymologyStory || ''}`.trim();
-
-    return {
-      isWordValid,
-      searchedWord: inputWord,
-      canonicalWord,
-      word: canonicalWord,
-      invalidReason: raw?.invalidReason ?? null,
-      rootAnalysis: {
-        root: normalizedRoot,
-        rootMeaning: normalizedRootMeaning || '原生词/拟声词/借词，无独立词根',
-        etymologyStory:
-          normalizedEtymologyStory ||
-          '该词常用为基础词或借词场景，建议结合其常见使用语境记忆；若无清晰词根链路，可用 canonicalWord 作为记忆锚点。',
-        cognates: Array.isArray(raw?.rootAnalysis?.cognates)
-          ? raw.rootAnalysis.cognates.map((item: any) => ({
-              word: `${item?.word || ''}`,
-              explanation: `${item?.explanation || ''}`,
-            }))
-          : [],
-      },
-      meanings: Array.isArray(raw?.meanings)
-        ? raw.meanings.map((meaning: any) => ({
-            partOfSpeech: `${meaning?.partOfSpeech || ''}`,
-            definitions: Array.isArray(meaning?.definitions)
-              ? meaning.definitions.map((def: any) => ({
-                  meaning: `${def?.meaning || ''}`,
-                  example: `${def?.example || ''}`,
-                  exampleTranslation: `${def?.exampleTranslation || ''}`,
-                  synonymsAnalysis: Array.isArray(def?.synonymsAnalysis)
-                    ? def.synonymsAnalysis.map((syn: any) => ({
-                        term: `${syn?.term || ''}`,
-                        isOriginalWord: !!syn?.isOriginalWord,
-                        usageShare: Number(syn?.usageShare || 0),
-                        usageContext: `${syn?.usageContext || ''}`,
-                        note: syn?.note ? `${syn.note}` : undefined,
-                      }))
-                    : [],
-                }))
-              : [],
-          }))
-        : [],
-    } as DictionaryWordAnalysis;
-  }
-
-  private async generateWordAnalysis(word: string) {
-    const apiKey = (process.env.GEMINI_API_KEY || '').trim();
-    if (!apiKey) {
-      throw new BadRequestException('GEMINI_API_KEY is empty');
-    }
-
-    const ai = new GoogleGenAI({
-      apiKey: process.env.GEMINI_API_KEY,
-      // 将域名指向你的 Cloudflare Workers 代理地址
-      httpOptions: {
-        baseUrl: 'https://gemini.waterlilyapolo.workers.dev/',
-      },
-    });
-    const prompt = `你是一个严谨的英语词典分析助手。请分析输入的字符串："${word}"。
-
-  严格遵守以下要求：
-  1. 有效性与原形检查：
-  - 若不是有效单词，isWordValid 设为 false。
-  - 若输入是变形词（如 added, buzzing），searchedWord 保留原输入，canonicalWord 返回原形（如 add, buzz）。
-
-  2. 词根与演变故事（重点更新）：
-  - root 字段必须且只能填写纯英文词根/前缀/后缀字符串，只允许英文字母和连字符，不得包含中文、括号或其他符号。
-  - 正确示例："chop-"、"ad-"、"vis-"。
-  - 错误示例："chop- (切，砍)"、"ad- (去，往)"。
-  - 如果该单词没有独立词根（如 cat/dog、buzz、外来借词等），root 必须直接回退为 canonicalWord 的值（例如 buzz）。
-  - rootMeaning 给出简短词源出处与原始含义。
-  - etymologyStory 必须提供一段详细、通俗且有画面感的演变故事。若涉及词义转化（如具体器物含义如何演变为抽象含义），必须解释历史或文化背景中的逻辑链。
-  - 当触发回退时，rootMeaning 需要明确说明“原生词/拟声词/借词，无独立词根”。
-  - 同根词必须是对象数组，每项包含 word 与 explanation。
-  - 若无相关派生词，cognates 返回空数组 []。
-
-  3. 释义简洁性：
-  - meaning 必须极简直白，严禁括号补充说明。
-
-  4. 同义词层级：
-  - 先按词性分类，再按词义分类。
-  - 同义词辨析必须绑定在每个词义 definitions 的 synonymsAnalysis 中。
-  - 每个词义下必须包含原词本身、同义词和同义短语，usageShare 加和必须为 100。
-  - 如果 "${word}" 在它的某个词义下是小众词汇，则usageShare要以通用词汇为整体，例如chopper指一种特殊的摩托车，它的usageShare以所有摩托车作为整体，chopper仅占少数，motorcycle占大多数，而不是仅考虑chopper这一小类摩托车，被查询词在usageShare中不是最多的是合理的。`;
-
-    let response: any;
-    try {
-      response = await ai.models.generateContent({
-        model: this.modelName,
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: WordAnalysisSchema,
-          temperature: 0.2,
-        },
-      });
-    } catch (err) {
-      throw new BadRequestException(
-        `Gemini request failed: ${this.formatErrorDetail(err)}`,
-      );
-    }
-
-    if (!response.text) {
-      throw new BadRequestException(
-        `Gemini empty response: ${this.formatErrorDetail(response)}`,
-      );
-    }
-
-    try {
-      return JSON.parse(response.text) as DictionaryWordAnalysis;
-    } catch (err) {
-      const textSnippet = String(response.text || '').slice(0, 500);
-      throw new BadRequestException(
-        `Gemini returned invalid JSON: ${this.formatErrorDetail(err)}; response.text=${textSnippet}`,
-      );
-    }
-  }
-
-  async analyzeWord(dto: AnalyzeWordDTO) {
-    const searchedWord = `${dto?.word || ''}`.trim();
-    if (!searchedWord) {
-      throw new BadRequestException('word is required');
-    }
-
-    const searchedWordLower = searchedWord.toLowerCase();
-    const isoverwirte = !!dto?.isoverwirte;
-
-    if (this.tempOverwrite?.wordLower === searchedWordLower && !isoverwirte) {
-      return {
-        success: true,
-        exists: true,
-        cached: false,
-        isoverwirte: true,
-        word: this.tempOverwrite.word,
-        data: this.tempOverwrite.analysis,
-        recordId: null,
-        updatedAt: this.tempOverwrite.updatedAt,
-      };
-    }
-
-    const cached = await this.dictionaryModel
-      .findOne({ wordLower: searchedWordLower })
-      .sort({ createdAt: -1 })
-      .lean();
-
-    if (cached && !isoverwirte) {
-      return {
-        success: true,
-        exists: true,
-        cached: true,
-        isoverwirte: false,
-        word: cached.word,
-        data: cached.analysis,
-        recordId: String(cached._id),
-        updatedAt: cached.updatedAt,
-      };
-    }
-
-    const generated = await this.generateWordAnalysis(searchedWord);
-    const analysis = this.normalizeWordAnalysis(searchedWord, generated);
-    const canonicalWord = `${analysis.canonicalWord || searchedWord}`.trim();
-    const canonicalWordLower = canonicalWord.toLowerCase();
-
-    if (!analysis.isWordValid) {
-      return {
-        success: true,
-        exists: false,
-        cached: false,
-        isoverwirte: false,
-        word: canonicalWord,
-        message: '这个词不存在',
-        data: analysis,
-        recordId: null,
-        updatedAt: null,
-      };
-    }
-
-    if (!isoverwirte) {
-      if (this.tempOverwrite?.wordLower === canonicalWordLower) {
-        return {
-          success: true,
-          exists: true,
-          cached: false,
-          isoverwirte: true,
-          word: this.tempOverwrite.word,
-          data: this.tempOverwrite.analysis,
-          recordId: null,
-          updatedAt: this.tempOverwrite.updatedAt,
-        };
-      }
-
-      const canonicalCached = await this.dictionaryModel
-        .findOne({ wordLower: canonicalWordLower })
-        .sort({ createdAt: -1 })
-        .lean();
-
-      if (canonicalCached) {
-        return {
-          success: true,
-          exists: true,
-          cached: true,
-          isoverwirte: false,
-          word: canonicalCached.word,
-          data: canonicalCached.analysis,
-          recordId: String(canonicalCached._id),
-          updatedAt: canonicalCached.updatedAt,
-        };
-      }
-    }
-
-    if (isoverwirte) {
-      this.tempOverwrite = {
-        word: canonicalWord,
-        wordLower: canonicalWordLower,
-        analysis,
-        updatedAt: new Date(),
-      };
-
-      return {
-        success: true,
-        exists: true,
-        cached: false,
-        isoverwirte: true,
-        word: canonicalWord,
-        data: analysis,
-        recordId: null,
-        updatedAt: this.tempOverwrite.updatedAt,
-      };
-    }
-
-    const created = await this.dictionaryModel.create({
-      word: canonicalWord,
-      wordLower: canonicalWordLower,
-      root: analysis.rootAnalysis.root,
-      modelName: this.modelName,
-      analysis,
-    });
-
-    return {
-      success: true,
-      exists: true,
-      cached: false,
-      isoverwirte: false,
-      word: canonicalWord,
-      data: analysis,
-      recordId: String(created._id),
-      updatedAt: created.updatedAt,
-    };
-  }
-
-  async overwriteWord(dto: OverwriteWordDTO) {
-    const word = `${dto?.word || ''}`.trim();
-    if (!word) {
-      throw new BadRequestException('word is required');
-    }
-
-    if (!this.tempOverwrite) {
-      throw new BadRequestException('temporary overwrite result not found');
-    }
-
-    const wordLower = word.toLowerCase();
-    if (this.tempOverwrite.wordLower !== wordLower) {
-      throw new BadRequestException('temporary overwrite word mismatch');
-    }
-
-    const record = await this.dictionaryModel
-      .findOneAndUpdate(
-        { wordLower },
-        {
-          word,
-          wordLower,
-          root: this.tempOverwrite.analysis.rootAnalysis.root,
-          modelName: this.modelName,
-          analysis: this.tempOverwrite.analysis,
-        },
-        {
-          upsert: true,
-          new: true,
-        },
-      )
-      .lean();
-
-    this.tempOverwrite = null;
-
-    return {
-      success: true,
-      item: {
-        _id: String(record?._id),
-        word: record?.word,
-        wordLower: record?.wordLower,
-        root: record?.root || '',
-        modelName: record?.modelName,
-        analysis: record?.analysis,
-        createdAt: record?.createdAt
-          ? record.createdAt.toISOString()
-          : undefined,
-        updatedAt: record?.updatedAt
-          ? record.updatedAt.toISOString()
-          : undefined,
-      } as DictionaryRecord,
-    };
-  }
-
   async deleteWord(dto: DeleteWordDTO) {
     const word = `${dto?.word || ''}`.trim();
     if (!word) {
       throw new BadRequestException('word is required');
     }
 
-    const wordLower = word.toLowerCase();
-    const deleted = await this.dictionaryModel.deleteMany({ wordLower });
-
-    const tempCleared =
-      !!this.tempOverwrite && this.tempOverwrite.wordLower === wordLower;
-    if (tempCleared) {
-      this.tempOverwrite = null;
-    }
+    const deleted = await this.dictionaryModel.deleteMany({ word: word.toLowerCase() });
 
     return {
       success: true,
       deletedCount: deleted.deletedCount || 0,
-      tempCleared,
+      tempCleared: false,
     };
   }
 
@@ -592,24 +293,26 @@ class DictionaryService {
     const safeLimit = Math.min(Math.max(limit, 1), 50);
 
     const rows = await this.dictionaryModel
-      .find({}, { word: 1, wordLower: 1, updatedAt: 1, createdAt: 1 })
+      .find({}, { word: 1, updatedAt: 1, createdAt: 1 })
       .sort({ updatedAt: -1, createdAt: -1 })
       .limit(500)
       .lean();
 
     const dedup = new Map<string, any>();
     for (const row of rows) {
-      if (!row.wordLower || dedup.has(row.wordLower)) continue;
-      dedup.set(row.wordLower, row);
+      const wordLower = row.word.toLowerCase();
+      if (dedup.has(wordLower)) continue;
+      dedup.set(wordLower, row);
     }
 
     const ranked = Array.from(dedup.values())
       .map((row) => {
-        const rank = this.getMatchRank(row.wordLower, normalized);
+        const wordLower = row.word.toLowerCase();
+        const rank = this.getMatchRank(wordLower, normalized);
         return {
           row,
           rank,
-          index: normalized ? row.wordLower.indexOf(normalized) : 0,
+          index: normalized ? wordLower.indexOf(normalized) : 0,
           ts: row.updatedAt ? row.updatedAt.getTime() : 0,
         };
       })
@@ -626,7 +329,7 @@ class DictionaryService {
       items: ranked.map(({ row }) => ({
         _id: String(row._id),
         word: row.word,
-        wordLower: row.wordLower,
+        wordLower: row.word.toLowerCase(),
         updatedAt: row.updatedAt ? row.updatedAt.toISOString() : undefined,
       })) as Partial<DictionaryRecord>[],
     };
@@ -635,20 +338,11 @@ class DictionaryService {
   async getRecent(limit = 20) {
     const safeLimit = Math.min(Math.max(limit, 1), 100);
     const rows = await this.dictionaryModel
-      .find(
-        {},
-        {
-          word: 1,
-          wordLower: 1,
-          root: 1,
-          modelName: 1,
-          createdAt: 1,
-          updatedAt: 1,
-        },
-      )
+      .find({}, { word: 1, aiRecordId: 1, createdAt: 1, updatedAt: 1 })
       .sort({ createdAt: -1 })
       .limit(safeLimit)
       .lean();
+    const records = await this.getAiRecords(rows.map((row) => row.aiRecordId));
 
     return {
       success: true,
@@ -657,9 +351,9 @@ class DictionaryService {
           ({
             _id: String(row._id),
             word: row.word,
-            wordLower: row.wordLower,
-            root: row.root || '',
-            modelName: row.modelName,
+            wordLower: row.word.toLowerCase(),
+            root: this.getRoot(records.get(row.aiRecordId)?.content),
+            modelName: records.get(row.aiRecordId)?.modelId,
             createdAt: row.createdAt ? row.createdAt.toISOString() : undefined,
             updatedAt: row.updatedAt ? row.updatedAt.toISOString() : undefined,
           }) as Partial<DictionaryRecord>,
@@ -669,14 +363,16 @@ class DictionaryService {
 
   async getRootGroups() {
     const rows = await this.dictionaryModel
-      .find({}, { word: 1, wordLower: 1, root: 1, updatedAt: 1 })
+      .find({}, { word: 1, aiRecordId: 1, updatedAt: 1 })
       .sort({ updatedAt: -1, createdAt: -1 })
       .lean();
 
-    const latestByWord = new Map<string, any>();
+    const records = await this.getAiRecords(rows.map((row) => row.aiRecordId));
+    const latestByWord = new Map<string, (typeof rows)[number]>();
     for (const row of rows) {
-      if (!row.wordLower || latestByWord.has(row.wordLower)) continue;
-      latestByWord.set(row.wordLower, row);
+      const wordLower = row.word.toLowerCase();
+      if (latestByWord.has(wordLower)) continue;
+      latestByWord.set(wordLower, row);
     }
 
     const groups = new Map<
@@ -689,7 +385,7 @@ class DictionaryService {
     >();
 
     for (const row of latestByWord.values()) {
-      const rootValue = `${row.root || ''}`.trim();
+      const rootValue = this.getRoot(records.get(row.aiRecordId)?.content);
       const key = rootValue || '__NO_ROOT__';
       const group = groups.get(key) || {
         root: rootValue,
@@ -699,7 +395,7 @@ class DictionaryService {
 
       group.words.push({
         word: row.word,
-        wordLower: row.wordLower,
+        wordLower: row.word.toLowerCase(),
         updatedAt: row.updatedAt ? row.updatedAt.toISOString() : undefined,
       });
       group.count += 1;
@@ -730,18 +426,35 @@ class DictionaryService {
 
 @Controller('api/dictionary')
 class DictionaryController {
-  constructor(private readonly dictionaryService: DictionaryService) {}
+  constructor(
+    private readonly dictionaryService: DictionaryService,
+    private readonly aiService: AiService,
+  ) {}
 
   @Public()
   @Post('analyze')
-  async analyze(@Body() dto: AnalyzeWordDTO) {
-    return this.dictionaryService.analyzeWord(dto);
-  }
+  async analyze(@Body() data: DictionaryDTO.AnalyzeReq, @Res() res: Response) {
+    const word = this.dictionaryService.normalizeWord(data.word);
+    if (!word) {
+      throw new BadRequestException('word is required');
+    }
 
-  @Public()
-  @Post('overwrite')
-  async overwrite(@Body() dto: OverwriteWordDTO) {
-    return this.dictionaryService.overwriteWord(dto);
+    const saved = await this.dictionaryService.findByWord({ word });
+    const existingRecord = saved?.aiRecordId
+      ? await this.aiService.getRecord(saved.aiRecordId)
+      : null;
+    await this.aiService.stream({
+      recordId: existingRecord ? saved.aiRecordId : undefined,
+      regenerate: !!data.isRegenerate,
+      bizId: DICTIONARY_BIZ_ID,
+      question: word,
+      prompt: this.dictionaryService.buildPrompt({ word }),
+      schema: WordAnalysisSchema,
+      res,
+      onStart: async (aiRecordId: string) => {
+        await this.dictionaryService.upsertAiLink(word, aiRecordId);
+      },
+    });
   }
 
   @Public()
@@ -776,6 +489,7 @@ class DictionaryController {
 
 @Module({
   imports: [
+    AiModule,
     MongooseModule.forFeature([
       { name: DICTIONARY_MODEL_NAME, schema: DictionarySchema },
     ]),

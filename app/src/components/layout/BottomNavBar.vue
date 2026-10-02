@@ -56,7 +56,7 @@ const emit = defineEmits<{
     position: relative;
     width: auto;
     min-height: 2rem;
-    min-width: 2.5rem;
+    min-width: 2rem;
     padding: 0.375rem 0;
     line-height: 1;
     display: flex;

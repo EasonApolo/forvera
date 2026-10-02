@@ -12,6 +12,7 @@ const props = withDefaults(
     closeOnMask?: boolean
     blurBackdrop?: boolean
     placement?: 'bottom' | 'center'
+    maxWidth?: number
     paddingBottom?: boolean
     hideFooter?: boolean
   }>(),
@@ -57,7 +58,7 @@ const handleConfirm = () => {
 <template>
   <Teleport to="body">
     <div v-if="show" class="modal-mask" :class="maskClass" @click.self="closeOnMask && close()">
-      <div class="modal-panel">
+      <div class="modal-panel" :style="maxWidth ? { maxWidth: `${maxWidth}px` } : undefined">
         <div v-if="title" class="modal-title">{{ title }}</div>
         <div class="modal-content">
           <slot></slot>

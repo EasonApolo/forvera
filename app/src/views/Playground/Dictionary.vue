@@ -5,8 +5,9 @@ import List from '@/components/layout/List.vue'
 import Card from '@/components/Card.vue'
 import Input from '@/components/Input.vue'
 import Btn from '@/components/Btn.vue'
-import Loading from '@/components/Loading.vue'
+import AiStream from '@/components/AiStream.vue'
 import { request } from '@/utils/request'
+import { ip } from '@/config'
 import type { DictionaryRecord, DictionaryWordAnalysis } from 'shared/types/dictionary'
 import BottomNavBar from '@/components/layout/BottomNavBar.vue'
 import Modal from '@/components/Modal.vue'
@@ -20,6 +21,10 @@ const router = useRouter()
 const word = ref('')
 const searchWord = ref('')
 const result = ref<DictionaryWordAnalysis | null>(null)
+const displayRoot = computed(() => result.value?.rootAnalysis?.root?.trim().replace(/^-+|-+$/g, '').toLowerCase() || '')
+const streamText = ref('')
+const streamModelId = ref('')
+const analysisError = ref('')
 const recent = ref<Partial<DictionaryRecord>[]>([])
 const searchResults = ref<Partial<DictionaryRecord>[]>([])
 const rootGroups = ref<
@@ -32,7 +37,6 @@ const rootGroups = ref<
 >([])
 const loading = ref(false)
 const searchLoading = ref(false)
-const hasTemporaryOverwrite = ref(false)
 const currentTab = ref<'action' | 'list'>('list')
 const showSearchPanel = ref(false)
 const searchTimer = ref<number | null>(null)
@@ -93,47 +97,69 @@ const scheduleSearch = (keyword: string) => {
   }, 180)
 }
 
-const analyze = async (targetWord?: string, isoverwirte = false, navigate = true) => {
+const analyze = async (targetWord?: string, isRegenerate = false, navigate = true) => {
   const q = `${targetWord || searchWord.value}`.trim()
   if (!q || loading.value) return
 
   loading.value = true
+  word.value = q
+  result.value = null
+  streamText.value = ''
+  streamModelId.value = ''
+  analysisError.value = ''
 
   try {
-    const res = await request(
-      'dictionary/analyze',
-      'post',
-      { word: q, isoverwirte },
-      { withCredentials: false }
-    )
-
-    result.value = (res?.data || null) as DictionaryWordAnalysis | null
-    word.value = `${res?.word || result.value?.word || q}`
-    hasTemporaryOverwrite.value = !!res?.isoverwirte
-
-    if (res?.exists === false) {
-      result.value = null
-      toastStore.showToast({
-        content: res?.message || '这个词不存在',
-        type: 'ERR',
-      })
-      return
-    }
-
     if (navigate) {
-      await router.push({ name: 'dictionaryWord', params: { word: word.value } })
+      await router.push({ name: 'dictionaryWord', params: { word: q } })
     }
+    showSearchPanel.value = false
+    const response = await fetch(new URL('/api/dictionary/analyze', ip), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ word: q, isRegenerate }),
+    })
+    if (!response.ok || !response.body) throw new Error(`查询失败 (${response.status})`)
 
-    await loadRecent()
-    await loadSearchPanel(word.value)
-    await loadRootGroups()
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let content = ''
+    let completed = false
+    const readEvent = (event: string) => {
+      const data = event.split('\n').filter(line => line.startsWith('data: ')).map(line => line.slice(6)).join('\n')
+      if (!data) return
+      const chunk = JSON.parse(data) as { status?: string; content?: string; text?: string; modelId?: string; error?: string }
+      if (chunk.modelId) streamModelId.value = chunk.modelId
+      if (chunk.error) throw new Error(chunk.error)
+      if (chunk.content !== undefined && chunk.status !== 'done') streamText.value = chunk.content
+      if (chunk.text) streamText.value += chunk.text
+      if (chunk.status === 'done' && chunk.content !== undefined) content = chunk.content
+      if (chunk.status === 'done') completed = true
+    }
+    while (true) {
+      const { value, done } = await reader.read()
+      buffer = (buffer + decoder.decode(value, { stream: !done })).replace(/\r\n/g, '\n')
+      const events = buffer.split('\n\n')
+      buffer = events.pop() || ''
+      for (const event of events) readEvent(event)
+      if (done) break
+    }
+    if (buffer.trim()) readEvent(buffer)
+    if (!completed) throw new Error('查询中断，请重新查询以继续接收')
+
+    result.value = JSON.parse(content) as DictionaryWordAnalysis
+    word.value = q
+
+    await Promise.allSettled([loadRecent(), loadSearchPanel(word.value), loadRootGroups()])
     showSearchPanel.value = false
     currentTab.value = 'list'
   } catch (err: any) {
+    analysisError.value = err?.response?.data?.message || err?.message || '查询失败，请稍后重试'
     toastStore.showToast({
-      content: err?.response?.data?.message || err?.message || '查询失败，请稍后重试',
+      content: analysisError.value,
       type: 'ERR',
     })
+    await Promise.allSettled([loadRecent(), loadSearchPanel(word.value), loadRootGroups()])
   } finally {
     loading.value = false
   }
@@ -149,31 +175,6 @@ const requery = async () => {
   await analyze(q, true)
 }
 
-const overwrite = async () => {
-  const q = `${word.value || ''}`.trim()
-  if (!q || loading.value || !hasTemporaryOverwrite.value) return
-
-  const confirmed = window.confirm(`确认覆盖单词 ${q} 吗？`)
-  if (!confirmed) return
-
-  loading.value = true
-
-  try {
-    await request('dictionary/overwrite', 'post', { word: q }, { withCredentials: false })
-    hasTemporaryOverwrite.value = false
-    toastStore.showToast({ content: '覆盖成功', type: 'OK' })
-    await loadRootGroups()
-    await analyze(q)
-  } catch (err: any) {
-    toastStore.showToast({
-      content: err?.response?.data?.message || err?.message || '覆盖失败，请稍后重试',
-      type: 'ERR',
-    })
-  } finally {
-    loading.value = false
-  }
-}
-
 const removeWord = async () => {
   const q = `${word.value || ''}`.trim()
   if (!q || loading.value) return
@@ -184,11 +185,8 @@ const removeWord = async () => {
   loading.value = true
   try {
     const res = await request('dictionary/delete', 'post', { word: q }, { withCredentials: false })
-    if (res?.tempCleared) {
-      hasTemporaryOverwrite.value = false
-    }
-
     result.value = null
+    analysisError.value = ''
     word.value = ''
     searchWord.value = ''
     currentTab.value = 'list'
@@ -270,8 +268,8 @@ const syncByRoute = async () => {
   }
 
   result.value = null
+  analysisError.value = ''
   word.value = ''
-  hasTemporaryOverwrite.value = false
   if (pageMode.value === 'home' || pageMode.value === 'root') {
     currentTab.value = 'list'
     showSearchPanel.value = false
@@ -305,14 +303,11 @@ onMounted(() => {
     <template #content>
       <PageHeader>
         <template #right>
-          <Btn v-if="pageMode === 'word' && result" :disabled="!canRequery" small :loading="loading" @click="requery"
+          <Btn v-if="pageMode === 'word' && word" :disabled="!canRequery" small :loading="loading" @click="requery"
             >重新查询</Btn
           >
-          <Btn v-if="pageMode === 'word' && result" :disabled="!canDelete" small type="danger" @click="removeWord"
+          <Btn v-if="pageMode === 'word' && word" :disabled="!canDelete" small type="danger" @click="removeWord"
             >删除</Btn
-          >
-          <Btn v-if="pageMode === 'word' && hasTemporaryOverwrite" :disabled="loading" small @click="overwrite()"
-            >覆盖</Btn
           >
         </template>
       </PageHeader>
@@ -341,10 +336,16 @@ onMounted(() => {
         </div>
       </Card>
 
+      <AiStream v-if="pageMode === 'word' && loading && !result" :text="streamText" :model-id="streamModelId" />
+      <div v-if="pageMode === 'word' && !loading && analysisError" class="analysis-error" role="alert">
+        <div class="word">{{ word }}</div>
+        <div class="error-title">查询失败</div>
+        <div class="error-message">{{ analysisError }}</div>
+      </div>
       <div class="display" v-if="pageMode === 'word' && result">
         <div class="word">{{ result.word }}</div>
         <Card>
-          <div class="text">{{ result.rootAnalysis.root }}</div>
+          <div class="text">{{ displayRoot }}</div>
           <div class="secondary-text">{{ result.rootAnalysis.rootMeaning }}</div>
           <div class="secondary-text">{{ result.rootAnalysis.etymologyStory }}</div>
           <div class="">
@@ -434,6 +435,30 @@ onMounted(() => {
   }
 }
 
+.analysis-error {
+  padding: 0.75rem 0;
+  min-width: 0;
+
+  .word {
+    font-size: 1.75rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+  }
+
+  .error-title {
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+  }
+
+  .error-message {
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: 0.875rem;
+    line-height: 1.6;
+  }
+}
+
 .display {
   .word {
     font-size: 1.75rem;
@@ -493,12 +518,6 @@ onMounted(() => {
 
 .recent-word {
   font-weight: 600;
-}
-
-.loading-wrap {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
 }
 
 .section-title {

@@ -313,12 +313,12 @@ onMounted(() => {
 
 .task-actions {
   justify-content: flex-end;
-  min-width: 7.1rem;
+  min-width: 4rem;
 }
 
 .subtask-actions {
   justify-content: flex-end;
-  min-width: 3.9rem;
+  min-width: 3rem;
 }
 
 .subtask-add-row {

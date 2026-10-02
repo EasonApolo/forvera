@@ -11,6 +11,7 @@ import Gallery from '../components/Gallery.vue'
 import { useToastStore } from '../store/toast'
 import { useImageStore } from '../store/image'
 import AddMessage from './AddMessage.vue'
+import Modal from '@/components/Modal.vue'
 import { ref, watch } from 'vue'
 
 const [messageStore, userStore, toastStore, imageStore] = [
@@ -182,13 +183,19 @@ watch(
         </div>
       </Card>
       <div class="ending">—— 完 ——</div>
-      <div v-if="showReplyPanel" class="reply-overlay" @click.self="closeReplyPanel">
-        <div class="reply-panel">
-          <AddMessage :floating="true" @close="closeReplyPanel" />
-        </div>
-      </div>
     </template>
   </List>
+  <Modal
+    :show="showReplyPanel"
+    @update:show="closeReplyPanel"
+    placement="bottom"
+    :padding-bottom="false"
+    :blur-backdrop="false"
+    :hide-footer="true"
+    :max-width="560"
+  >
+    <AddMessage :floating="true" @close="closeReplyPanel" />
+  </Modal>
 </template>
 
 <style lang="less" scoped>
@@ -330,20 +337,6 @@ watch(
   margin-top: 1rem;
   font-size: 12px;
   color: #aaa;
-}
-
-.reply-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 120;
-  display: flex;
-  align-items: flex-end;
-  background: rgba(0, 0, 0, 0.35);
-}
-
-.reply-panel {
-  width: 100%;
-  padding: 0.75rem;
 }
 
 // .send {

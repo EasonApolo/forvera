@@ -8,8 +8,22 @@ import * as express from 'express';
 import { config as loadDotenv } from 'dotenv';
 import { staticPath } from './shared/staticPath';
 import { projectRoot } from './shared/projectRoot';
+import { getGlobalDispatcher, ProxyAgent, setGlobalDispatcher } from 'undici';
+import { routeGeminiRequests } from './shared/geminiProxy';
 
 loadDotenv({ path: join(projectRoot, '.env') });
+
+const proxyRulesPath = join(projectRoot, 'proxy-rules.json');
+const proxyRules: Record<string, string> = existsSync(proxyRulesPath)
+  ? JSON.parse(readFileSync(proxyRulesPath, 'utf8'))
+  : {};
+const geminiProxyUrl = proxyRules['generativelanguage.googleapis.com'];
+if (geminiProxyUrl) {
+  setGlobalDispatcher(routeGeminiRequests(
+    getGlobalDispatcher(),
+    new ProxyAgent(geminiProxyUrl),
+  ));
+}
 
 const appIndexCandidates = [
   join(projectRoot, 'app', 'dist', 'index.html'),

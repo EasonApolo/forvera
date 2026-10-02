@@ -4,6 +4,7 @@ import { useMessageStore } from '@/store/message'
 import { computed, ref } from 'vue'
 import { usePostStore } from '@/store/post'
 import Loading from '@/components/Loading.vue'
+import Modal from '@/components/Modal.vue'
 import BottomNavBar from '@/components/layout/BottomNavBar.vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 
@@ -32,6 +33,10 @@ const navItems = computed(() =>
 )
 
 const clickTab = async (routeName: string) => {
+  if (routeName === 'twit' && activeRouteName.value === 'twit') {
+    replyTo()
+    return
+  }
   if (routeName === 'postList' && activeRouteName.value === 'postList') {
     if (isLoadingPosts.value) {
       return
@@ -71,7 +76,7 @@ const closeReplyPanel = () => {
         <div class="message">
           <div :class="{ 'move-up': activeRouteName === 'twit' }">
             <div class="message-text" key="text">发言</div>
-            <div class="message-icon" key="icon" @click.stop="replyTo"></div>
+            <div class="message-icon" key="icon" @click.stop.prevent="replyTo"></div>
           </div>
         </div>
     </template>
@@ -83,15 +88,17 @@ const closeReplyPanel = () => {
     </template>
   </BottomNavBar>
 
-  <div
-    v-if="showReplyPanel"
-    class="reply-overlay"
-    @click.self="closeReplyPanel"
+  <Modal
+    :show="showReplyPanel"
+    @update:show="closeReplyPanel"
+    placement="bottom"
+    :padding-bottom="false"
+    :blur-backdrop="false"
+    :hide-footer="true"
+    :max-width="560"
   >
-    <div class="reply-panel">
-      <AddMessage :floating="true" @close="closeReplyPanel" />
-    </div>
-  </div>
+    <AddMessage :floating="true" @close="closeReplyPanel" />
+  </Modal>
 </template>
 
 <style lang="less" scoped>
@@ -145,17 +152,4 @@ const closeReplyPanel = () => {
   }
 }
 
-.reply-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 120;
-  display: flex;
-  align-items: flex-end;
-  background: rgba(0, 0, 0, 0.35);
-}
-
-.reply-panel {
-  width: 100%;
-  padding: 0.75rem;
-}
 </style>

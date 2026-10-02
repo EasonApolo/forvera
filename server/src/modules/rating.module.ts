@@ -8,6 +8,10 @@ import {
   Get,
   Query,
   BadRequestException,
+  BadGatewayException,
+  GatewayTimeoutException,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { Injectable } from '@nestjs/common';
 import { MongooseModule, Schema, Prop, SchemaFactory } from '@nestjs/mongoose';
@@ -15,8 +19,8 @@ import { Document as MongooseDocument } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import axios from 'axios';
-import { OptionalParseIntPipe } from 'src/shared/parse-int.pipe';
-import { Public, Roles } from 'src/guards/jwt-auth.guard';
+import { OptionalParseIntPipe } from '../shared/parse-int.pipe';
+import { Public, Roles } from '../guards/jwt-auth.guard';
 import { APP_GUARD } from '@nestjs/core';
 
 // Document Schema
@@ -85,7 +89,7 @@ export class DeleteCommentDto {
 @Injectable()
 export class DocumentService {
   private lastSearchTime: number | null = null;
-  private readonly cooldownPeriod = 10000;
+  private readonly cooldownPeriod = 3000;
 
   constructor(
     @InjectModel(Document.name) private documentModel: Model<Document>,
@@ -187,23 +191,99 @@ export class DocumentService {
   }
 
   async searchMovies(query: string): Promise<any> {
+    const keyword = query?.trim();
+    if (!keyword) {
+      throw new BadRequestException('请输入电影名称');
+    }
+    const link = keyword.match(/https?:\/\/[^\s<>]+/i)?.[0];
+    let subjectId: string | undefined;
+    if (link) {
+      let parsed: URL;
+      try {
+        parsed = new URL(link);
+      } catch {
+        throw new BadRequestException('无效的豆瓣电影链接');
+      }
+      if (!['movie.douban.com', 'm.douban.com', 'www.douban.com'].includes(parsed.hostname.toLowerCase())) {
+        throw new BadRequestException('请使用豆瓣电影链接');
+      }
+      const path = parsed.pathname === '/doubanapp/dispatch'
+        ? parsed.searchParams.get('uri') || ''
+        : parsed.pathname;
+      subjectId = path.match(/^\/(?:movie\/)?subject\/(\d{7,})\/?$/)?.[1]
+        || path.match(/^\/movie\/(\d{7,})\/?$/)?.[1];
+      if (!subjectId) throw new BadRequestException('豆瓣链接中没有有效的电影 subject ID');
+    }
     const currentTime = Date.now();
 
-    if (
-      this.lastSearchTime &&
-      currentTime - this.lastSearchTime < this.cooldownPeriod
-    ) {
-      throw new BadRequestException(
-        'Requests are too frequent. Please wait a moment.',
+    if (this.lastSearchTime !== null && currentTime - this.lastSearchTime < this.cooldownPeriod) {
+      throw new HttpException(
+        `查询太频繁，请在 ${Math.ceil((this.cooldownPeriod - (currentTime - this.lastSearchTime)) / 1000)} 秒后重试`,
+        HttpStatus.TOO_MANY_REQUESTS,
       );
     }
 
     this.lastSearchTime = currentTime;
-    const url = `https://movie.douban.com/j/subject_suggest?q=${encodeURIComponent(
-      query,
-    )}`;
-    const response = await axios.get(url);
-    return response.data;
+    const url = subjectId
+      ? `https://movie.douban.com/j/subject_abstract?subject_id=${subjectId}`
+      : `https://movie.douban.com/j/subject_suggest?q=${encodeURIComponent(keyword)}`;
+    const proxyUrl = process.env.DOUBAN_PROXY_URL;
+    const proxy = proxyUrl ? new URL(proxyUrl) : null;
+    const requestOptions = {
+      timeout: 8000,
+      proxy: proxy
+        ? {
+          protocol: proxy.protocol.slice(0, -1),
+          host: proxy.hostname,
+          port: Number(proxy.port || (proxy.protocol === 'https:' ? 443 : 80)),
+        }
+        : false as const,
+    };
+    try {
+      let response;
+      try {
+        response = await axios.get(url, requestOptions);
+      } catch (error) {
+        if (!axios.isAxiosError(error) || error.response || error.code !== 'ECONNRESET') {
+          throw error;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        response = await axios.get(url, requestOptions);
+      }
+      if (subjectId) {
+        const movie = response.data?.subject;
+        if (response.data?.r !== 0 || movie?.id !== subjectId ||
+          movie?.subtype !== 'Movie' || typeof movie.title !== 'string' || !movie.title.trim()) {
+          throw new BadGatewayException('豆瓣电影摘要接口未返回可用的电影资料');
+        }
+        return [{
+          id: subjectId,
+          title: movie.title,
+          url: `https://movie.douban.com/subject/${subjectId}/`,
+          img: '',
+          year: typeof movie.release_year === 'string' ? movie.release_year : '',
+          type: 'movie',
+          episode: '',
+          sub_title: '',
+        }];
+      }
+      if (!Array.isArray(response.data)) {
+        throw new BadGatewayException('豆瓣接口返回了非预期数据，未能完成搜索');
+      }
+      return response.data;
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      if (axios.isAxiosError(error)) {
+        if (error.response) {
+          throw new BadGatewayException(`豆瓣接口返回 HTTP ${error.response.status}，搜索失败`);
+        }
+        if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+          throw new GatewayTimeoutException('连接豆瓣接口超时，请稍后重试');
+        }
+        throw new BadGatewayException(`无法${proxy ? '通过代理' : '直接'}连接豆瓣接口（${error.code || '网络错误'}），请稍后重试`);
+      }
+      throw error;
+    }
   }
 }
 

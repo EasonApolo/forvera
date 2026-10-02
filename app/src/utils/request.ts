@@ -87,7 +87,7 @@ export async function request(
         timeout: 3000,
       })
     } else {
-      const errCode = err.response.status
+      const errCode = err.response?.status
       if (errCode === 401) {
         if (userStore.isLogin) {
           toastStore.showToast({
@@ -103,7 +103,7 @@ export async function request(
         }
       } else {
         toastStore.showToast({
-          content: err.response.data.message || errCode,
+          content: err.response?.data?.message || err.message || errCode,
           type: '!',
           timeout: 3000,
         })

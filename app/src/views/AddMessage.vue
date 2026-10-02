@@ -115,7 +115,7 @@ const loading = ref({ send: false })
 
 <template>
   <div v-if="props.floating" class="floating-content">
-    <Card class="input-wrapper">
+    <div class="input-wrapper">
       <div class="content">
         <div class="tips">
           - {{ userStore.isLogin ? '' : '当前未登录，登录后' }}可以{{
@@ -166,11 +166,11 @@ const loading = ref({ send: false })
         </div>
       </div>
       <div class="icon"></div>
-    </Card>
+    </div>
   </div>
   <List v-else>
     <template #content>
-      <Card class="input-wrapper">
+      <div class="input-wrapper">
         <div class="content">
           <div class="tips">
             - {{ userStore.isLogin ? '' : '当前未登录，登录后' }}可以{{
@@ -220,15 +220,12 @@ const loading = ref({ send: false })
           </div>
         </div>
         <div class="icon"></div>
-      </Card>
+      </div>
     </template>
   </List>
 </template>
 
 <style lang="less" scoped>
-.floating-content {
-  padding-bottom: 1rem;
-}
 
 .input-wrapper {
   .actions {

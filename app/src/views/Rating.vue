@@ -121,25 +121,47 @@ interface Movie {
 const search = ref({
   query: '',
   done: false,
+  error: '',
   result: [] as Movie[],
   selected: null as Movie | null,
 })
 const searchMovie = async () => {
+  if (loading.value.search) return
+  const query = search.value.query.trim()
+  if (!query) {
+    search.value.done = false
+    search.value.result = []
+    search.value.error = '请输入电影名称'
+    return
+  }
   loading.value.search = true
   search.value.selected = null
+  search.value.done = false
+  search.value.result = []
+  search.value.error = ''
   try {
-    search.value.result = await request('documents/search', 'GET', {
-      query: search.value.query,
+    const result = await request('documents/search', 'GET', {
+      query,
     })
-  } catch (error) {
+    if (!Array.isArray(result)) throw new Error('搜索服务返回了非预期数据')
+    if (query === search.value.query.trim()) {
+      search.value.result = result
+      search.value.done = true
+    }
+  } catch (error: any) {
+    if (query === search.value.query.trim()) {
+      const status = error.response?.status
+      const message = error.response?.data?.message || error.message || '搜索失败'
+      search.value.error = status ? `后端 HTTP ${status}：${message}` : `网络请求失败：${message}`
+    }
   } finally {
-    search.value.done = true
     loading.value.search = false
   }
 }
 const clearSearch = () => {
   search.value.query = ''
   search.value.done = false
+  search.value.error = ''
   search.value.result = []
   search.value.selected = null
 }
@@ -183,23 +205,26 @@ const getCommentYears = (document: RatingDocument) => {
 }
 
 const createDocument = async () => {
-  if (!search.value.selected || node.value.key === undefined) {
+  if (loading.value.create || !search.value.selected || node.value.key === undefined) {
     return
   }
   loading.value.create = true
-  await request('documents/add', 'POST', {
-    id: search.value.selected.id,
-    title: search.value.selected.title,
-    date: search.value.selected.year,
-    type: node.value.key,
-    episode: search.value.selected.episode,
-    img: search.value.selected.img,
-    sub_title: search.value.selected.sub_title,
-    url: search.value.selected.url,
-  })
-  clearSearch()
-  loading.value.create = false
-  await fetchDocuments({ refresh: true })
+  try {
+    await request('documents/add', 'POST', {
+      id: search.value.selected.id,
+      title: search.value.selected.title,
+      date: search.value.selected.year,
+      type: node.value.key,
+      episode: search.value.selected.episode,
+      img: search.value.selected.img,
+      sub_title: search.value.selected.sub_title,
+      url: search.value.selected.url,
+    })
+    clearSearch()
+    await fetchDocuments({ refresh: true })
+  } finally {
+    loading.value.create = false
+  }
 }
 const deleteDocument = async (documentId: string) => {
   if (confirm('确定要删除吗？')) {
@@ -406,6 +431,7 @@ const filteredDocuments = computed(() => {
                 >搜索</Btn
               >
             </div>
+            <div v-if="search.error" class="no-result" role="alert">{{ search.error }}</div>
             <div v-if="search.done" class="search-result">
               <div v-if="search.result.length === 0" class="no-result">
                 没搜到
@@ -417,26 +443,21 @@ const filteredDocuments = computed(() => {
                 :class="{ selected: search.selected === res }"
                 @click="search.selected = res"
               >
-                <div class="link" @click.stop="openUrlInNewPage(res.url)">
+                <div class="result-title link" @click.stop="openUrlInNewPage(res.url)">
                   {{ res.title }}
                 </div>
-                <div>sub: {{ res.sub_title }}</div>
-                <div class="link" @click.stop="openUrlInNewPage(res.img)">
-                  img
+                <div v-if="res.sub_title" class="result-subtitle">{{ res.sub_title }}</div>
+                <div class="result-meta">
+                  <span v-if="res.year">{{ res.year }}</span>
+                  <span v-if="res.type">{{ res.type }}</span>
+                  <span v-if="res.episode">{{ res.episode }} 集</span>
+                  <span>ID {{ res.id }}</span>
+                  <span v-if="res.img" class="link" @click.stop="openUrlInNewPage(res.img)">图片</span>
                 </div>
-                <div>year: {{ res.year }}</div>
-                <div>id: {{ res.id }}</div>
-                <div>type: {{ res.type }}</div>
-                <div>episode: {{ res.episode }}</div>
+                <div v-if="search.selected === res" class="result-actions">
+                  <Btn class="submit-button" type="primary" :loading="loading.create" @click.stop="createDocument">创建</Btn>
+                </div>
               </div>
-            </div>
-            <div v-if="search.done && search.selected" class="flex">
-              <Btn
-                class="submit-button"
-                @click="createDocument"
-                :loading="loading.create"
-                >创建</Btn
-              >
             </div>
           </Card>
         </template>
@@ -608,29 +629,57 @@ const filteredDocuments = computed(() => {
   }
   .search-result {
     display: flex;
+    flex-direction: column;
     margin-top: 16px;
-    row-gap: 16px;
-    column-gap: 16px;
-    flex-wrap: wrap;
+    gap: 10px;
     .result-card {
-      padding: 12px;
+      text-align: left;
+      box-sizing: border-box;
+      width: 100%;
+      min-width: 0;
+      padding: 10px 12px;
       border: 1px solid var(--border);
-      border-radius: 8px;
-      max-width: 156px;
+      border-radius: 6px;
       cursor: pointer;
-      transition: border 0.2s ease;
+      box-shadow: 0 0 0 0 transparent;
+      transition: box-shadow 0.2s ease;
+
+      .result-title {
+        display: inline-block;
+        font-size: 0.9375rem;
+        font-weight: 600;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+      }
+      .result-subtitle,
+      .result-meta {
+        font-size: 0.75rem;
+        line-height: 1.4;
+        color: var(--text-secondary);
+        overflow-wrap: anywhere;
+      }
+      .result-subtitle {
+        margin-top: 3px;
+      }
+      .result-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px 10px;
+        margin-top: 4px;
+      }
+      .result-actions {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 8px;
+      }
     }
     .selected {
-      border: 1px solid blue;
+      box-shadow: var(--reply-shadow);
     }
     .no-result {
       font-size: 0.875rem;
       color: var(--text-secondary);
     }
-  }
-  .submit-button {
-    margin-top: 16px;
-    flex: 0 0 auto;
   }
 }
 
@@ -734,7 +783,7 @@ const filteredDocuments = computed(() => {
       margin-top: 16px;
     }
     .controls {
-      margin-top: 16px;
+      margin: 8px 0 16px 0;
       display: flex;
       align-items: center;
       .rating {
@@ -746,9 +795,8 @@ const filteredDocuments = computed(() => {
     }
   }
   .comments {
-    margin-top: 16px;
     display: flex;
-    row-gap: 16px;
+    row-gap: 8px;
     column-gap: 16px;
     flex-wrap: wrap;
     .comment-card {
