@@ -1,24 +1,23 @@
-const { existsSync, readFileSync } = require('fs');
+const { readFileSync } = require('fs');
 const { join } = require('path');
-const mongoose = require('mongoose');
+const { createRequire } = require('module');
+const mongoose = createRequire(join(__dirname, '../../server/package.json'))('mongoose');
 
 const DRAWGUESS_WORD_MODEL = 'DrawGuessWord';
 const DrawGuessWordSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, unique: true, index: true },
     category: { type: String, required: true, index: true },
-    dislikes: { type: Number, default: 0, min: 0 },
+    changeCount: { type: Number, default: 0, min: 0 },
   },
   {
     collection: 'drawguess',
-    timestamps: true,
   },
 );
 
 
 function parseWordFile(filePath) {
   const raw = readFileSync(filePath, 'utf-8');
-  console.log(raw.length)
   const deduped = new Map();
 
   raw.split(/\r?\n/).forEach((line) => {
@@ -38,10 +37,10 @@ function parseWordFile(filePath) {
 
 async function main() {
   const mongoUri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/forvera';
-  const words = parseWordFile('./drawguess.words.txt');
+  const words = parseWordFile(join(__dirname, 'drawguess.words.txt'));
 
   if (!words.length) {
-    throw new Error(`no drawguess words parsed from ./drawguess.words.txt`);
+    throw new Error('no drawguess words parsed from drawguess.words.txt');
   }
 
   await mongoose.connect(mongoUri);
@@ -56,7 +55,8 @@ async function main() {
         filter: { name: item.name },
         update: {
           $set: { category: item.category },
-          $setOnInsert: { dislikes: 0 },
+          $setOnInsert: { changeCount: 0 },
+          $unset: { dislikes: '' },
         },
         upsert: true,
       },

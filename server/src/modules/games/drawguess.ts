@@ -14,40 +14,28 @@ import {
   StrokeChunk,
   SyncStrokeDTO,
   ReplayData,
-  VoteDTO,
-  Vote,
 } from 'shared/types/games/drawguess';
-import { ThrottledDataResolver } from 'shared/utils';
 import mongoose from 'mongoose';
 
 type DrawGuessWord = {
   name: string;
   category: string;
-  dislikes: number;
+  changeCount: number;
 };
 interface DrawGuessWordDocument extends mongoose.Document, DrawGuessWord {}
-const DrawGuessWordSchema = new mongoose.Schema<DrawGuessWordDocument>({
-  name: { type: String, required: true },
-  category: { type: String, required: true },
-  dislikes: { type: Number, default: 0 },
-});
-
-export const DEFAULT_DRAWGUESS_WORDS: DrawGuessWord[] = [
-  { name: '猫', category: '动物', dislikes: 0 },
-  { name: '苹果', category: '水果', dislikes: 0 },
-  { name: '汽车', category: '交通工具', dislikes: 0 },
-  { name: '太阳', category: '自然', dislikes: 0 },
-  { name: '房子', category: '建筑', dislikes: 0 },
-];
+const DrawGuessWordSchema = new mongoose.Schema<DrawGuessWordDocument>(
+  {
+    name: { type: String, required: true, unique: true },
+    category: { type: String, required: true },
+    changeCount: { type: Number, default: 0, min: 0 },
+  },
+  { collection: 'drawguess' },
+);
 
 class DrawGuess implements Game {
   private static wordModel: mongoose.Model<DrawGuessWordDocument>;
   categoryHintTimer: NodeJS.Timeout | null = null;
   wordLengthHintTimer: NodeJS.Timeout | null = null;
-  voteSender = new ThrottledDataResolver<{ userId: string; vote: VoteDTO }>(
-    1000,
-    this.sendVotes.bind(this),
-  );
   room: GameRoom;
 
   constructor({ room }: { room: GameRoom }) {
@@ -71,31 +59,24 @@ class DrawGuess implements Game {
     }
   }
 
-  async pickWord(): Promise<DrawGuessWord> {
+  async pickWord(excludeName?: string): Promise<DrawGuessWord> {
     const candidates = await DrawGuess.wordModel.aggregate([
+      { $match: {
+        $or: [{ changeCount: { $lt: 10 } }, { changeCount: { $exists: false } }],
+        ...(excludeName ? { name: { $ne: excludeName } } : {}),
+      } },
       { $sample: { size: 10 } },
     ]);
-    console.log('candidates', candidates);
-    if (candidates.length > 0) {
-      let i = 0;
-      while (i < candidates.length - 1) {
-        const candidate = candidates[i];
-        const prob = Math.max(0.1, 1 - (candidate.dislikes || 0) * 0.1);
-        if (prob < 1 && Math.random() > prob) {
-          i++;
-          continue;
-        } else {
-          console.log('pickword', candidate);
-          return candidate;
-        }
-      }
-      return candidates.at(-1);
-    }
-    return (
-      DEFAULT_DRAWGUESS_WORDS[
-        Math.floor(Math.random() * DEFAULT_DRAWGUESS_WORDS.length)
-      ]
+    const totalWeight = candidates.reduce(
+      (sum, candidate) => sum + Math.max(0, 1 - (candidate.changeCount || 0) * 0.1), 0,
     );
+    if (!totalWeight) throw new Error('你画我猜词库中没有可用的词');
+    let choice = Math.random() * totalWeight;
+    for (const candidate of candidates) {
+      choice -= Math.max(0, 1 - (candidate.changeCount || 0) * 0.1);
+      if (choice < 0) return candidate;
+    }
+    return candidates[candidates.length - 1];
   }
 
   onInitGame({ room }: { room: GameRoom }) {}
@@ -149,6 +130,12 @@ class DrawGuess implements Game {
     // 清空上回合数据
     room.strokes = [];
     room.correctUserIds = [];
+    room.word = '';
+    room.category = '';
+    room.wordLength = 0;
+    room.setVisibility('word', 'private');
+    room.setVisibility('category', 'private');
+    room.setVisibility('wordLength', 'private');
 
     // 确定画的人
     const currentDrawerId = room.drawerId;
@@ -156,7 +143,9 @@ class DrawGuess implements Game {
     room.drawerId = nextUser.id;
 
     // 确定词
+    const turn = room.turn;
     this.pickWord().then((wordEntry: DrawGuessWord) => {
+      if (room.turn !== turn || room.turnStatus !== 'before') return;
       room.category = wordEntry.category;
       room.wordLength = wordEntry.name.length;
       room.word = wordEntry.name;
@@ -164,7 +153,7 @@ class DrawGuess implements Game {
       room.setVisibility('category', 'private');
       room.setVisibility('word', [room.drawerId]);
       room.sync();
-    });
+    }).catch((error) => console.error('Failed to pick drawguess word', error));
 
     return { duration: DrawGuessDurations.TurnBeforeDuration };
   }
@@ -268,41 +257,35 @@ class DrawGuess implements Game {
     });
   }
 
-  onVote({
-    room,
-    user,
-    data,
-  }: {
-    room: GameRoom;
-    user: GameUser;
-    data: VoteDTO;
-  }) {
-    this.voteSender.addData({ userId: user.id, vote: data });
-  }
+  private changingWord = false;
 
-  onChangeWord({ room, user }: { room: GameRoom; user: GameUser }) {
-    if (!room.isGamePlaying()) return;
-    DrawGuess.wordModel.findOneAndUpdate(
-      { name: room.word },
-      { $inc: { dislikes: 1 } },
-      { new: true, upsert: true },
-    ).exec();
-  }
-
-  async sendVotes(votes: { userId: string; vote: VoteDTO }[]) {
-    for (const userId of Object.keys(this.room.users)) {
-      const otherUsersVotes = votes
-        .filter((v) => v.userId !== userId)
-        .map((v) => v.vote)
-        .flat();
-      if (!otherUsersVotes.length) continue;
-      this.room.emitToUser({
-        userId,
-        event: DrawGuessCustomMsgTypes.Vote,
-        data: otherUsersVotes,
-      });
+  async onChangeWord({ room, user }: { room: GameRoom; user: GameUser }) {
+    if (!room.isGamePlaying() || room.roundStatus !== 'ing' ||
+      room.turnStatus !== 'before' || room.drawerId !== user.id ||
+      !room.word || this.changingWord) return;
+    this.changingWord = true;
+    const oldWord = room.word;
+    const turn = room.turn;
+    try {
+      const nextWord = await this.pickWord(oldWord);
+      if (room.turn !== turn || room.turnStatus !== 'before' || room.word !== oldWord) return;
+      await DrawGuess.wordModel.updateOne(
+        { name: oldWord },
+        { $inc: { changeCount: 1 } },
+      ).exec();
+      if (room.turn !== turn || room.turnStatus !== 'before') return;
+      room.category = nextWord.category;
+      room.wordLength = nextWord.name.length;
+      room.word = nextWord.name;
+      room.setVisibility('wordLength', 'private');
+      room.setVisibility('category', 'private');
+      room.setVisibility('word', [room.drawerId]);
+      room.sync();
+    } catch (error) {
+      console.error('Failed to change drawguess word', error);
+    } finally {
+      this.changingWord = false;
     }
-    votes.length = 0;
   }
 
   onMsg({
@@ -325,9 +308,6 @@ class DrawGuess implements Game {
         break;
       case DrawGuessCustomMsgTypes.SyncReplayData:
         this.onRequestReplayData({ room, user, turn: data.turn });
-        break;
-      case DrawGuessCustomMsgTypes.Vote:
-        this.onVote({ room, user, data });
         break;
       case DrawGuessCustomMsgTypes.ChangeWord:
         this.onChangeWord({ room, user });

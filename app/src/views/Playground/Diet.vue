@@ -21,6 +21,7 @@ type DietFood = {
   unit: DietUnit
   calories_per_unit: number
   calories_multiplier?: number
+  amount?: number
   last_used_time?: string
   updated_time?: string
 }
@@ -148,12 +149,6 @@ const searchFoods = computed(() => {
 })
 
 const selectedFood = computed(() => summary.value.foods.find(food => food.name === recordModal.name.trim()) || null)
-const latestFoodRecord = (name: string) => {
-  const matched = summary.value.records
-    .filter(record => record.food_name === name)
-    .sort((a, b) => new Date(b.recorded_time).getTime() - new Date(a.recorded_time).getTime())
-  return matched[0] || null
-}
 const amountUnitOption = 'u'
 
 const displayUnit = (unit?: string) => (unit === 'g/ml' ? 'u' : (unit === 'u' ? 'u' : (unit as DietUnit) || 'u'))
@@ -417,16 +412,15 @@ const closeRecordModal = () => {
 }
 
 const applyFood = (food: DietFood) => {
-  const latestRecord = latestFoodRecord(food.name)
-  const caloriesMultiplier = getStoredCaloriesMultiplier(latestRecord?.calories_multiplier ?? food.calories_multiplier)
-  const caloriesValue = formatDietNumber(getDisplayCaloriesValue(latestRecord?.calories_per_unit ?? food.calories_per_unit, latestRecord?.calories_multiplier ?? food.calories_multiplier))
+  const caloriesMultiplier = getStoredCaloriesMultiplier(food.calories_multiplier)
+  const caloriesValue = formatDietNumber(getFoodDisplayCalories(food))
   recordModal.name = food.name
   recordModal.query = food.name
   recordModal.unit = 'u'
   recordModal.caloriesUnit = 'kCal'
   recordModal.caloriesValue = caloriesValue
   recordModal.caloriesMultiplier = formatDietNumber(caloriesMultiplier)
-  recordModal.amountValue = formatDietNumber(latestRecord?.amount ?? 1)
+  recordModal.amountValue = formatDietNumber(summary.value.recentFoods.find(item => item.name === food.name)?.amount ?? 1)
   recordModal.quantityValue = '1'
   recordModal.stage = 2
 }
@@ -435,6 +429,7 @@ const confirmFood = () => {
   const name = recordModal.query.trim()
   if (!name) return
   const existing = summary.value.foods.find(food => food.name === name)
+    || summary.value.recentFoods.find(food => food.name === name)
   if (existing) {
     applyFood(existing)
     return

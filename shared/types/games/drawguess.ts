@@ -24,11 +24,11 @@ export interface IDrawGuessUser extends IGameUser {
  * game durations
  */
 export const DrawGuessDurations = {
-  CategoryHintDelay: 2000,
-  WordLengthHintDelay: 4000,
+  CategoryHintDelay: 15000,
+  WordLengthHintDelay: 30000,
   TurnBeforeDuration: 3000,
-  TurnDuration: 12000,
-  TurnAfterDuration: 2000,
+  TurnDuration: 90000,
+  TurnAfterDuration: 8000,
 }
 
 /**
@@ -39,7 +39,6 @@ export const DrawGuessCustomMsgTypes = {
   SyncStrokes: 'syncStrokes',
   ClearCanvas: 'clearCanvas',
   SyncReplayData: 'syncReplayData',
-  Vote: 'vote',
   ChangeWord: 'changeWord',
 }
 
@@ -56,9 +55,6 @@ export interface StrokeChunk {
   points: [number, number][]
 }
 export type ReplayData = { drawerId: string, strokes: StrokeChunk[], turn: number, word: string }
-
-export type Vote = number
-export type VoteDTO = Vote[]
 
 export const DrawGuessChatMsgTypes = {
   GuessCorrect: 'guess-correct',

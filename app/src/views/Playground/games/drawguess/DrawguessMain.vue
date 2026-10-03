@@ -13,10 +13,8 @@ import {
   StrokeChunk,
   SyncStrokeDTO,
   ReplayData,
-  Vote,
-  VoteDTO,
 } from 'shared/types/games/drawguess'
-import { coordTransform, displayTime, TaskQueue, ThrottledDataResolver } from 'shared/utils'
+import { coordTransform, displayTime, TaskQueue } from 'shared/utils'
 import { Socket } from 'socket.io-client'
 import {
   computed,
@@ -29,8 +27,6 @@ import {
   watch,
   watchEffect,
 } from 'vue'
-import VoteComp from '@/components/Vote.vue'
-import { useToastStore } from '@/store/toast'
 
 const { room, userId, socket } = defineProps<{
   room: IDrawGuessRoom
@@ -331,29 +327,12 @@ onUnmounted(() => {
 
 // ==================== 换词 ====================
 
-const toastStore = useToastStore()
+const showChangeWordConfirm = ref(false)
 const onChangeWord = () => {
-  toastStore.showToast({ content: '减少了这个词出现的频率', type: 'OK' })
+  if (!imDrawer.value || room.turnStatus !== 'before' || !room.word) return
+  showChangeWordConfirm.value = false
   socket.emit(DrawGuessCustomMsgTypes.ChangeWord)
 }
-
-// ==================== 点赞点踩 ====================
-const voteRef = ref<any | null>(null)
-const voteSender = new ThrottledDataResolver<Vote>(1000, async (votes: VoteDTO) => {
-  socket.emit(DrawGuessCustomMsgTypes.Vote, votes)
-  votes.length = 0
-})
-const onClickGood = () => {
-  voteRef.value?.addVote(1)
-  voteSender.addData(1)
-}
-const onClickBad = () => {
-  voteRef.value?.addVote(0)
-  voteSender.addData(0)
-}
-socket.on(DrawGuessCustomMsgTypes.Vote, (votes: VoteDTO) => {
-  voteRef.value?.addVote(votes)
-})
 
 // ==================== lifecycle ====================
 
@@ -361,6 +340,7 @@ watch(
   () => room.turnStatus,
   (newStatus, oldStatus) => {
     updateTimerValue()
+    if (newStatus !== 'before') showChangeWordConfirm.value = false
   },
   { immediate: true }
 )
@@ -408,7 +388,13 @@ onUnmounted(() => {
   <div v-if="room.status === 'playing'">
     <!-- turn进行中提示 -->
     <div v-if="room.turnStatus === 'before'" class="flex-lr-box bar">
-      <div class="left">{{ imDrawer ? '你画' : '你猜' }}</div>
+      <div class="left">
+        <template v-if="imDrawer">
+          你画：<span class="word-to-draw">{{ room.word }}</span>
+          <Btn v-if="room.word" small @click="showChangeWordConfirm = true">换词</Btn>
+        </template>
+        <template v-else>你猜</template>
+      </div>
       <div class="right">{{ timerValue }}秒后开始</div>
     </div>
     <div v-if="room.turnStatus === 'ing'" class="info-bar bar flex-lr-box">
@@ -434,7 +420,6 @@ onUnmounted(() => {
       <div class="left">
         答案：
         <div class="result">{{ room.word }}</div>
-        <Btn class="dislike-btn" small @click="onChangeWord">不喜欢这个词</Btn>
       </div>
       <div class="right">{{ timerValue }}秒后继续</div>
     </div>
@@ -450,6 +435,9 @@ onUnmounted(() => {
         <div>{{ replayCurDrawerName }}</div>
       </div>
     </div>
+    <Modal v-model:show="showChangeWordConfirm" title="确认换词" @cancel="showChangeWordConfirm = false" @confirm="onChangeWord">
+      换掉当前词吗？该词的后续出现概率会降低 10%。
+    </Modal>
     <GameBoard
       :width="CANVAS_WIDTH"
       :height="CANVAS_HEIGHT"
@@ -490,11 +478,6 @@ onUnmounted(() => {
         <Btn type="danger" small @click="onClearCanvas">清空</Btn>
       </template>
     </GameBoard>
-    <div class="vote-panel" v-if="room.roundStatus === 'ing' && room.turnStatus === 'after'">
-      <Btn type="primary" small @click="onClickGood">&nbsp;&nbsp;赞&nbsp;&nbsp;</Btn>
-      <VoteComp class="vote-comp" ref="voteRef"></VoteComp>
-      <Btn type="danger" small @click="onClickBad">&nbsp;&nbsp;踩&nbsp;&nbsp;</Btn>
-    </div>
   </div>
 </template>
 
@@ -575,19 +558,6 @@ onUnmounted(() => {
         background-color: var(--text);
       }
     }
-  }
-}
-
-.vote-panel {
-  margin-top: 6px;
-  display: flex;
-  align-items: flex-start;
-  .button {
-    margin-top: 4px;
-    flex: 0 0 auto;
-  }
-  .vote-comp {
-    flex: 1 1 auto;
   }
 }
 

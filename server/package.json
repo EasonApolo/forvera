@@ -75,6 +75,10 @@
     "typescript": "^5.3.0"
   },
   "jest": {
+    "moduleNameMapper": {
+      "^shared/(.*)$": "<rootDir>/../../shared/$1",
+      "^src/(.*)$": "<rootDir>/$1"
+    },
     "moduleFileExtensions": [
       "js",
       "json",
