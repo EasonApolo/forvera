@@ -204,15 +204,11 @@ export class DocumentService {
       } catch {
         throw new BadRequestException('无效的豆瓣电影链接');
       }
-      if (!['movie.douban.com', 'm.douban.com', 'www.douban.com'].includes(parsed.hostname.toLowerCase())) {
-        throw new BadRequestException('请使用豆瓣电影链接');
-      }
-      const path = parsed.pathname === '/doubanapp/dispatch'
-        ? parsed.searchParams.get('uri') || ''
-        : parsed.pathname;
-      subjectId = path.match(/^\/(?:movie\/)?subject\/(\d{7,})\/?$/)?.[1]
-        || path.match(/^\/movie\/(\d{7,})\/?$/)?.[1];
-      if (!subjectId) throw new BadRequestException('豆瓣链接中没有有效的电影 subject ID');
+      const location = `${parsed.pathname} ${[...parsed.searchParams.values()].join(' ')}`;
+      subjectId = parsed.searchParams.get('subject_id')?.match(/^\d{7,}$/)?.[0]
+        || location.match(/subject\/(\d{7,})(?!\d)/i)?.[1]
+        || location.match(/(?:^|[^\d])(\d{7,})(?!\d)/)?.[1];
+      if (!subjectId) throw new BadRequestException('链接中没有有效的电影 subject ID');
     }
     const currentTime = Date.now();
 

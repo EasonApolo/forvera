@@ -57,9 +57,32 @@ describe('DocumentService.searchMovies', () => {
     });
   });
 
-  it('rejects foreign URLs and invalid subject IDs without requesting them', async () => {
-    await expect(service.searchMovies('https://evil.test/subject/6430835/')).rejects.toMatchObject({ status: 400 });
+  it('accepts any HTTP source but only requests the Douban abstract endpoint', async () => {
+    get.mockResolvedValue({ data: { r: 0, subject: { id: '6430835', subtype: 'Movie', title: '电影' } } });
+    await expect(service.searchMovies('https://example.test/film/subject/6430835/')).resolves.toEqual([
+      expect.objectContaining({ id: '6430835', title: '电影' }),
+    ]);
+    expect(get).toHaveBeenCalledWith('https://movie.douban.com/j/subject_abstract?subject_id=6430835',
+      { timeout: 8000, proxy: false });
+    now += 3000;
     await expect(service.searchMovies('https://movie.douban.com/subject/12345/')).rejects.toMatchObject({ status: 400 });
+    expect(get).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    'http://example.test/film/6430835?share=123456789',
+    'https://example.test/?subject_id=6430835&tracking=123456789',
+    '分享一下 https://example.test/redirect?uri=%2Fsubject%2F6430835%2F&tracking=123456789',
+  ])('extracts the subject ID from different HTTP links', async (query) => {
+    get.mockResolvedValue({ data: { r: 0, subject: { id: '6430835', subtype: 'Movie', title: '电影' } } });
+    await expect(service.searchMovies(query)).resolves.toEqual([
+      expect.objectContaining({ id: '6430835', title: '电影' }),
+    ]);
+    expect(get.mock.calls[0][0]).toBe('https://movie.douban.com/j/subject_abstract?subject_id=6430835');
+  });
+
+  it('rejects an HTTP link without a subject ID before making a request', async () => {
+    await expect(service.searchMovies('https://example.test/movie/no-id?tracking=12345')).rejects.toMatchObject({ status: 400 });
     expect(get).not.toHaveBeenCalled();
   });
 

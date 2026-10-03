@@ -204,21 +204,21 @@ const getCommentYears = (document: RatingDocument) => {
   return new Set(years)
 }
 
-const createDocument = async () => {
-  if (loading.value.create || !search.value.selected || node.value.key === undefined) {
+const createDocument = async (movie: Movie) => {
+  if (loading.value.create || node.value.key === undefined) {
     return
   }
   loading.value.create = true
   try {
     await request('documents/add', 'POST', {
-      id: search.value.selected.id,
-      title: search.value.selected.title,
-      date: search.value.selected.year,
+      id: movie.id,
+      title: movie.title,
+      date: movie.year,
       type: node.value.key,
-      episode: search.value.selected.episode,
-      img: search.value.selected.img,
-      sub_title: search.value.selected.sub_title,
-      url: search.value.selected.url,
+      episode: movie.episode,
+      img: movie.img,
+      sub_title: movie.sub_title,
+      url: movie.url,
     })
     clearSearch()
     await fetchDocuments({ refresh: true })
@@ -454,8 +454,8 @@ const filteredDocuments = computed(() => {
                   <span>ID {{ res.id }}</span>
                   <span v-if="res.img" class="link" @click.stop="openUrlInNewPage(res.img)">图片</span>
                 </div>
-                <div v-if="search.selected === res" class="result-actions">
-                  <Btn class="submit-button" type="primary" :loading="loading.create" @click.stop="createDocument">创建</Btn>
+                <div class="result-actions">
+                  <Btn class="submit-button" type="primary" :loading="loading.create" @click.stop="createDocument(res)">创建</Btn>
                 </div>
               </div>
             </div>
