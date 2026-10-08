@@ -527,8 +527,8 @@ onBeforeUnmount(() => {
   gap: 0.35rem;
 }
 
-:global(:root.dark) .point-info,
-:global(:root.dark) .zoom-btn {
+:global(:root.dark .point-info),
+:global(:root.dark .zoom-btn) {
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.28);
 }
 </style>

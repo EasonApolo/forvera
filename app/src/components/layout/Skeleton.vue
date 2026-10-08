@@ -13,7 +13,7 @@
   --skeleton-highlight: #f7f7f7;
 }
 
-:global(:root.dark) .skeleton {
+:global(:root.dark .skeleton) {
   --skeleton-base: #2f2f2f;
   --skeleton-highlight: #3a3a3a;
 }

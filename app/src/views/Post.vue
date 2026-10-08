@@ -295,7 +295,7 @@ onBeforeRouteLeave(() => {
   --toc-item-color: #666666;
 }
 
-:global(:root.dark) .post-page {
+:global(:root.dark .post-page) {
   --toc-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
   --toc-item-color: #aaaaaa;
 }

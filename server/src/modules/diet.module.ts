@@ -20,28 +20,6 @@ export interface DietRecordItem extends Document {
   updated_time: Date;
 }
 
-export interface DietFoodItem extends Document {
-  creator: Types.ObjectId;
-  name: string;
-  unit: DietUnit;
-  calories_per_unit: number;
-  calories_multiplier: number;
-  last_used_time?: Date;
-  created_time: Date;
-  updated_time: Date;
-}
-
-export const DietFoodSchema = new Schema({
-  creator: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-  name: { type: String, required: true },
-  unit: { type: String, enum: ['g', 'ml', 'u'], required: true },
-  calories_per_unit: { type: Number, required: true },
-  calories_multiplier: { type: Number, default: 100 },
-  last_used_time: Date,
-  created_time: Date,
-  updated_time: Date,
-}, { collection: 'dietfoods' });
-
 export interface DietDailyStatItem extends Document {
   creator: string;
   day_key: string;
@@ -102,7 +80,6 @@ export class DietService {
     @InjectModel('User') private readonly userModel: Model<any>,
     @InjectModel('DietRecord') private readonly recordModel: Model<DietRecordItem>,
     @InjectModel('DietDailyStat') private readonly dailyStatModel: Model<DietDailyStatItem>,
-    @InjectModel('DietFood') private readonly foodModel: Model<DietFoodItem>,
   ) {}
 
   private toDateStart(date: Date) {
@@ -218,7 +195,7 @@ export class DietService {
       const { month: monthKey, start, end } = isMonthMode ? this.parseMonth(month) : this.parseRecentRange(30);
       const dayKeyStart = this.toDayKey(start);
       const dayKeyEnd = this.toDayKey(end);
-      const [records, dailyStats, foods, recentRecords] = await Promise.all([
+      const [records, dailyStats, latestRecords] = await Promise.all([
         this.recordModel
           .find({ creator: creatorId, recorded_time: { $gte: start, $lt: end } })
           .sort({ recorded_time: -1, created_time: -1 })
@@ -227,38 +204,27 @@ export class DietService {
           .find({ creator: creatorId, day_key: { $gte: dayKeyStart, $lt: dayKeyEnd } })
           .sort({ day_key: 1 })
           .exec(),
-        this.foodModel.find({ creator: creatorId }).sort({ last_used_time: -1 }).lean().exec(),
+        // 全量记录按 food_name 去重取最近一条（不受当前查看的月份窗口限制），搜索与最近添加都从这里出
         this.recordModel.aggregate([
           { $match: { creator: new Types.ObjectId(creatorId) } },
           { $sort: { recorded_time: -1, created_time: -1 } },
           { $group: { _id: '$food_name', record: { $first: '$$ROOT' } } },
-          { $sort: { 'record.recorded_time': -1 } },
-          { $limit: 5 },
+          { $sort: { 'record.recorded_time': -1, 'record.created_time': -1 } },
         ]),
       ]);
 
-      const recentAmounts = new Map(recentRecords.map(({ record: r }) => [r.food_name, r.amount]));
-      const recentCandidates = [
-        ...foods.slice(0, 5).map((food) => ({ ...food, amount: recentAmounts.get(food.name) })),
-        ...recentRecords.map(({ record: r }) => ({
-            _id: r._id,
-            name: r.food_name,
-            unit: r.unit,
-            calories_per_unit: r.calories_per_unit,
-            calories_multiplier: r.calories_multiplier,
-            amount: r.amount,
-            last_used_time: r.recorded_time,
-            updated_time: r.updated_time,
-        })),
-      ].sort((a, b) => new Date(b.last_used_time || 0).getTime() - new Date(a.last_used_time || 0).getTime());
-      const recentFoods = [];
-      const seenNames = new Set<string>();
-      for (const food of recentCandidates) {
-        if (seenNames.has(food.name)) continue;
-        seenNames.add(food.name);
-        recentFoods.push(food);
-        if (recentFoods.length === 5) break;
-      }
+      const foods = latestRecords.map(({ record: r }) => ({
+        _id: r._id,
+        name: r.food_name,
+        unit: r.unit,
+        calories_per_unit: r.calories_per_unit,
+        calories_multiplier: r.calories_multiplier,
+        amount: r.amount,
+        quantity: r.quantity ?? 1,
+        last_used_time: r.recorded_time,
+        updated_time: r.updated_time,
+      }));
+      const recentFoods = foods.slice(0, 5);
 
       const statsMap = new Map(dailyStats.map((item) => [item.day_key, item]));
       return {
@@ -333,21 +299,6 @@ export class DietService {
       created_time: now,
       updated_time: now,
     }).save();
-
-    await this.foodModel.updateOne(
-      { creator: creatorId, name },
-      {
-        $set: {
-          unit,
-          calories_per_unit: caloriesPerUnit,
-          calories_multiplier: caloriesMultiplier,
-          last_used_time: now,
-          updated_time: now,
-        },
-        $setOnInsert: { created_time: now },
-      },
-      { upsert: true },
-    ).exec();
 
     const dayKey = this.toDayKey(normalizedRecordedTime);
     const grossPositive = totalCalories > 0 ? totalCalories : 0;
@@ -451,7 +402,6 @@ export class DietController {
       { name: 'User', schema: UserSchema },
       { name: 'DietRecord', schema: DietRecordSchema },
       { name: 'DietDailyStat', schema: DietDailyStatSchema },
-      { name: 'DietFood', schema: DietFoodSchema },
     ]),
   ],
   controllers: [DietController],

@@ -66,7 +66,7 @@ const getToastSymbol = (type: string) => {
   pointer-events: none;
 }
 
-:global(:root.dark) .toast-wrapper {
+:global(:root.dark .toast-wrapper) {
   --toast-bg: rgba(52, 52, 52, 1);
   --toast-text: #ccc;
   --toast-shadow: 0 16px 36px rgba(0, 0, 0, 0.45);

@@ -22,6 +22,7 @@ type DietFood = {
   calories_per_unit: number
   calories_multiplier?: number
   amount?: number
+  quantity?: number
   last_used_time?: string
   updated_time?: string
 }
@@ -420,8 +421,8 @@ const applyFood = (food: DietFood) => {
   recordModal.caloriesUnit = 'kCal'
   recordModal.caloriesValue = caloriesValue
   recordModal.caloriesMultiplier = formatDietNumber(caloriesMultiplier)
-  recordModal.amountValue = formatDietNumber(summary.value.recentFoods.find(item => item.name === food.name)?.amount ?? 1)
-  recordModal.quantityValue = '1'
+  recordModal.amountValue = formatDietNumber(food.amount && food.amount > 0 ? food.amount : 1)
+  recordModal.quantityValue = formatDietNumber(food.quantity && food.quantity > 0 ? food.quantity : 1)
   recordModal.stage = 2
 }
 
