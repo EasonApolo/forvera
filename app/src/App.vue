@@ -54,7 +54,7 @@ themeStore.init()
   --btn-bg: var(--c-line-1);
   --btn-hover: var(--c-line-2);
   --btn-text: rgba(0, 0, 0, 0.6);
-  --scrollbar-track: var(--c-bg);
+  --scrollbar-track: transparent;
   --scrollbar-thumb: var(--c-line-2);
   --nav-shadow: var(--c-line-3);
   --code-bg: var(--c-subtle);
@@ -96,7 +96,7 @@ body {
 #app {
   margin: 0 auto;
   max-width: 750px;
-  height: 100vh;
+  min-height: 100vh;
   font-family: Avenir, Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;

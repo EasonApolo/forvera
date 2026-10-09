@@ -19,8 +19,27 @@ import { randomUUID } from 'crypto';
 
 // ===================== 类型 =====================
 export type AiProviderType = 'gemini' | 'deepseek';
-type AiStreamStatus = 'pending' | 'streaming' | 'done' | 'error';
+type AiStreamStatus = 'connecting' | 'pending' | 'streaming' | 'done' | 'error';
+/** 连接失败（网络问题）还是上游 API 报错 */
+export type AiErrorType = 'network' | 'api';
 const AI_RECORD_MODEL_NAME = 'AiRecord';
+
+/** 连接层错误特征：DNS/握手/超时/断开等 */
+const NETWORK_ERROR_PATTERN =
+  /(ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ETIMEDOUT|ETIMEOUT|ECONNRESET|EPIPE|EHOSTUNREACH|ENETUNREACH|EPROTO|UND_ERR_CONNECT_TIMEOUT|UND_ERR_SOCKET|fetch failed|socket hang up|network error)/i;
+
+export const classifyAiError = (err: any): AiErrorType => {
+  const status = err?.status ?? err?.httpStatus;
+  if (typeof status === 'number' && status >= 400 && status < 600) return 'api';
+  const code = err?.code ?? err?.cause?.code;
+  if (typeof code === 'number' && code >= 400 && code < 600) return 'api';
+  if (typeof code === 'string' && /^[45]\d\d$/.test(code)) return 'api';
+  if (typeof code === 'string' && NETWORK_ERROR_PATTERN.test(code)) return 'network';
+  const message = `${err?.message || err || ''}`;
+  if (NETWORK_ERROR_PATTERN.test(message)) return 'network';
+  if (/\b(timeout|timed out)\b/i.test(message)) return 'network';
+  return 'api';
+};
 const MODEL_IDS: Record<AiProviderType, string> = {
   gemini: 'gemini-2.5-flash',
   deepseek: 'deepseek-chat',
@@ -30,6 +49,7 @@ export interface LlmStreamChunk {
   text?: string;
   done?: boolean;
   error?: string;
+  errorType?: AiErrorType;
 }
 
 export interface AiSseChunk {
@@ -40,6 +60,7 @@ export interface AiSseChunk {
   content?: string;
   status?: AiStreamStatus;
   error?: string;
+  errorType?: AiErrorType;
 }
 
 interface AiProviderOptions {
@@ -71,6 +92,7 @@ export interface AiRecordDocument extends Document {
   // 状态
   status: AiStreamStatus;
   error: string | null;
+  errorType?: AiErrorType;
 
   createdAt: Date;
   updatedAt: Date;
@@ -111,9 +133,14 @@ const AiRecordSchema = new Schema<AiRecordDocument>(
     status: {
       type: String,
       required: true,
-      enum: ['pending', 'streaming', 'done', 'error'],
+      enum: ['connecting', 'pending', 'streaming', 'done', 'error'],
     },
     error: { type: String, required: false },
+    errorType: {
+      type: String,
+      required: false,
+      enum: ['network', 'api'],
+    },
   },
   {
     collection: AI_RECORD_MODEL_NAME.toLowerCase(),
@@ -174,7 +201,7 @@ class DeepSeekProvider {
     });
 
     if (!res.ok || !res.body) {
-      yield { error: `DeepSeek error: ${res.statusText}` };
+      yield { error: `DeepSeek error ${res.status}: ${res.statusText}`, errorType: 'api' };
       return;
     }
 
@@ -280,7 +307,7 @@ export class AiService {
       }
     } catch (err: any) {
       this.logger.error(err);
-      yield { error: err.message || 'AI failed' };
+      yield { error: err.message || 'AI failed', errorType: classifyAiError(err) };
     }
   }
 
@@ -297,21 +324,30 @@ export class AiService {
   } & AiStreamModelParams) {
     const { recordId } = params;
     let fullText = '';
+    let streamingStarted = false;
 
     try {
-      await this.aiRecordModel.updateOne(
-        { _id: recordId },
-        { $set: { status: 'streaming' } },
-      );
-
+      // record 创建时即为 connecting；收到第一个 chunk 才代表连接已建立、开始生成
       for await (const chunk of this.streamGenerate(params)) {
         if (chunk.text) {
+          const isFirstChunk = !streamingStarted;
+          if (isFirstChunk) {
+            streamingStarted = true;
+            await this.aiRecordModel.updateOne(
+              { _id: recordId },
+              { $set: { status: 'streaming' } },
+            );
+          }
           fullText += chunk.text;
           await this.aiRecordModel.updateOne(
             { _id: recordId },
             { $set: { content: fullText, updatedAt: new Date() } },
           );
-          this.emit(recordId, params.modelId, { text: chunk.text });
+          this.emit(
+            recordId,
+            params.modelId,
+            isFirstChunk ? { status: 'streaming', text: chunk.text } : { text: chunk.text },
+          );
         }
         if (chunk.error) {
           await this.aiRecordModel.updateOne(
@@ -320,11 +356,16 @@ export class AiService {
               $set: {
                 status: 'error',
                 error: chunk.error,
+                errorType: chunk.errorType,
                 content: fullText,
               },
             },
           );
-          this.emit(recordId, params.modelId, { error: chunk.error, status: 'error' });
+          this.emit(recordId, params.modelId, {
+            error: chunk.error,
+            errorType: chunk.errorType,
+            status: 'error',
+          });
           this.releaseEmitter(recordId);
           return;
         }
@@ -360,17 +401,20 @@ export class AiService {
       this.releaseEmitter(recordId);
     } catch (err: any) {
       this.logger.error(err);
+      const errorType = classifyAiError(err);
       await this.aiRecordModel.updateOne(
         { _id: recordId },
         {
           $set: {
             status: 'error',
             error: err.message || 'AI failed',
+            errorType,
           },
         },
       );
       this.emit(recordId, params.modelId, {
         error: err.message || 'AI failed',
+        errorType,
         status: 'error',
       });
       this.releaseEmitter(recordId);
@@ -397,6 +441,7 @@ export class AiService {
       status: record.status,
       content: record.content || '',
       error: record.error || undefined,
+      errorType: record.errorType || undefined,
     });
 
     // 已结束
@@ -441,7 +486,7 @@ export class AiService {
       throw new BadRequestException('AI record belongs to another business');
     }
 
-    if (previous && ['pending', 'streaming'].includes(previous.status)) {
+    if (previous && ['pending', 'connecting', 'streaming'].includes(previous.status)) {
       this.setSseHeaders(params.res);
       this.attachSse(params.res, String(previous._id), previous);
       return String(previous._id);
@@ -472,7 +517,7 @@ export class AiService {
       question: params.question || previous?.question,
       prompt,
       content: '',
-      status: 'pending',
+      status: 'connecting',
     });
     const recordId = String(record._id);
     await params.onStart?.(recordId);

@@ -104,7 +104,6 @@ const routerOptions = {
     { path: '/pet', component: PetVue, name: 'pet' },
     { path: '/village', component: VillageVue, name: 'village' },
     { path: '/dictionary', component: DictionaryVue, name: 'dictionary' },
-    { path: '/dictionary/root/:rootSlug', component: DictionaryVue, name: 'dictionaryRoot' },
     { path: '/dictionary/:word', component: DictionaryVue, name: 'dictionaryWord' },
   ],
 }

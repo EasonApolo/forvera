@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import Loading from './Loading.vue'
 
-defineProps<{ text: string; modelId?: string }>()
+defineProps<{ text: string; modelId?: string; status?: 'connecting' | 'streaming' }>()
 </script>
 
 <template>
   <section class="ai-stream" aria-live="polite" aria-label="AI 生成内容">
     <div class="stream-status">
       <Loading class="indicator" />
-      <span>生成中</span>
+      <span>{{ status === 'connecting' ? '连接中' : '生成中' }}</span>
       <span v-if="modelId" class="model-id">{{ modelId }}</span>
     </div>
     <pre v-if="text" class="stream-text">{{ text }}</pre>
@@ -20,6 +20,7 @@ defineProps<{ text: string; modelId?: string }>()
   min-width: 0;
   padding: 0.75rem 0;
   color: var(--text);
+  text-align: left;
 }
 
 .stream-status {

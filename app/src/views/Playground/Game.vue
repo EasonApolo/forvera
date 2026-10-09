@@ -650,9 +650,9 @@ onUnmounted(() => {
                 placeholder="输入..."
                 @keyup.enter="sendMessage"
               />
-              <button class="chat-send-btn" :disabled="!chatText.trim()" @click="sendMessage">
+              <Btn class="chat-send-btn" type="primary" :disabled="!chatText.trim()" @click="sendMessage">
                 发送
-              </button>
+              </Btn>
             </div>
           </div>
         </div>
@@ -979,44 +979,18 @@ onUnmounted(() => {
       padding: 8px;
       background-color: var(--quote-bg);
       border-top: 1px solid var(--border-light);
+      align-items: baseline;
 
+      // 只管布局；边框/内边距由 Input 组件自身样式负责（class 落在组件根 wrapper 上）
       .chat-input {
         flex: 1;
-        padding: 6px 10px;
-        border: 1px solid var(--border);
-        border-radius: 4px;
-        font-size: 14px;
-        outline: none;
-
-        &:hover {
-          border-color: var(--primary-color);
-        }
-
-        &:focus {
-          border-color: var(--primary-color);
-          box-shadow: none;
-        }
+        min-width: 0;
       }
 
+      // 只管布局；外观由 Btn 组件负责
       .chat-send-btn {
         margin-left: 8px;
-        padding: 6px 16px;
-        background-color: var(--primary-color);
-        color: white;
-        border: none;
-        border-radius: 4px;
-        font-size: 14px;
-        cursor: pointer;
-        transition: opacity 0.2s ease;
-
-        &:hover:not(:disabled) {
-          opacity: 0.92;
-        }
-
-        &:disabled {
-          background-color: var(--border-light);
-          cursor: not-allowed;
-        }
+        flex: 0 0 auto;
       }
     }
   }

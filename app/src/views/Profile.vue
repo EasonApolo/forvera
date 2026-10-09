@@ -8,6 +8,7 @@ import CircleBtn from '../components/CircleBtn.vue'
 import GreyText from '../components/GreyText.vue'
 import { useUserStore } from '../store/user'
 import Btn from '../components/Btn.vue'
+import Badge from '../components/Badge.vue'
 import { useMainStore } from '../store/main'
 import { usePostStore } from '../store/post'
 import { formatDate } from '../utils/common'
@@ -118,7 +119,10 @@ const saveConfig = async () => {
   <List>
     <template v-slot:content>
       <Card class="item user-info-bar">
-        <div>{{ userInfo.username }}</div>
+        <div class="user-name-row">
+          <div>{{ userInfo.username }}</div>
+          <Badge v-if="isAdmin" size="medium" color="var(--primary-color)" text-color="#fff">管理员</Badge>
+        </div>
         <div class="user-actions">
           <CircleBtn
             :size="24"
@@ -199,6 +203,13 @@ const saveConfig = async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+
+  .user-name-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+  }
 
   .user-actions {
     display: flex;

@@ -6,6 +6,8 @@ export type DictionaryDefinition = {
   meaning: string
   example: string
   exampleTranslation: string
+  /** 该词义的 3~5 层通用分类路径（从大类到小类） */
+  classification: string[]
   synonymsAnalysis: {
     term: string
     isOriginalWord: boolean
@@ -25,6 +27,8 @@ export type DictionaryWordAnalysis = {
   searchedWord: string
   canonicalWord: string
   invalidReason?: string | null
+  /** 输入疑似拼写错误时模型推断的正确原形；无则为空 */
+  correctedWord?: string | null
   word: string
   rootAnalysis: {
     root: string

@@ -92,7 +92,7 @@ const closeReplyPanel = () => {
     :show="showReplyPanel"
     @update:show="closeReplyPanel"
     placement="bottom"
-    :padding-bottom="false"
+    :padding-bottom="true"
     :blur-backdrop="false"
     :hide-footer="true"
     :max-width="560"
@@ -102,11 +102,6 @@ const closeReplyPanel = () => {
 </template>
 
 <style lang="less" scoped>
-.tab-content {
-  height: 100vh;
-  overflow: hidden;
-}
-
 .tab-loading {
   width: 1.5rem;
   height: 1.5rem;

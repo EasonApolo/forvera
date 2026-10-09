@@ -38,11 +38,11 @@ const bindScrollListener = () => {
   const byQuery = document.querySelector('.component-list') as HTMLElement | null
   scrollContainerEl = fromContent || byQuery
 
+  // 页面改为整页滚动后，滚动可能发生在文档（window）而非 .component-list，两者都监听
   if (scrollContainerEl) {
     scrollContainerEl.addEventListener('scroll', onContainerScroll, { passive: true })
-  } else {
-    window.addEventListener('scroll', onContainerScroll, { passive: true })
   }
+  window.addEventListener('scroll', onContainerScroll, { passive: true })
 }
 const navItems = computed(() => {
   const items = [{ key: 'back', label: '‹ 返回' }]

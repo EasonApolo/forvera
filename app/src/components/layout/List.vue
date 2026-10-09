@@ -9,8 +9,7 @@
 
 <style lang="less">
 .component-list {
-  height: 100vh;
-  overflow-y: auto;
+  // 整页滚动（swiper 移除后不再需要中间栏独立滚动），自然高度由文档滚动
   overflow-x: hidden;
 
   .layout-list {

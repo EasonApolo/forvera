@@ -62,13 +62,16 @@ onMounted(() => {
 })
 const fetchTypes = async () => {
   types.value = await request('documents/types', 'GET')
+  // 默认选中第一个分类（当前为电影）
+  if (!path.value.length && types.value.length) {
+    path.value = [0]
+    fetchDocuments({ refresh: true })
+  }
 }
-const selectPath = (index: number) => {
-  path.value = path.value.slice(0, index)
-  onPathChange()
-}
-const selectNode = (index: number) => {
-  path.value.push(index)
+const selectType = (key?: string) => {
+  const index = types.value.findIndex((type) => type.key === key)
+  if (index < 0 || path.value[0] === index) return
+  path.value = [index]
   onPathChange()
 }
 const onPathChange = () => {
@@ -76,14 +79,6 @@ const onPathChange = () => {
   resetMovieFilters()
   fetchDocuments({ refresh: true })
 }
-const pathSegs = computed(() => {
-  const tmp: string[] = []
-  path.value.reduce((acc, cur) => {
-    tmp.push(acc[cur].title)
-    return acc[cur].children
-  }, types.value)
-  return tmp
-})
 const node = computed(() => {
   let currentNode: TreeNode = { title: '', children: types.value }
   for (const index of path.value) {
@@ -397,23 +392,14 @@ const filteredDocuments = computed(() => {
     <List>
       <template #content>
         <GreyText>分类</GreyText>
-        <Card class="path-chooser">
-          <div class="dash">/</div>
-          <template v-for="(seg, index) in pathSegs" :key="index">
-            <div className="path-segment" @click="selectPath(index)">
-              {{ seg }}
-            </div>
-            <div class="dash">/</div>
-          </template>
-          <div class="divider">></div>
-          <div
-            class="file"
-            v-for="(child, index) in node.children"
-            :key="index"
-            @click="selectNode(index)"
-          >
-            {{ child.title }}
-          </div>
+        <Card class="type-tabs">
+          <Btn
+            v-for="type in types"
+            :key="type.key"
+            small
+            :type="node.key === type.key ? 'primary' : undefined"
+            @click="selectType(type.key)"
+          >{{ type.title }}</Btn>
         </Card>
 
         <template v-if="editable && node.key === 'movie'">
@@ -585,7 +571,7 @@ const filteredDocuments = computed(() => {
             </div>
           </div>
         </Card>
-        <div v-if="!node.key" class="ending">——— 选择分类 ———</div>
+        <div v-if="!node.key" class="ending">——— 暂无分类 ———</div>
 
         <BottomNavBar :items="navItems" @select="handleNavSelect" />
       </template>
@@ -594,28 +580,11 @@ const filteredDocuments = computed(() => {
 </template>
 
 <style scoped lang="less">
-.path-chooser {
+.type-tabs {
   display: flex;
   align-items: center;
-  div {
-    height: 16px;
-    line-height: 16px;
-  }
-  .dash {
-    margin: 0 8px;
-  }
-  .path-segment {
-    color: #42b983;
-    cursor: pointer;
-  }
-  .divider {
-    margin: 0 8px;
-  }
-  .file {
-    color: #42b983;
-    margin: 0 8px;
-    cursor: pointer;
-  }
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 .create {
   .search-input {
@@ -799,6 +768,7 @@ const filteredDocuments = computed(() => {
     row-gap: 8px;
     column-gap: 16px;
     flex-wrap: wrap;
+    align-items: start;
     .comment-card {
       background: var(--quote-bg);
       border-radius: 4px;
@@ -837,6 +807,8 @@ const filteredDocuments = computed(() => {
         margin-top: 4px;
         text-align: left;
         font-size: 0.875rem;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
       }
     }
   }

@@ -21,7 +21,7 @@ const showTitle = slots.title
   background-color: var(--card-bg);
   transition: background-color 0.25s ease;
   & > .title {
-    margin-bottom: 5px;
+    margin: 0 0 8px 2px;
     font-size: 15px;
     font-weight: bold;
     line-height: 16px;

@@ -114,6 +114,8 @@ const handleConfirm = () => {
   -webkit-font-smoothing: antialiased;
   font-size: 13px;
   line-height: 1.45;
+  /* Teleport 到 body 后脱离了 #app 的 color: var(--text)，需自带，否则暗黑模式下是黑色默认字 */
+  color: var(--text);
 }
 
 .modal-title {

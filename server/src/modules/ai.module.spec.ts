@@ -2,7 +2,22 @@ import { EventEmitter } from 'events';
 import { MODULE_METADATA } from '@nestjs/common/constants';
 import { MongooseModule } from '@nestjs/mongoose';
 import { model, Schema } from 'mongoose';
-import { AiModule, AiService } from './ai.module';
+import { AiModule, AiService, classifyAiError } from './ai.module';
+
+describe('classifyAiError', () => {
+  it('treats upstream HTTP statuses as api errors', () => {
+    expect(classifyAiError(Object.assign(new Error('Too Many Requests'), { status: 429 }))).toBe('api');
+    expect(classifyAiError(Object.assign(new Error('bad request'), { code: 400 }))).toBe('api');
+    expect(classifyAiError(Object.assign(new Error('unauthorized'), { code: '401' }))).toBe('api');
+  });
+
+  it('treats socket-level failures as network errors', () => {
+    expect(classifyAiError(Object.assign(new Error('fetch failed'), { cause: { code: 'ENOTFOUND' } }))).toBe('network');
+    expect(classifyAiError(Object.assign(new Error('connect ETIMEDOUT'), { code: 'ETIMEDOUT' }))).toBe('network');
+    expect(classifyAiError(new Error('fetch failed'))).toBe('network');
+    expect(classifyAiError(new Error('Socket connection timed out'))).toBe('network');
+  });
+});
 
 describe('AiRecord schema', () => {
   it('accepts empty content while a new record is pending', () => {
@@ -49,6 +64,26 @@ describe('DeepSeekProvider', () => {
       fetchMock.mockRestore();
     }
   });
+
+  it('labels upstream HTTP failures as api errors', async () => {
+    const Provider = Reflect.getMetadata(MODULE_METADATA.PROVIDERS, AiModule)
+      .find((entry: { name: string }) => entry.name === 'DeepSeekProvider');
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: false,
+      status: 429,
+      statusText: 'Too Many Requests',
+    } as Response);
+
+    try {
+      const chunks = [];
+      for await (const chunk of new Provider().generateStream({ prompt: 'test' })) {
+        chunks.push(chunk);
+      }
+      expect(chunks).toEqual([{ error: 'DeepSeek error 429: Too Many Requests', errorType: 'api' }]);
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
 });
 
 describe('AiService.stream', () => {
@@ -68,7 +103,7 @@ describe('AiService.stream', () => {
     return res;
   };
 
-  const makeService = (previous: any = null, reply = '{"value":1}') => {
+  const makeService = (previous: any = null, reply: string | Error = '{"value":1}') => {
     const model = {
       findById: jest.fn(() => ({ lean: async () => previous })),
       findOne: jest.fn(() => ({ sort: () => ({ lean: async () => previous }) })),
@@ -77,6 +112,7 @@ describe('AiService.stream', () => {
     };
     const provider = {
       generateStream: jest.fn(async function* () {
+        if (reply instanceof Error) throw reply;
         yield { text: reply };
         yield { done: true };
       }),
@@ -102,12 +138,14 @@ describe('AiService.stream', () => {
     await new Promise(setImmediate);
 
     expect(model.create).toHaveBeenCalledWith(expect.objectContaining({
-      sessionId: expect.any(String), provider: 'gemini', modelId: 'gemini-2.5-flash', status: 'pending',
+      sessionId: expect.any(String), provider: 'gemini', modelId: 'gemini-2.5-flash', status: 'connecting',
     }));
     expect(onStart).toHaveBeenCalledWith('new-record');
     expect(provider.generateStream).toHaveBeenCalledWith(expect.objectContaining({ model: 'gemini-2.5-flash' }));
     const events = res.write.mock.calls.map(([data]) => JSON.parse(data.slice(6)));
     expect(events.map(event => event.modelId)).toEqual(['gemini-2.5-flash', 'gemini-2.5-flash', 'gemini-2.5-flash']);
+    // 连接中 → 第一个 chunk 到达后转 streaming（随文本一起下发）
+    expect(events.map(event => event.status)).toEqual(['connecting', 'streaming', 'done']);
     expect(model.updateOne).toHaveBeenCalledWith(
       { _id: 'new-record' },
       { $set: expect.objectContaining({ status: 'done', content: '{\n  "value": 1\n}' }) },
@@ -158,9 +196,25 @@ describe('AiService.stream', () => {
 
     await service.stream({ recordId: existing._id, regenerate: true, res: makeResponse() as any, onStart });
     expect(model.create).toHaveBeenCalledWith(expect.objectContaining({
-      sessionId: existing.sessionId, status: 'pending', provider: 'gemini', modelId: 'gemini-2.5-flash',
+      sessionId: existing.sessionId, status: 'connecting', provider: 'gemini', modelId: 'gemini-2.5-flash',
     }));
     expect(onStart).toHaveBeenCalledWith('new-record');
+  });
+
+  it('marks a connection-phase failure as a network error', async () => {
+    const { service, model } = makeService(
+      null,
+      Object.assign(new Error('fetch failed'), { cause: { code: 'ENOTFOUND' } }),
+    );
+    const res = makeResponse();
+    await service.stream({ bizId: 'dictionary', prompt: 'test', res: res as any });
+    await new Promise(setImmediate);
+
+    expect(model.updateOne).toHaveBeenCalledWith(
+      { _id: 'new-record' },
+      { $set: expect.objectContaining({ status: 'error', errorType: 'network' }) },
+    );
+    expect(res.write).toHaveBeenCalledWith(expect.stringContaining('"errorType":"network"'));
   });
 
   it('rejects a removed provider instead of routing it to Gemini', async () => {

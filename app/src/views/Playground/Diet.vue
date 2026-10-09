@@ -633,7 +633,7 @@ onMounted(async () => {
         <div v-else class="empty-state">这一天还没有记录。</div>
       </Card>
 
-      <div v-if="recordModal.show" class="modal-mask" @click.self="closeRecordModal">
+      <div v-if="recordModal.show" class="modal-mask">
         <Card class="modal">
           <div class="modal-head">
             <div class="modal-title">记录热量</div>
