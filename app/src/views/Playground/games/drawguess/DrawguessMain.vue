@@ -5,10 +5,12 @@ import GameBoard from '@/components/GameBoard.vue'
 import LoadingEllipsis from '@/components/LoadingEllipsis.vue'
 import Modal from '@/components/Modal.vue'
 import { request } from '@/utils/request'
+import { useToastStore } from '@/store/toast'
 import { Coord, IGameRoom, WsCustomMsg, WsCustomMsgName, WsEventMsg } from 'shared/types/game'
 import {
   DrawGuessCustomMsgTypes,
   DrawGuessDurations,
+  DrawGuessReaction,
   IDrawGuessRoom,
   StrokeChunk,
   SyncStrokeDTO,
@@ -28,6 +30,7 @@ import {
   watchEffect,
 } from 'vue'
 
+const toastStore = useToastStore()
 const { room, userId, socket } = defineProps<{
   room: IDrawGuessRoom
   userId: string
@@ -227,6 +230,10 @@ onMounted(() => {
   socket.on('clearCanvas', () => {
     drawBackground()
   })
+  // 画家换了词（server 只发给其他玩家）
+  socket.on(DrawGuessCustomMsgTypes.WordChanged, () => {
+    toastStore.showToast({ content: '画家更换了词汇', type: '?' })
+  })
 })
 onUnmounted(() => {
   if (syncTimer) {
@@ -234,6 +241,7 @@ onUnmounted(() => {
   }
   socket.off(DrawGuessCustomMsgTypes.SyncStrokes)
   socket.off('clearCanvas')
+  socket.off(DrawGuessCustomMsgTypes.WordChanged)
 })
 
 // ==================== 倒计时 ====================
@@ -242,6 +250,8 @@ const timerValue = ref(displayTime(DrawGuessDurations.TurnBeforeDuration))
 let countdownTimer: number | null = null
 const updateTimerValue = () => {
   timerValue.value = displayTime(room.duration - (Date.now() - room.startTime))
+  canChangeWord.value = room.turnStatus === 'ing'
+    && Date.now() - room.startTime <= DrawGuessDurations.ChangeWordWindow
 }
 
 // ==================== round结束展示本回合所有画作 ====================
@@ -288,10 +298,16 @@ const { clearMessages, toggleChat, setChatTitle, toggleCanSend, addMessage } = i
   'GameChat'
 ) as any
 watch(
+  () => room.round,
+  () => {
+    // 只在新的一局开始时清空聊天，turn 之间保留
+    clearMessages()
+  }
+)
+watch(
   () => room.turnStatus + room.roundStatus,
   () => {
     if (room.turnStatus === 'ing') {
-      clearMessages()
       setChatTitle('猜词')
       toggleChat(true)
       addMessage({
@@ -328,11 +344,70 @@ onUnmounted(() => {
 // ==================== 换词 ====================
 
 const showChangeWordConfirm = ref(false)
+const canChangeWord = ref(false)
 const onChangeWord = () => {
-  if (!imDrawer.value || room.turnStatus !== 'before' || !room.word) return
+  if (!imDrawer.value || !room.word) return
+  const inBeforePhase = room.turnStatus === 'before'
+  const inChangeWindow = room.turnStatus === 'ing' && canChangeWord.value
+  if (!inBeforePhase && !inChangeWindow) return
   showChangeWordConfirm.value = false
   socket.emit(DrawGuessCustomMsgTypes.ChangeWord)
 }
+
+// ==================== 点赞点踩 ====================
+
+/** turn after 展示并交互当前画作；round after 浏览回放时只读展示对应画作 */
+const activeLikes = computed(() => {
+  if (room.roundStatus === 'after') {
+    return replayData.value[replayIndex.value]?.likes || 0
+  }
+  if (room.turnStatus === 'after' && room.roundStatus === 'ing') {
+    return room.likes || 0
+  }
+  return 0
+})
+const activeDislikes = computed(() => {
+  if (room.roundStatus === 'after') {
+    return replayData.value[replayIndex.value]?.dislikes || 0
+  }
+  if (room.turnStatus === 'after' && room.roundStatus === 'ing') {
+    return room.dislikes || 0
+  }
+  return 0
+})
+// drawer 自己不能投；浏览回放阶段只读
+const canReact = computed(
+  () => room.turnStatus === 'after' && room.roundStatus === 'ing' && !imDrawer.value
+)
+
+const sendReaction = (value: DrawGuessReaction) => {
+  if (!canReact.value) return
+  socket.emit(DrawGuessCustomMsgTypes.Reaction, value)
+}
+
+// 计数渐变：目标变化时逐级过渡（5=>6=>7...），差值过大直接跳变
+const displayLikes = ref(0)
+const displayDislikes = ref(0)
+const tweenCounter = (display: { value: number }, target: number) => {
+  if (display.value === target) return
+  if (Math.abs(target - display.value) > 20) {
+    display.value = target
+    return
+  }
+  const step = () => {
+    if (display.value === target) return
+    display.value += display.value < target ? 1 : -1
+    if (display.value !== target) setTimeout(step, 90)
+  }
+  step()
+}
+watch(activeLikes, (target) => tweenCounter(displayLikes, target))
+watch(activeDislikes, (target) => tweenCounter(displayDislikes, target))
+
+// 进度条最少 8 格：每票占比 = 1 / max(8, 总票数)，超过 8 票按比例收缩
+const reactionUnit = computed(() => 100 / Math.max(8, activeLikes.value + activeDislikes.value))
+const likePercent = computed(() => activeLikes.value * reactionUnit.value)
+const dislikePercent = computed(() => activeDislikes.value * reactionUnit.value)
 
 // ==================== lifecycle ====================
 
@@ -391,7 +466,7 @@ onUnmounted(() => {
       <div class="left">
         <template v-if="imDrawer">
           你画：<span class="word-to-draw">{{ room.word }}</span>
-          <Btn v-if="room.word" small @click="showChangeWordConfirm = true">换词</Btn>
+          <Btn v-if="room.word" class="change-word-btn" small @click="showChangeWordConfirm = true">换词</Btn>
         </template>
         <template v-else>你猜</template>
       </div>
@@ -400,8 +475,9 @@ onUnmounted(() => {
     <div v-if="room.turnStatus === 'ing'" class="info-bar bar flex-lr-box">
       <div class="left">
         <template v-if="imDrawer">
-          <div>请画：</div>
+          <div>你画：</div>
           <div class="word-to-draw">{{ room.word }}</div>
+          <Btn v-if="room.word && canChangeWord" class="change-word-btn" small @click="showChangeWordConfirm = true">换词</Btn>
         </template>
         <template v-else>
           <div>提示：</div>
@@ -436,7 +512,7 @@ onUnmounted(() => {
       </div>
     </div>
     <Modal v-model:show="showChangeWordConfirm" title="确认换词" @cancel="showChangeWordConfirm = false" @confirm="onChangeWord">
-      换掉当前词吗？该词的后续出现概率会降低 10%。
+      确定要换词吗？
     </Modal>
     <GameBoard
       :width="CANVAS_WIDTH"
@@ -478,6 +554,28 @@ onUnmounted(() => {
         <Btn type="danger" small @click="onClearCanvas">清空</Btn>
       </template>
     </GameBoard>
+
+    <!-- 点赞点踩：turn after 可交互（drawer 置灰），round after 浏览回放时只读 -->
+    <div v-if="room.turnStatus === 'after' || room.roundStatus === 'after'" class="reaction-bar">
+      <div
+        class="reaction-btn"
+        :class="{ disabled: !canReact }"
+        @click="sendReaction('like')"
+      >
+        👍<span v-if="displayLikes" class="count">{{ displayLikes }}</span>
+      </div>
+      <div class="reaction-track">
+        <div class="reaction-fill like" :style="{ width: likePercent + '%' }"></div>
+        <div class="reaction-fill dislike" :style="{ width: dislikePercent + '%' }"></div>
+      </div>
+      <div
+        class="reaction-btn"
+        :class="{ disabled: !canReact }"
+        @click="sendReaction('dislike')"
+      >
+        👎<span v-if="displayDislikes" class="count">{{ displayDislikes }}</span>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -486,6 +584,15 @@ onUnmounted(() => {
   margin: 2px 0 6px 0;
   color: var(--text);
   font-size: 14px;
+
+  .word-to-draw {
+    font-weight: bold;
+  }
+
+  .change-word-btn {
+    margin-left: 0.5rem;
+    flex: 0 0 auto;
+  }
 }
 .info-bar {
   .left {
@@ -494,7 +601,6 @@ onUnmounted(() => {
     margin-left: 1px;
     gap: 0;
 
-    .word-to-draw,
     .word-length,
     .word-category {
       font-weight: bold;
@@ -515,6 +621,71 @@ onUnmounted(() => {
 .round-result-bar {
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+.reaction-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+
+  .reaction-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+    background: var(--bg);
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    transition: 0.15s ease;
+    user-select: none;
+    flex: 0 0 auto;
+
+    &:active:not(.disabled) {
+      transform: scale(0.92);
+    }
+
+    // 置灰：emoji 用 grayscale 滤镜变灰
+    &.disabled {
+      cursor: default;
+      filter: grayscale(1);
+      opacity: 0.4;
+    }
+
+    .count {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+  }
+
+  .reaction-track {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 0.75rem;
+    border-radius: 999px;
+    background: var(--quote-bg);
+    display: flex;
+    justify-content: space-between;
+    overflow: hidden;
+
+    .reaction-fill {
+      height: 100%;
+      min-width: 0;
+      transition: width 0.25s ease;
+
+      &.like {
+        background: var(--primary-color);
+        border-radius: 999px 0 0 999px;
+      }
+
+      &.dislike {
+        background: #e05252;
+        border-radius: 0 999px 999px 0;
+      }
+    }
+  }
 }
 
 .draw-options {

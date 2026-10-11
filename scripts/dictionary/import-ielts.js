@@ -1,10 +1,17 @@
-// 导入雅思词表到待学词列表（dictionarylearning 集合）。
-// 词表来源：https://github.com/hefengxian/ielts-vocabulary（IELTS 核心词，~1650 词）
-// 重复导入安全（upsert 跳过已有）；已查过的词（在 dictionary 主表中）视为已学，自动跳过。
+// 全量导入雅思词表到待学词列表（dictionarylearning 集合，无表则随导入自动创建）。
+// 词表来源：https://github.com/hefengxian/ielts-vocabulary（提取去重后约 1656 词）
+// 全量重建：先清空待学词再导入，ielts-words.txt 是唯一事实源；
+// 已查过的词（dictionary 主表中）视为已学，自动跳过。
 const { createRequire } = require('module');
 const { join } = require('path');
 const { readFileSync } = require('fs');
 const mongoose = createRequire(join(__dirname, '../../server/package.json'))('mongoose');
+
+// 与 server 的 DictionaryLearningSchema 保持一致（word 唯一索引随 model 自动创建）
+const LearningSchema = new mongoose.Schema(
+  { word: { type: String, required: true, unique: true } },
+  { collection: 'dictionarylearning', timestamps: true },
+);
 
 function parseWordFile(filePath) {
   return readFileSync(filePath, 'utf-8')
@@ -20,29 +27,23 @@ async function main() {
 
   await mongoose.connect(mongoUri);
   const db = mongoose.connection;
+  const Learning = mongoose.model('DictionaryLearningImport', LearningSchema);
 
+  // 已查过的词（dictionary 主表）视为已学，不进待学列表
   const queried = new Set(
     (await db.collection('dictionary').find({}, { projection: { word: 1 } }).toArray())
       .map((row) => row.word.toLowerCase()),
   );
-  const toAdd = words.filter((word) => !queried.has(word));
+  const toImport = words.filter((word) => !queried.has(word));
 
-  const result = await db.collection('dictionarylearning').bulkWrite(
-    toAdd.map((word) => ({
-      updateOne: {
-        filter: { word },
-        update: { $setOnInsert: { word } },
-        upsert: true,
-      },
-    })),
-    { ordered: false },
-  );
+  const dropped = await Learning.deleteMany({});
+  console.log('[ielts-import] cleared existing:', dropped.deletedCount || 0);
 
-  const total = await db.collection('dictionarylearning').countDocuments();
+  const inserted = await Learning.insertMany(toImport.map((word) => ({ word })));
   console.log('[ielts-import] parsed:', words.length);
-  console.log('[ielts-import] skipped (already queried):', words.length - toAdd.length);
-  console.log('[ielts-import] inserted:', result.upsertedCount || 0);
-  console.log('[ielts-import] learning list total:', total);
+  console.log('[ielts-import] skipped (already queried):', words.length - toImport.length);
+  console.log('[ielts-import] inserted:', inserted.length);
+  console.log('[ielts-import] learning total:', await Learning.countDocuments({}));
 
   await mongoose.disconnect();
 }

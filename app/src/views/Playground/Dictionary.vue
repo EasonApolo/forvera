@@ -7,9 +7,10 @@ import Input from '@/components/Input.vue'
 import Textarea from '@/components/Textarea.vue'
 import Btn from '@/components/Btn.vue'
 import AiStream from '@/components/AiStream.vue'
+import GreyText from '@/components/GreyText.vue'
 import { request } from '@/utils/request'
 import { ip } from '@/config'
-import type { DictionaryRecord, DictionaryWordAnalysis } from 'shared/types/dictionary'
+import type { DictionaryDefinition, DictionaryRecord, DictionaryWordAnalysis } from 'shared/types/dictionary'
 import BottomNavBar from '@/components/layout/BottomNavBar.vue'
 import Modal from '@/components/Modal.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
@@ -376,6 +377,52 @@ const goCategory = async (path: string[], index: number) => {
   if (el) el.scrollTo({ left: el.scrollWidth - el.clientWidth, behavior: 'smooth' })
 }
 
+// ==================== 词页内点词查询（同根词/占比词） ====================
+
+const pendingQueryWord = ref('')
+
+/** 已查过的词都在分类树里（含未分类组），据此判断是否需要弹窗确认 */
+const isQueriedWord = (targetWord: string) => {
+  const target = targetWord.trim().toLowerCase()
+  if (!target) return false
+  const stack = [...categoryTree.value]
+  while (stack.length) {
+    const node = stack.pop()!
+    if (node.words.some((w) => w.wordLower === target)) return true
+    stack.push(...node.children)
+  }
+  return false
+}
+
+const handleQueryWord = (targetWord: string) => {
+  if (!targetWord || loading.value) return
+  // 点的就是当前词本身，无需跳转
+  if (targetWord.trim().toLowerCase() === word.value.trim().toLowerCase()) return
+  if (isQueriedWord(targetWord)) {
+    void analyze(targetWord, false, true)
+    return
+  }
+  pendingQueryWord.value = targetWord
+}
+
+/** 占比词按百分比降序（程序排序，不依赖模型输出顺序） */
+const sortedSynonyms = (synonyms: DictionaryDefinition['synonymsAnalysis']) =>
+  [...(synonyms || [])].sort((a, b) => (b.usageShare || 0) - (a.usageShare || 0))
+
+/** 是否是被查词本身（或模型标记的原词形态）：加下划线 */
+const isOriginalTerm = (term: string, isOriginalFlag: boolean) => {
+  if (isOriginalFlag) return true
+  const target = term.trim().toLowerCase()
+  return target === word.value.trim().toLowerCase()
+    || target === (result.value?.searchedWord || '').trim().toLowerCase()
+}
+
+const confirmQueryWord = async () => {
+  const targetWord = pendingQueryWord.value
+  pendingQueryWord.value = ''
+  if (targetWord) await analyze(targetWord, false, true)
+}
+
 const handleSearchEnter = (event: KeyboardEvent) => {
   const nativeEvent = event as KeyboardEvent & { keyCode?: number }
   if (nativeEvent.isComposing || nativeEvent.keyCode === 229) return
@@ -519,17 +566,23 @@ onMounted(() => {
       </div>
       <div class="display" v-if="pageMode === 'word' && result">
         <div class="word">{{ result.word }}</div>
+        <GreyText>词根</GreyText>
         <Card>
           <div class="text">{{ displayRoot }}</div>
           <div class="secondary-text">{{ result.rootAnalysis.rootMeaning }}</div>
           <div class="secondary-text">{{ result.rootAnalysis.etymologyStory }}</div>
           <div class="">
-            <div v-for="(item, index) in result.rootAnalysis.cognates" :key="`${item.word}-${index}`" class="text">
-              {{ item.word }} - {{ item.explanation }}
+            <div
+              v-for="(item, index) in result.rootAnalysis.cognates"
+              :key="`${item.word}-${index}`"
+              class="secondary-text"
+            >
+              <span class="bold query-word" @click="handleQueryWord(item.word)">{{ item.word }}</span> - {{ item.explanation }}
             </div>
           </div>
         </Card>
 
+        <GreyText>词义</GreyText>
         <Card>
           <div v-for="meaning in result.meanings" :key="meaning.partOfSpeech" class="section">
             <div class="sub-title">{{ meaning.partOfSpeech }}</div>
@@ -545,11 +598,15 @@ onMounted(() => {
               <div class="secondary-text">{{ def.example }}</div>
               <div class="secondary-text">{{ def.exampleTranslation }}</div>
               <div
-                v-for="(syn, synIndex) in def.synonymsAnalysis"
+                v-for="(syn, synIndex) in sortedSynonyms(def.synonymsAnalysis)"
                 :key="`${syn.term}-${synIndex}`"
                 class="secondary-text"
               >
-                <span class="bold">{{ syn.term }}</span> ({{ syn.usageShare }}%) - {{ syn.usageContext }}
+                <span
+                  class="bold query-word"
+                  :class="{ underline: isOriginalTerm(syn.term, !!syn.isOriginalWord) }"
+                  @click="handleQueryWord(syn.term)"
+                >{{ syn.term }}</span> ({{ syn.usageShare }}%) - {{ syn.usageContext }}
               </div>
             </div>
           </div>
@@ -579,6 +636,14 @@ onMounted(() => {
       <Input v-model="searchWord" small @keydown.enter="handleSearchEnter" />
       <Btn :disabled="!canSearch" :loading="loading" @click="analyze(searchWord)">查询</Btn>
     </div>
+  </Modal>
+  <Modal
+    :show="!!pendingQueryWord"
+    title="查词"
+    @cancel="pendingQueryWord = ''"
+    @confirm="confirmQueryWord"
+  >
+    是否查询「{{ pendingQueryWord }}」？
   </Modal>
   <BottomNavBar :items="navItems" @select="handleSelectNav" />
 </template>
@@ -848,6 +913,18 @@ onMounted(() => {
   .classification-line {
     .classification-sep {
       margin: 0 0.25rem;
+    }
+  }
+
+  .query-word {
+    cursor: pointer;
+
+    &:hover {
+      color: var(--primary-color);
+    }
+
+    &.underline {
+      text-decoration: underline;
     }
   }
 

@@ -24,6 +24,7 @@ const props = withDefaults(
     closeOnMask: true,
     blurBackdrop: true,
     placement: 'center',
+    maxWidth: 375,
     paddingBottom: true,
     hideFooter: false,
   }

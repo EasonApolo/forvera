@@ -19,9 +19,18 @@ describe('DrawGuess words', () => {
       word: '苹果',
       category: '水果',
       wordLength: 2,
+      round: 1,
       turn: 1,
       setVisibility: jest.fn(),
       sync: jest.fn(),
+      checkPhase: (ctx?: any, opts: any = {}) => {
+        const { sameRound = true, sameTurn = true, turnStatus } = opts;
+        if (turnStatus && !turnStatus.includes(room.turnStatus)) return false;
+        const base = ctx || { round: room.round, turn: room.turn, turnStatus: room.turnStatus };
+        if (sameRound && room.round !== base.round) return false;
+        if (sameTurn && (room.round !== base.round || room.turn !== base.turn)) return false;
+        return true;
+      },
     } as unknown as GameRoom;
     drawer = { id: 'drawer' } as GameUser;
     game = new DrawGuess({ room });
@@ -83,5 +92,62 @@ describe('DrawGuess words', () => {
     finishSelection!([{ name: '猫', category: '动物', changeCount: 0 }]);
     await first;
     expect(updateOne).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops a change-word request whose phase drifted during the async pick', async () => {
+    // ctx 是消息分发时的阶段快照（本 turn 的 before）；选词异步期间回合已推进
+    const ctx = { round: 1, turn: 1, turnStatus: 'before' as const };
+    let finishSelection: (value: any[]) => void;
+    aggregate.mockReturnValue(new Promise((resolve) => { finishSelection = resolve; }));
+    updateOne.mockReturnValue({ exec: jest.fn().mockResolvedValue({}) });
+
+    const pending = game.onChangeWord({ room, user: drawer, ctx });
+    room.turn = 2; // 阶段漂移
+    finishSelection!([{ name: '猫', category: '动物', changeCount: 0 }]);
+    await pending;
+
+    expect(room.word).toBe('苹果');
+    expect(room.sync).not.toHaveBeenCalled();
+    expect(updateOne).not.toHaveBeenCalled();
+  });
+
+  it('drops strokes and guesses that arrive outside the drawing phase', () => {
+    room.turnStatus = 'after';
+    game.onDrawStroke({ room, user: drawer, data: [{ id: 1 }] as any });
+    game.onClearCanvas({ room, user: drawer });
+    expect(room.sync).not.toHaveBeenCalled();
+
+    expect(
+      game.onMessageBefore({ room, user: { id: 'guest' } as GameUser, text: '苹果' }),
+    ).toBeUndefined();
+  });
+
+  it('accumulates reactions from anyone except the drawer, with throttled sync', () => {
+    jest.useFakeTimers();
+    try {
+      room.turnStatus = 'after';
+      room.likes = 0;
+      room.dislikes = 0;
+      const guest = { id: 'guest' } as GameUser;
+
+      // drawer 自己不能投
+      game.onReaction({ room, user: drawer, value: 'like' });
+      expect(room.likes).toBe(0);
+
+      // 任意玩家可累加（不看身份、无上限）
+      game.onReaction({ room, user: guest, value: 'like' });
+      game.onReaction({ room, user: guest, value: 'like' });
+      game.onReaction({ room, user: drawer, value: 'dislike' });
+      game.onReaction({ room, user: guest, value: 'dislike' });
+      expect(room.likes).toBe(2);
+      expect(room.dislikes).toBe(1);
+
+      // 高频点击期间 sync 被节流合并（200ms trailing）
+      expect(room.sync).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(200);
+      expect(room.sync).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

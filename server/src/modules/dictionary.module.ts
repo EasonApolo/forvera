@@ -146,7 +146,7 @@ const WordAnalysisSchema: GenAISchema = {
                 classification: {
                   type: Type.ARRAY,
                   description:
-                    '该词义的通用分类路径，由粗到细，层数按需动态决定（通常 2~4 层，最多 5 层）；分类必须是通用可复用的标准类目，禁止使用被查词本身或其释义充当分类名，禁止为凑层级生造空洞细分',
+                    '该词义在格拉斯哥英语历史分类词典（Historical Thesaurus of English）概念层级中的完整路径：第一层为三大主干（外部世界/精神世界/社会世界）之一，逐层细化到该概念真实所在的末端类目（HTE 末端类目通常在第 4~7 层，至少 4 层）；禁止使用被查词本身或其释义充当分类名，禁止生造 HTE 中不存在的层级',
                   items: {
                     type: Type.STRING,
                   },
@@ -310,7 +310,13 @@ class DictionaryService {
   - 若输入疑似拼写错误且你能高置信推断出本来的词（如 gretest → greatest、recieve → receive），isWordValid 设为 false，invalidReason 简述原因，correctedWord 填推断出的正确原形（小写）。
   - 若输入既不是有效单词，也没有高置信的相近词，correctedWord 留空。
 
-  2. 词根与演变故事：
+  2. 词义划分（参照 HTE）：
+  - 词义的数量与划分以 HTE 对该词的收录为准：HTE 将该词归入几个概念类目，就给出几个词义；每个词义的 classification 即对应该类目的路径。
+  - 跳过 HTE 中标注为已废弃、古旧或仅限方言的用法（obsolete / archaic / dialectal）：例如 HTE 收录 4 个概念、其中 1 个已废弃，则只给出 3 个词义。
+  - 词义划分必须稳定：同一单词的重复查询应得到相同的词义数量和划分，不要自行合并、拆分或新增 HTE 之外的概念。
+  - 仅当某个现代主流用法在 HTE 中确实缺失时（如 HTE 出版后的新义）才补充该词义，并在释义中体现其现代性。
+
+  3. 词根与演变故事：
   - root 是用于同根词归类的标识，只填小写英文字母，不要添加任何连字符、中文、括号或其他符号；前缀、后缀也不要加表示位置的连字符。
   - 原词与派生词必须使用完全相同的 root。例如 chop 和 chopper 的 root 都是 "chop"，不要把 chopper 写成 "chop-"。
   - 正确示例："chop"、"ad"、"vis"；错误示例："chop-"、"ad-"、"chop (切，砍)"。
@@ -321,21 +327,22 @@ class DictionaryService {
   - 同根词必须是对象数组，每项包含 word 与 explanation。
   - 若无相关派生词，cognates 返回空数组 []。
 
-  3. 释义简洁性：
+  4. 释义简洁性：
   - meaning 必须极简直白，严禁括号补充说明。
 
-  4. 同义词层级：
+  5. 同义词层级：
   - 先按词性分类，再按词义分类。
   - 同义词辨析必须绑定在每个词义 definitions 的 synonymsAnalysis 中。
   - 每个词义下必须包含原词本身、同义词和同义短语，usageShare 加和必须为 100。
   - 如果 "${word}" 在它的某个词义下是小众词汇，则usageShare要以通用词汇为整体，例如chopper指一种特殊的摩托车，它的usageShare以所有摩托车作为整体，chopper仅占少数，motorcycle占大多数，而不是仅考虑chopper这一小类摩托车，被查询词在usageShare中不是最多的是合理的。
 
-  5. 词义通用分类：
-  - 每个词义（definitions 的每一项）都必须给出 classification：通用分类路径数组，由粗到细。
-  - 层数动态决定（通常 2~4 层，最多 5 层）：能在较浅层级准确归位就到此为止，禁止为凑层级生造没有实际区分度的细分（例如在「切割」下再造「用力切割」这一类空洞层级）。
-  - 第一层使用通用大类（如 自然、生物、人类、社会、科技、商业、身心、文化、抽象概念 等）。
-  - 分类名必须是通用、可复用的类目词，用简体中文；尽量采用成熟专业分类体系中的标准类目（学科分类、生物分类、行业分类等），不要自创近义词变体；禁止使用被查词本身、其释义或例句内容充当分类名。
-  - 一致性优先：若提供了「已有分类路径」，语义匹配时必须复用完全相同的路径前缀（包括用字），不要为同一概念另造近义路径（例如已用「自然/生物/动物」就不要写成「自然界/生物/动物」）。${knownCategoriesBlock}
+  6. 词义通用分类：
+  - 每个词义（definitions 的每一项）都必须给出 classification：通用分类路径数组，参照格拉斯哥大学《格拉斯哥英语历史分类词典》（Historical Thesaurus of English, HTE）的概念层级。
+  - 第一层必须且只能是 HTE 的三大主干之一：「外部世界」（自然界、物质、生物、空间、时间等）、「精神世界」（感知、情感、思想、意志、认知、语言等）、「社会世界」（社会组织、法律、政治、经济、文化、技术、风俗等）。
+  - 之后沿 HTE 概念树逐层细化，一直给到该概念真实所在的末端类目。HTE 的末端类目绝大多数位于第 4~7 层，禁止在第 3 层处截断；只有概念确实位于 HTE 上层节点时才允许更浅的路径。
+  - 参照示例（真实 HTE 深度）：blacksmith => 社会 > 经济 > 职业与工作 > 手工业者 > 金属工人 > 铁匠（6 层）；anger => 精神世界 > 情感 > 情感状态 > 消极情感 > 愤怒（5 层）；harbor => 外部世界 > 建造环境 > 建筑物 > 水运建筑 > 港口（5 层）。
+  - 分类名使用 HTE 类目的通行中文译名（简体中文）；禁止使用被查词本身、其释义或例句内容充当分类名。
+  - 一致性优先：若提供了「已有分类路径」，语义匹配时必须复用完全相同的路径前缀（包括用字），不要为同一概念另造近义路径。${knownCategoriesBlock}
   - 多义词的不同词义可以归属不同分类路径；同一词的多个词义若语义相近，可共用同一路径。`;
 
     return prompt;
@@ -503,7 +510,7 @@ class DictionaryService {
    * 动态从词汇表生成多层级分类树（不落单独的表，保证与词汇数据始终一致）。
    * 每个词按其所有词义的分类路径挂到对应叶子节点；没有分类信息的老数据进「未分类」。
    */
-  async getCategoryGroups() {
+  async getCategoryGroups(excludeWord?: string) {
     const rows = await this.dictionaryModel
       .find({}, { word: 1, aiRecordId: 1, updatedAt: 1, createdAt: 1 })
       .sort({ updatedAt: -1, createdAt: -1 })
@@ -513,6 +520,7 @@ class DictionaryService {
     const latestByWord = new Map<string, (typeof rows)[number]>();
     for (const row of rows) {
       const wordLower = row.word.toLowerCase();
+      if (excludeWord && wordLower === excludeWord.toLowerCase()) continue;
       if (latestByWord.has(wordLower)) continue;
       latestByWord.set(wordLower, row);
     }
@@ -594,17 +602,24 @@ class DictionaryService {
     };
   }
 
-  /** 取分类树前两层路径（按子树词数降序）喂给 prompt，让新查询优先复用已有类目 */
-  async getKnownCategoryPaths(limit = 30) {
-    const { items } = await this.getCategoryGroups();
+  /** 取分类树中 HTE 体系（三大主干）的完整路径（按词数降序）喂给 prompt，让新查询优先复用已有类目；excludeWord 用于排除被查词自身，避免复用锁定旧路径 */
+  async getKnownCategoryPaths(limit = 30, excludeWord?: string) {
+    const HTE_TRUNKS = ['外部世界', '精神世界', '社会世界'];
+    const { items } = await this.getCategoryGroups(excludeWord);
     const paths: { path: string; count: number }[] = [];
-    for (const top of items) {
-      if (top.label === '未分类') continue;
-      paths.push({ path: top.label, count: top.count });
-      for (const second of top.children) {
-        paths.push({ path: `${top.label}/${second.label}`, count: second.count });
+    const walk = (
+      nodes: { label: string; count: number; words: unknown[]; children: unknown[] }[],
+      prefix: string[],
+    ) => {
+      for (const node of nodes) {
+        const path = [...prefix, node.label];
+        if (node.words.length) {
+          paths.push({ path: path.join('/'), count: node.count });
+        }
+        walk(node.children as typeof nodes, path);
       }
-    }
+    };
+    walk(items.filter((item: { label: string }) => HTE_TRUNKS.includes(item.label)), []);
     return paths
       .sort((a, b) => b.count - a.count)
       .slice(0, limit)
@@ -631,7 +646,7 @@ class DictionaryController {
     const existingRecord = saved?.aiRecordId
       ? await this.aiService.getRecord(saved.aiRecordId)
       : null;
-    const knownCategoryPaths = await this.dictionaryService.getKnownCategoryPaths();
+    const knownCategoryPaths = await this.dictionaryService.getKnownCategoryPaths(30, word);
     await this.aiService.stream({
       recordId: existingRecord ? saved.aiRecordId : undefined,
       regenerate: !!data.isRegenerate,

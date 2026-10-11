@@ -130,7 +130,7 @@ describe('DictionaryService categories', () => {
     };
     const service = new Service(dictionaryModel, learningModel, aiService);
 
-    expect(service.buildPrompt({ word: 'chopper' })).toContain('层数动态决定');
+    expect(service.buildPrompt({ word: 'chopper' })).toContain('Historical Thesaurus of English');
     expect(service.buildPrompt({ word: 'chopper', knownCategoryPaths: ['自然/生物'] }))
       .toContain('- 自然/生物');
 

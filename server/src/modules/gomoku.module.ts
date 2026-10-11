@@ -935,12 +935,7 @@ export class GomokuGateway implements OnGatewayConnection, OnGatewayDisconnect {
         if (room.hostId === user.id) {
           room.hostId = room.users[0]?.id || ''
         }
-        if (room.users.length === 0) {
-          this.rooms.delete(roomId)
-          this.socketToRoom.delete(client.id)
-          this.socketToUser.delete(client.id)
-          return
-        }
+        // 房间不再自动关闭（人数归零也保留），只有管理员手动关闭
       } else {
         user.connectStatus = 'disconnected'
         if (user.clientId === client.id) {

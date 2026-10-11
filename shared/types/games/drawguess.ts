@@ -14,6 +14,9 @@ export interface IDrawGuessRoom extends IGameRoom {
   turnStartTime: number
   turnDuration: number
   replayData: { [turn: number]: ReplayData }
+  /** 当前 turn 画作的点赞/点踩计数（after 阶段累加，turn 结束时存入 replayData） */
+  likes: number
+  dislikes: number
 }
 export interface IDrawGuessUser extends IGameUser {
   totalScore: number
@@ -26,6 +29,8 @@ export interface IDrawGuessUser extends IGameUser {
 export const DrawGuessDurations = {
   CategoryHintDelay: 15000,
   WordLengthHintDelay: 30000,
+  /** 换词窗口：绘制开始后这么多毫秒内画家仍可换词 */
+  ChangeWordWindow: 35000,
   TurnBeforeDuration: 3000,
   TurnDuration: 90000,
   TurnAfterDuration: 8000,
@@ -40,6 +45,10 @@ export const DrawGuessCustomMsgTypes = {
   ClearCanvas: 'clearCanvas',
   SyncReplayData: 'syncReplayData',
   ChangeWord: 'changeWord',
+  /** server → client：画家换了词（发给除画家外的玩家，用于 toast 提示） */
+  WordChanged: 'wordChanged',
+  /** client → server：点赞点踩（'like' | 'dislike' | null 取消） */
+  Reaction: 'reaction',
 }
 
 /**
@@ -54,7 +63,9 @@ export interface StrokeChunk {
   width: number
   points: [number, number][]
 }
-export type ReplayData = { drawerId: string, strokes: StrokeChunk[], turn: number, word: string }
+export type ReplayData = { drawerId: string, strokes: StrokeChunk[], turn: number, word: string, likes: number, dislikes: number }
+
+export type DrawGuessReaction = 'like' | 'dislike'
 
 export const DrawGuessChatMsgTypes = {
   GuessCorrect: 'guess-correct',

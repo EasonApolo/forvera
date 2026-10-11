@@ -49,24 +49,20 @@ async function main() {
     DrawGuessWordSchema
   );
 
-  const result = await DrawGuessWordModel.bulkWrite(
+  // 全量重建：词表文件是唯一事实源，先清空再导入（changeCount 等历史数据一并重置）
+  const dropped = await DrawGuessWordModel.deleteMany({});
+  console.log('[drawguess-import] cleared existing:', dropped.deletedCount || 0);
+
+  const result = await DrawGuessWordModel.insertMany(
     words.map((item) => ({
-      updateOne: {
-        filter: { name: item.name },
-        update: {
-          $set: { category: item.category },
-          $setOnInsert: { changeCount: 0 },
-          $unset: { dislikes: '' },
-        },
-        upsert: true,
-      },
+      name: item.name,
+      category: item.category,
+      changeCount: 0,
     })),
-    { ordered: false },
   );
 
   console.log('[drawguess-import] parsed:', words.length);
-  console.log('[drawguess-import] upserted:', result.upsertedCount || 0);
-  console.log('[drawguess-import] modified:', result.modifiedCount || 0);
+  console.log('[drawguess-import] inserted:', result.length);
 
   await mongoose.disconnect();
 }

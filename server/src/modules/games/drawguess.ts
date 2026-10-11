@@ -5,11 +5,12 @@ import {
   GameRoom,
   GameUser,
 } from '../game.module';
-import { ChatInstruction } from 'shared/types/game';
+import { ChatInstruction, PhaseCtx } from 'shared/types/game';
 import {
   DrawGuessChatMsgTypes,
   DrawGuessCustomMsgTypes,
   DrawGuessDurations,
+  DrawGuessReaction,
   DrawGuessRoundUserResult,
   StrokeChunk,
   SyncStrokeDTO,
@@ -57,6 +58,10 @@ class DrawGuess implements Game {
       clearTimeout(this.wordLengthHintTimer);
       this.wordLengthHintTimer = null;
     }
+    if (this.reactionSyncTimer) {
+      clearTimeout(this.reactionSyncTimer);
+      this.reactionSyncTimer = null;
+    }
   }
 
   async pickWord(excludeName?: string): Promise<DrawGuessWord> {
@@ -90,6 +95,8 @@ class DrawGuess implements Game {
     room.register('drawerId', 'public');
     room.register('strokes', 'public');
     room.register('replayData', 'public');
+    room.register('likes', 'public');
+    room.register('dislikes', 'public');
     Object.values(room.users).forEach((user) => {
       user.register('totalScore', 'public');
       user.register('turnScore', 'public');
@@ -133,6 +140,8 @@ class DrawGuess implements Game {
     room.word = '';
     room.category = '';
     room.wordLength = 0;
+    room.likes = 0;
+    room.dislikes = 0;
     room.setVisibility('word', 'private');
     room.setVisibility('category', 'private');
     room.setVisibility('wordLength', 'private');
@@ -158,18 +167,43 @@ class DrawGuess implements Game {
     return { duration: DrawGuessDurations.TurnBeforeDuration };
   }
 
+  /** 武装分类/字数提示计时器；按回合开始时刻计算剩余延迟，已到点的提示不再武装（换词时会立即公开） */
+  private armHintTimers(room: GameRoom) {
+    if (this.categoryHintTimer) {
+      clearTimeout(this.categoryHintTimer);
+      this.categoryHintTimer = null;
+    }
+    if (this.wordLengthHintTimer) {
+      clearTimeout(this.wordLengthHintTimer);
+      this.wordLengthHintTimer = null;
+    }
+    const elapsed = Date.now() - room.startTime;
+    const isTurnIng = () =>
+      room.isGamePlaying() && room.roundStatus === 'ing' && room.turnStatus === 'ing';
+
+    const categoryDelay = DrawGuessDurations.CategoryHintDelay - elapsed;
+    if (categoryDelay > 0) {
+      this.categoryHintTimer = setTimeout(() => {
+        this.categoryHintTimer = null;
+        if (!isTurnIng()) return;
+        room.setVisibility('category', 'public');
+        room.sync();
+      }, categoryDelay);
+    }
+    const wordLengthDelay = DrawGuessDurations.WordLengthHintDelay - elapsed;
+    if (wordLengthDelay > 0) {
+      this.wordLengthHintTimer = setTimeout(() => {
+        this.wordLengthHintTimer = null;
+        if (!isTurnIng()) return;
+        room.setVisibility('wordLength', 'public');
+        room.sync();
+      }, wordLengthDelay);
+    }
+  }
+
   onIngTurnStart({ room }: { room: GameRoom }) {
     // 制定后续游戏进程
-    this.categoryHintTimer = setTimeout(() => {
-      this.categoryHintTimer = null;
-      room.setVisibility('category', 'public');
-      room.sync();
-    }, DrawGuessDurations.CategoryHintDelay);
-    this.wordLengthHintTimer = setTimeout(() => {
-      this.wordLengthHintTimer = null;
-      room.setVisibility('wordLength', 'public');
-      room.sync();
-    }, DrawGuessDurations.WordLengthHintDelay);
+    this.armHintTimers(room);
 
     return { duration: DrawGuessDurations.TurnDuration };
   }
@@ -183,7 +217,7 @@ class DrawGuess implements Game {
     user: GameUser;
     data: SyncStrokeDTO;
   }) {
-    if (!room.isGamePlaying()) return;
+    if (!room.isGamePlaying() || !room.checkPhase(undefined, { turnStatus: ['ing'] })) return;
     if (room.drawerId !== user.id) return;
     if (!data || !Array.isArray(data) || !data.length) return;
 
@@ -197,7 +231,7 @@ class DrawGuess implements Game {
   }
 
   onClearCanvas({ room, user }: { room: GameRoom; user: GameUser }) {
-    if (!room.isGamePlaying()) return;
+    if (!room.isGamePlaying() || !room.checkPhase(undefined, { turnStatus: ['ing'] })) return;
     if (room.drawerId !== user.id) return;
     room.strokes = [];
     room.emitToAllExcept({
@@ -213,11 +247,23 @@ class DrawGuess implements Game {
       strokes: [...room.strokes],
       turn: room.turn,
       word: room.word,
+      likes: room.likes,
+      dislikes: room.dislikes,
     };
     return { duration: DrawGuessDurations.TurnAfterDuration };
   }
 
   onAfterTurnEnd({ room }: { room: GameRoom }) {
+    // 冲掉待发的节流推送，保证最终计数一定广播（并在下方存入回放数据）
+    this.flushReactionSync(room);
+    const replay = room.replayData[room.turn];
+    if (replay) {
+      room.replayData[room.turn] = {
+        ...replay,
+        likes: room.likes,
+        dislikes: room.dislikes,
+      };
+    }
     // 下一回合还是结束本局游戏？
     if (room.turn >= room.maxRounds) {
       room.gotoAfterRound();
@@ -259,28 +305,73 @@ class DrawGuess implements Game {
 
   private changingWord = false;
 
-  async onChangeWord({ room, user }: { room: GameRoom; user: GameUser }) {
-    if (!room.isGamePlaying() || room.roundStatus !== 'ing' ||
-      room.turnStatus !== 'before' || room.drawerId !== user.id ||
+  async onChangeWord({
+    room,
+    user,
+    ctx,
+  }: {
+    room: GameRoom;
+    user: GameUser;
+    ctx?: PhaseCtx;
+  }) {
+    if (!room.isGamePlaying() || room.roundStatus !== 'ing') return;
+    if (!room.checkPhase(ctx, { turnStatus: ['before', 'ing'] })) return;
+    const inBeforePhase = room.turnStatus === 'before';
+    const inChangeWindow =
+      room.turnStatus === 'ing' &&
+      Date.now() - room.startTime <= DrawGuessDurations.ChangeWordWindow;
+    if ((!inBeforePhase && !inChangeWindow) ||
+      room.drawerId !== user.id ||
       !room.word || this.changingWord) return;
     this.changingWord = true;
     const oldWord = room.word;
-    const turn = room.turn;
+    // 异步期间阶段可能漂移：以分发时快照 + 当前阶段允许集双重校验
+    const stillValid = () =>
+      room.isGamePlaying() &&
+      room.roundStatus === 'ing' &&
+      room.checkPhase(ctx, { turnStatus: ['before', 'ing'] });
     try {
       const nextWord = await this.pickWord(oldWord);
-      if (room.turn !== turn || room.turnStatus !== 'before' || room.word !== oldWord) return;
+      if (!stillValid() || room.word !== oldWord) return;
       await DrawGuess.wordModel.updateOne(
         { name: oldWord },
         { $inc: { changeCount: 1 } },
       ).exec();
-      if (room.turn !== turn || room.turnStatus !== 'before') return;
+      if (!stillValid()) return;
       room.category = nextWord.category;
       room.wordLength = nextWord.name.length;
       room.word = nextWord.name;
-      room.setVisibility('wordLength', 'private');
-      room.setVisibility('category', 'private');
       room.setVisibility('word', [room.drawerId]);
+      // 提示可见性跟随回合计时：已到点的（15s/30s）以新值立即公开，未到点的保持私有、按原时刻触发
+      const elapsed = Date.now() - room.startTime;
+      room.setVisibility(
+        'category',
+        elapsed >= DrawGuessDurations.CategoryHintDelay ? 'public' : 'private',
+      );
+      room.setVisibility(
+        'wordLength',
+        elapsed >= DrawGuessDurations.WordLengthHintDelay ? 'public' : 'private',
+      );
       room.sync();
+
+      if (!inBeforePhase) {
+        // 重新武装未到点的提示计时器（剩余延迟）
+        this.armHintTimers(room);
+        // 其他玩家 toast + 聊天系统消息
+        room.emitToAllExcept({
+          userId: room.drawerId,
+          event: DrawGuessCustomMsgTypes.WordChanged,
+        });
+        room.emitToAll({
+          event: 'message',
+          data: {
+            id: `system-${Date.now()}`,
+            userName: '',
+            type: 'system',
+            content: '画家更换了词汇',
+          },
+        });
+      }
     } catch (error) {
       console.error('Failed to change drawguess word', error);
     } finally {
@@ -288,16 +379,60 @@ class DrawGuess implements Game {
     }
   }
 
+  /** 点赞/点踩：娱乐性累加，不看用户身份；drawer 自己不能投 */
+  private reactionSyncTimer: NodeJS.Timeout | null = null;
+
+  /** 节流推送：计数立即累加，广播合并到最多每 200ms 一次（trailing） */
+  private scheduleReactionSync(room: GameRoom) {
+    if (this.reactionSyncTimer) return;
+    this.reactionSyncTimer = setTimeout(() => {
+      this.reactionSyncTimer = null;
+      if (!room.isGamePlaying()) return;
+      room.sync();
+    }, 200);
+  }
+
+  private flushReactionSync(room: GameRoom) {
+    if (this.reactionSyncTimer) {
+      clearTimeout(this.reactionSyncTimer);
+      this.reactionSyncTimer = null;
+      if (room.isGamePlaying()) room.sync();
+    }
+  }
+
+  onReaction({
+    room,
+    user,
+    value,
+  }: {
+    room: GameRoom;
+    user: GameUser;
+    value: DrawGuessReaction;
+  }) {
+    if (!room.isGamePlaying() || !room.checkPhase(undefined, { turnStatus: ['after'] })) return;
+    if (room.drawerId === user.id) return;
+    if (value === 'like') {
+      room.likes = (room.likes || 0) + 1;
+    } else if (value === 'dislike') {
+      room.dislikes = (room.dislikes || 0) + 1;
+    } else {
+      return;
+    }
+    this.scheduleReactionSync(room);
+  }
+
   onMsg({
     type,
     room,
     user,
     data,
+    ctx,
   }: {
     type: string;
     room: GameRoom;
     user: GameUser;
     data: any;
+    ctx?: PhaseCtx;
   }) {
     switch (type) {
       case DrawGuessCustomMsgTypes.DrawStroke:
@@ -310,7 +445,10 @@ class DrawGuess implements Game {
         this.onRequestReplayData({ room, user, turn: data.turn });
         break;
       case DrawGuessCustomMsgTypes.ChangeWord:
-        this.onChangeWord({ room, user });
+        this.onChangeWord({ room, user, ctx });
+        break;
+      case DrawGuessCustomMsgTypes.Reaction:
+        this.onReaction({ room, user, value: data });
         break;
       default:
         console.error('Unknown message type:', type);
@@ -329,8 +467,8 @@ class DrawGuess implements Game {
     // 是普通消息还是在猜
     if (
       !room.isGamePlaying() ||
-      room.turnStatus !== 'ing' ||
-      room.roundStatus !== 'ing'
+      room.roundStatus !== 'ing' ||
+      !room.checkPhase(undefined, { turnStatus: ['ing'] })
     )
       return;
     if (room.drawerId === user.id) return;

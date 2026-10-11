@@ -27,9 +27,11 @@ import { Public, Roles } from 'src/guards/jwt-auth.guard';
 import {
   ChatInstruction,
   ChatMessage,
+  CheckPhaseOptions,
   GameDTO,
   IGameRoom,
   IGameUser,
+  PhaseCtx,
   RoundResult,
   ReadyStatus,
   RoomStatus,
@@ -57,6 +59,7 @@ export type GameHookReturn = {
 
 export interface Game {
   onUserJoin?: ({ room, user }: { room: GameRoom; user: GameUser }) => void;
+  onUserDisconnect?: ({ room, user }: { room: GameRoom; user: GameUser }) => void;
   onInitGame?: (params: GameHookParams) => void;
   onStartGame?: (params: GameHookParams) => void;
   onBeforeRoundStart?: (params: GameHookParams) => GameHookReturn;
@@ -71,11 +74,14 @@ export interface Game {
     room,
     user,
     data,
+    ctx,
   }: {
     type: string;
     room: GameRoom;
     user: GameUser;
     data: any;
+    /** 消息分发时刻的阶段快照，供跨 await 的漂移校验 */
+    ctx?: PhaseCtx;
   }) => void;
   onMessageBefore?: ({
     room,
@@ -372,6 +378,24 @@ export class GameRoom extends AutoSyncData implements IGameRoom {
     }
   }
 
+  /** 当前阶段的快照（局/回合/阶段） */
+  phaseCtx(): PhaseCtx {
+    return { round: this.round, turn: this.turn, turnStatus: this.turnStatus };
+  }
+
+  /**
+   * 阶段校验：不传 ctx 时校验当前阶段；传入快照时校验「消息到达时的阶段」是否仍然有效。
+   * turnStatus 选项始终对照当前阶段（用于同步闸门和异步漂移的双重检查）。
+   */
+  checkPhase(ctx?: PhaseCtx, opts: CheckPhaseOptions = {}): boolean {
+    const { sameRound = true, sameTurn = true, turnStatus } = opts;
+    if (turnStatus && !turnStatus.includes(this.turnStatus)) return false;
+    const base = ctx || this.phaseCtx();
+    if (sameRound && this.round !== base.round) return false;
+    if (sameTurn && (this.round !== base.round || this.turn !== base.turn)) return false;
+    return true;
+  }
+
   emitToUser({
     user,
     userId,
@@ -539,7 +563,7 @@ export class GameRoom extends AutoSyncData implements IGameRoom {
     this.status = 'waiting';
     this.turn = 0;
     this.round = 0;
-    this.roundResults = [];
+    // roundResults 从房间创建起累积，重启游戏不清空
     this.sync();
   }
 
@@ -763,6 +787,8 @@ export class GameGateway
     const userId = this.socketToUser.get(client.id);
     if (room && userId) {
       room.userDisconnect({ userId });
+      const user = room.users[userId];
+      if (user) room.game?.onUserDisconnect?.({ room, user });
     }
     this.socketToRoom.delete(client.id);
     this.socketToUser.delete(client.id);
@@ -845,7 +871,8 @@ export class GameGateway
     if (Number.isFinite(packet?.seq) && packet?.data) {
       user.incomingReliable.consumeIncomingPacket(packet, (deliveredPacket) => {
         const delivered = deliveredPacket.data;
-        room.game?.onMsg?.({ type: delivered.type, room, user, data: delivered.data });
+        const ctx = room.phaseCtx();
+        room.game?.onMsg?.({ type: delivered.type, room, user, data: delivered.data, ctx });
       });
       const ackSeq = user.incomingReliable.getExpectedIncomingSeq() - 1;
       if (ackSeq > 0) {
@@ -859,7 +886,8 @@ export class GameGateway
     }
 
     const legacy = data as WsCustomMsg;
-    room.game?.onMsg?.({ type: legacy.type, room, user, data: legacy.data });
+    const ctx = room.phaseCtx();
+    room.game?.onMsg?.({ type: legacy.type, room, user, data: legacy.data, ctx });
     // client.to(roomId).emit('gameMessage', {
     //   userId: user.id,
     //   name: user.name,

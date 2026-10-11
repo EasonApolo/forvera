@@ -3,6 +3,23 @@ export type RoundStatus = 'before' | 'ing' | 'after'
 export type TurnStatus = 'before' | 'ing' | 'after'
 export type ReadyStatus = 'ready' | 'end' | null
 
+/**
+ * phase：消息处理时的阶段快照，用于校验「消息发出（到达）时的阶段」是否仍有效
+ */
+export type PhaseCtx = {
+  round: number
+  turn: number
+  turnStatus: TurnStatus
+}
+export type CheckPhaseOptions = {
+  /** 要求与快照同局，default true */
+  sameRound?: boolean
+  /** 要求与快照同回合（局号 + 回合号），default true */
+  sameTurn?: boolean
+  /** 限定当前阶段，如 ['ing'] */
+  turnStatus?: TurnStatus[]
+}
+
 export interface IGameUser {
   id: string
   name: string
