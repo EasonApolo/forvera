@@ -16,6 +16,7 @@ import { IGameRoom, IGameUser, WsCustomMsg, WsCustomMsgName, WsEventMsg } from '
 import { ReliableEngine, ReliablePacket } from 'shared/reliableEngine'
 import StepperFilter from '@/components/StepperFilter.vue'
 import DrawGuess from './games/drawguess/main.ts'
+import Gomoku from './games/gomoku/main.ts'
 import Table from '@/components/Table.vue'
 import { create2DArray } from 'shared/utils.ts'
 import Card from '@/components/Card.vue'
@@ -69,6 +70,48 @@ function endGame() {
 }
 function setUserStatus(status: 'ready' | 'end') {
   socket?.emit('setUserStatus', { userId: userId.value, status }, wsErrorHandler)
+}
+
+// ==================== 五子棋认输 ====================
+
+const showResignConfirm = ref(false)
+const canResignGomoku = (targetUserId: string) => {
+  const gomokuRoom = room as any
+  return (
+    selectedGameKey.value === 'gomoku' &&
+    targetUserId === userId.value &&
+    room.status === 'playing' &&
+    room.roundStatus === 'ing' &&
+    !gomokuRoom.winnerId &&
+    !gomokuRoom.isDraw &&
+    (gomokuRoom.blackUserId === userId.value || gomokuRoom.whiteUserId === userId.value)
+  )
+}
+const confirmResign = () => {
+  showResignConfirm.value = false
+  // 游戏内消息必须走可靠消息通道（ws 包装），裸 socket.emit 服务端没有对应监听
+  emit('resign', undefined)
+}
+
+const showUndoConfirm = ref(false)
+const canUndoGomoku = (targetUserId: string) => {
+  const gomokuRoom = room as any
+  return (
+    selectedGameKey.value === 'gomoku' &&
+    targetUserId === userId.value &&
+    room.status === 'playing' &&
+    room.roundStatus === 'ing' &&
+    !gomokuRoom.winnerId &&
+    !gomokuRoom.isDraw &&
+    // 只能撤回最近一手（自己下的），且此刻已轮到别人；悔过后不可连续悔
+    !!gomokuRoom.lastMove &&
+    gomokuRoom.lastMoveUserId === userId.value &&
+    gomokuRoom.currentPlayerId !== userId.value
+  )
+}
+const confirmUndo = () => {
+  showUndoConfirm.value = false
+  emit('undo', undefined)
 }
 function restartGame() {
   if (!confirm('确定重启房间吗？')) return
@@ -264,13 +307,31 @@ const gameList = [
     name: '你画我猜',
     options: DrawGuess,
   },
+  {
+    key: 'gomoku',
+    name: '五子棋',
+    options: Gomoku,
+  },
 ]
-const allowChangeGame = ref(false)
-const selectedGameKey = ref<string>(gameList[0].key)
+// 准备界面仅房主可切换游戏（其他人显示游戏名，跟随房主的选择）
+const allowChangeGame = computed(() => room.status === 'waiting' && isHost.value)
+const selectedGameName = ref(gameList[0].name)
+const selectedGameKey = computed(() => gameList.find(g => g.name === selectedGameName.value)?.key || gameList[0].key)
 const selectedGameItem = computed(() => gameList.find(g => g.key === selectedGameKey.value))
 const selectedGame = computed(() => {
   const gameOptions = gameList.find(g => g.key === selectedGameKey.value)?.options
   return gameOptions || null
+})
+watch(() => room.gameKey, (key) => {
+  const entry = gameList.find(g => g.key === key)
+  if (entry) selectedGameName.value = entry.name
+}, { immediate: true })
+watch(selectedGameName, (name) => {
+  const entry = gameList.find(g => g.name === name)
+  if (!entry || entry.key === room.gameKey) return
+  if (isHost.value && socket) {
+    socket.emit('setGame', { gameKey: entry.key }, wsErrorHandler)
+  }
 })
 
 // ==================== 改名 ====================
@@ -481,8 +542,8 @@ onUnmounted(() => {
             <div>
               <StepperFilter
                 v-if="allowChangeGame"
-                v-model:value="selectedGameKey"
-                :options="gameList.map(g => g.key)"
+                v-model:value="selectedGameName"
+                :options="gameList.map(g => g.name)"
               />
               <span v-else class="game-name">{{ selectedGameItem?.name || '你画我猜' }}</span>
             </div>
@@ -514,7 +575,7 @@ onUnmounted(() => {
             v-for="user of userList"
             :key="user.id"
             class="player-item"
-            :class="{ 'current-player-is-me': room.status === 'playing' && user.id === userId }"
+            :class="{ 'current-player-is-me': isMeActing && user.id === userId }"
           >
             <div class="player-row">
               <div class="player-info">
@@ -541,6 +602,7 @@ onUnmounted(() => {
                   :room="room as any"
                   :user="user as any"
                   :userId="userId"
+                  :socket="socket"
                 />
                 <Badge
                   v-if="room.roundStatus === 'after' && user.readyStatus === 'ready'"
@@ -556,6 +618,17 @@ onUnmounted(() => {
                 />
               </div>
               <div class="player-actions">
+                <Btn
+                  v-if="canUndoGomoku(user.id)"
+                  small
+                  @click="showUndoConfirm = true"
+                >悔棋</Btn>
+                <Btn
+                  v-if="canResignGomoku(user.id)"
+                  small
+                  type="danger"
+                  @click="showResignConfirm = true"
+                >认输</Btn>
                 <Btn
                   v-if="room.roundStatus === 'after' && user.id === userId"
                   small
@@ -699,6 +772,22 @@ onUnmounted(() => {
           </div>
         </div>
       </Modal>
+      <Modal
+        :show="showResignConfirm"
+        title="认输"
+        @cancel="showResignConfirm = false"
+        @confirm="confirmResign"
+      >
+        确定认输吗？本局将由对手获胜。
+      </Modal>
+      <Modal
+        :show="showUndoConfirm"
+        title="悔棋"
+        @cancel="showUndoConfirm = false"
+        @confirm="confirmUndo"
+      >
+        确定悔棋吗？将撤回最后一手，由该手玩家重新落子。
+      </Modal>
     </template>
   </List>
 </template>
@@ -739,14 +828,33 @@ onUnmounted(() => {
     gap: 6px;
 
     .player-item {
+      position: relative;
       padding: 6px 8px;
       border-radius: 8px;
       background: var(--card-bg);
       box-sizing: border-box;
       border: 1px solid transparent;
 
-      &.current-player-is-me {
-        border-color: rgba(255, 217, 0, 0.6);
+      // 轮到自己行动时：流线绕边框旋转（颜色随主题，App.vue 的 --flow-color）
+      &.current-player-is-me::before {
+        content: '';
+        position: absolute;
+        inset: -1px;
+        border-radius: inherit;
+        padding: 1px;
+        background: conic-gradient(
+          from var(--flow-angle),
+          rgba(var(--flow-color), 0.15) 0turn,
+          rgba(var(--flow-color), 0.15) 0.72turn,
+          rgba(var(--flow-color), 0.95) 0.88turn,
+          rgba(var(--flow-color), 0.15) 1turn
+        );
+        -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+        -webkit-mask-composite: xor;
+        mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+        mask-composite: exclude;
+        animation: flowBorderSpin 3.2s linear infinite;
+        pointer-events: none;
       }
 
       .player-row {
@@ -993,6 +1101,18 @@ onUnmounted(() => {
         flex: 0 0 auto;
       }
     }
+  }
+}
+
+@property --flow-angle {
+  syntax: '<angle>';
+  initial-value: 0turn;
+  inherits: false;
+}
+
+@keyframes flowBorderSpin {
+  to {
+    --flow-angle: 1turn;
   }
 }
 </style>

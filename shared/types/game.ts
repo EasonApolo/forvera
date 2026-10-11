@@ -32,6 +32,8 @@ export interface IGameRoom {
   id: string
   status: RoomStatus
   hostId: string
+  /** 当前游戏类型（drawguess / gomoku / ...），准备阶段可由房主切换 */
+  gameKey: string
 
   users: { [userId: string]: IGameUser }
   userOrder: string[]

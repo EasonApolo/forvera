@@ -278,13 +278,22 @@ onMounted(() => {
   overflow: hidden;
   aspect-ratio: 640 / 400;
   display: block;
-  border: 1px solid var(--border-light);
   border-radius: 8px;
   background: #fafafa;
   touch-action: none;
 
   &.highlight {
-    animation: borderBreath 2.5s ease-in-out infinite;
+    // 激活态：边框呼吸（颜色强弱渐变，频率与 player list 流线一致；颜色随主题 --flow-color）
+    &::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      border: 1px solid rgba(var(--flow-color), 1);
+      animation: borderBreathe 3.2s ease-in-out infinite;
+      pointer-events: none;
+      z-index: 1;
+    }
   }
 
   .board-stage {
@@ -301,13 +310,13 @@ onMounted(() => {
   }
 }
 
-@keyframes borderBreath {
+@keyframes borderBreathe {
   0%,
   100% {
-    box-shadow: 0 0 4px rgba(0, 230, 118, 0.1);
+    opacity: 1;
   }
   50% {
-    box-shadow: 0 0 16px -4px rgba(0, 230, 118, 0.8);
+    opacity: 0.15;
   }
 }
 

@@ -63,6 +63,8 @@ themeStore.init()
   --quote-text: var(--c-fg-1);
   --toc-toggle-bg: var(--c-subtle);
   --reply-shadow: 1px 2px 6px 1px rgba(0, 0, 0, 0.08);
+  /* 流线边框颜色（RGB 三元组）：白天浅蓝、黑暗金色，用法 rgba(var(--flow-color), alpha) */
+  --flow-color: 24, 144, 255;
 }
 
 :root.dark {
@@ -84,6 +86,7 @@ themeStore.init()
   --btn-text: rgba(255, 255, 255, 0.75);
   --nav-shadow: rgba(0, 0, 0, 0.5);
   --reply-shadow: 0 8px 18px rgba(0, 0, 0, 0.45);
+  --flow-color: 255, 190, 40;
 }
 
 body {

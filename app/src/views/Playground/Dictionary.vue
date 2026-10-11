@@ -402,6 +402,8 @@ const handleQueryWord = (targetWord: string) => {
     void analyze(targetWord, false, true)
     return
   }
+  // 未查过的词需要新生成：非管理员只读，无反应
+  if (!isAdmin.value) return
   pendingQueryWord.value = targetWord
 }
 

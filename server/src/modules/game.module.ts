@@ -10,6 +10,7 @@ import {
   Post,
   UseFilters,
   WsExceptionFilter,
+  Body,
 } from '@nestjs/common';
 import { InjectConnection, MongooseModule } from '@nestjs/mongoose';
 import {
@@ -42,10 +43,12 @@ import {
 import { ReliableEngine, ReliablePacket } from 'shared/reliableEngine';
 import { shuffle } from 'shared/utils';
 import DrawGuess from './games/drawguess';
+import Gomoku from './games/gomoku';
 import mongoose, { Connection } from 'mongoose';
 
 const GAME_MAP: Record<string, any> = {
   drawguess: DrawGuess,
+  gomoku: Gomoku,
 };
 
 export interface GameHookParams {
@@ -243,11 +246,12 @@ export class GameRoom extends AutoSyncData implements IGameRoom {
 
   [key: string]: any; // 允许附加自定义字段
 
-  constructor(gateway: GameGateway) {
+  constructor(gateway: GameGateway, gameKey = 'drawguess') {
     super();
     this.register('id', 'public');
     this.register('status', 'public');
     this.register('hostId', 'public');
+    this.register('gameKey', 'public');
     this.register('users', 'public');
     this.register('userOrder', 'public');
     this.register('turn', 'public');
@@ -268,7 +272,7 @@ export class GameRoom extends AutoSyncData implements IGameRoom {
     this.users = {};
     this.userOrder = [];
 
-    this.gameKey = 'drawguess';
+    this.gameKey = GAME_MAP[gameKey] ? gameKey : 'drawguess';
     this.game = null;
 
     this.turn = 0; // 回合
@@ -662,6 +666,13 @@ export class GameRoom extends AutoSyncData implements IGameRoom {
     this.sync();
   }
 
+  /** 跳过 after 展示阶段时直接结束本 turn（与 duration 计时路径等价） */
+  finishAfterTurn() {
+    this.clearTimer();
+    this.game?.onAfterTurnEnd?.({ room: this });
+    this.sync();
+  }
+
   setRoundResult({ users }: { users: RoundResult['users'] }) {
     const roundResult: RoundResult = {
       round: this.round,
@@ -909,6 +920,27 @@ export class GameGateway
     return this.ok(ack);
   }
 
+  @SubscribeMessage('setGame')
+  onSetGame(
+    @MessageBody() data: { gameKey?: string },
+    @ConnectedSocket() client: Socket,
+    ack?: Ack,
+  ) {
+    const { room, user } = this.getRoomAndUser(client, ack);
+    if (!room.isHost(user.id)) {
+      return this.fail(ack, '只有房主可以切换游戏');
+    }
+    if (room.status !== 'waiting') {
+      return this.fail(ack, '游戏已经开始，不能切换游戏');
+    }
+    if (!GAME_MAP[data?.gameKey || '']) {
+      return this.fail(ack, '未知的游戏类型');
+    }
+    room.gameKey = data.gameKey;
+    room.sync();
+    return this.ok(ack);
+  }
+
   @SubscribeMessage('restartGame')
   onRestart(
     @MessageBody() data: { roomId: string },
@@ -1075,6 +1107,7 @@ export class GameController {
     const rooms = Array.from(this.gateway.rooms.values()).map((room) => ({
       id: room.id,
       status: room.status,
+      gameKey: room.gameKey,
       round: room.round,
       turn: room.turn,
       users: Object.values(room.users).map((u) => ({
@@ -1089,8 +1122,9 @@ export class GameController {
 
   @Post('rooms')
   @Roles(3)
-  async createRoom() {
-    const newRoom = new GameRoom(this.gateway);
+  async createRoom(@Body() body: { gameKey?: string }) {
+    const gameKey = GAME_MAP[body?.gameKey || ''] ? body.gameKey : 'drawguess';
+    const newRoom = new GameRoom(this.gateway, gameKey);
     this.gateway.rooms.set(newRoom.id, newRoom);
     return { success: true, roomId: newRoom.id };
   }

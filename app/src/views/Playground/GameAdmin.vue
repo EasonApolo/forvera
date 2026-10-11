@@ -16,9 +16,15 @@ const userStore = useUserStore()
 const toastStore = useToastStore()
 const { userInfo } = storeToRefs(userStore)
 
+const GAME_NAMES: Record<string, string> = {
+  drawguess: '你画我猜',
+  gomoku: '五子棋',
+}
+
 type RoomItem = {
   id: string
   status: 'waiting' | 'playing' | 'settlement'
+  gameKey?: string
   userCount: number
   connectedCount: number
   hostId: string
@@ -141,6 +147,7 @@ onUnmounted(() => {
           <div class="room-main">
             <div class="room-id">{{ room.id }}</div>
             <div class="meta">
+              <span>游戏：{{ GAME_NAMES[room.gameKey] || room.gameKey || '你画我猜' }}</span>
               <span>状态：{{ room.status }}</span>
               <span>人数：{{ room.connectedCount }}/{{ room.userCount }}</span>
               <span>回合：{{ room.round }}</span>

@@ -62,7 +62,7 @@ const cardMap: PlaygroundCard[] = [
     title: 'Games',
     content: [
       { key: 'holdem', type: 'route', title: '🃏德扑', content: 'holdem' },
-      { key: 'gomoku', type: 'route', title: '棋牌室', content: 'gomoku' },
+      { key: 'gomoku', type: 'route', title: '棋牌室', content: 'game' },
       { key: 'game', type: 'route', title: '你画我猜', content: 'game' },
     ],
   },
