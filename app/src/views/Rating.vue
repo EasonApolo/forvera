@@ -396,7 +396,6 @@ const filteredDocuments = computed(() => {
           <Btn
             v-for="type in types"
             :key="type.key"
-            small
             :type="node.key === type.key ? 'primary' : undefined"
             @click="selectType(type.key)"
           >{{ type.title }}</Btn>

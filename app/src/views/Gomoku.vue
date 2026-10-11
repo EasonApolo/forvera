@@ -113,6 +113,8 @@ onMounted(async () => {
 		autoRefreshTimer = window.setInterval(() => {
 			fetchRooms({ silent: true })
 		}, 5000)
+	} else {
+		toastStore.showToast({ content: '仅管理员可访问', type: '!' })
 	}
 })
 
