@@ -25,8 +25,6 @@ type RoomItem = {
   id: string
   status: 'waiting' | 'playing' | 'settlement'
   gameKey?: string
-  userCount: number
-  connectedCount: number
   hostId: string
   round: number
   users: Array<{
@@ -93,7 +91,23 @@ const copyRoomLink = async (roomId: string) => {
 }
 
 const openRoom = (roomId: string) => {
-  router.push({ name: 'gameRoomWithUser', params: { id: roomId, userId: genShareUserId() } })
+  // 管理员进入：userId 按（管理员, 房间）确定性生成，重复进入同一房间复用同一用户，不会变成新用户；不同房间互不影响
+  router.push({ name: 'gameRoomWithUser', params: { id: roomId, userId: `admin-${userInfo.value._id || 'me'}-${roomId}` } })
+}
+
+const kickingUserId = ref('')
+const kickUser = async (roomId: string, player: { id: string; name?: string }) => {
+  if (!isAdmin.value) return
+  if (!confirm(`确定踢出 ${player.name || player.id} 吗？`)) return
+  kickingUserId.value = `${roomId}-${player.id}`
+  try {
+    await request(`game/rooms/${roomId}/users/${player.id}`, 'DELETE')
+    await fetchRooms({ silent: true })
+  } catch (e: any) {
+    toastStore.showToast({ content: e?.response?.data?.message || e?.message || '踢出失败', type: 'ERR' })
+  } finally {
+    kickingUserId.value = ''
+  }
 }
 
 // removed per-user quick-enter to prevent admins entering as individual users
@@ -141,8 +155,8 @@ onUnmounted(() => {
         </template>
       </PageHeader>
 
-      <div v-if="loading" class="empty">加载中...</div>
-      <div v-else-if="!rooms.length" class="empty">无房间</div>
+      <!-- 不展示加载态：列表有数据就显示，避免加载文案导致页面抖动 -->
+      <div v-if="!rooms.length" class="empty">无房间</div>
 
       <Card v-for="room in rooms" :key="room.id">
         <div class="room-head">
@@ -151,8 +165,8 @@ onUnmounted(() => {
             <div class="meta">
               <span>游戏：{{ GAME_NAMES[room.gameKey] || room.gameKey || '你画我猜' }}</span>
               <span>状态：{{ room.status }}</span>
-              <span>人数：{{ room.connectedCount }}/{{ room.userCount }}</span>
-              <span>回合：{{ room.round }}</span>
+              <span>人数：{{ room.users?.length || 0 }}</span>
+              <span>局：{{ room.round }}</span>
             </div>
           </div>
           <div class="room-actions">
@@ -179,6 +193,14 @@ onUnmounted(() => {
             </div>
             <div class="player-actions">
               <Btn small @click="copyLink(room.id, player.id)">分享</Btn>
+              <Btn
+                type="danger"
+                small
+                :loading="kickingUserId === `${room.id}-${player.id}`"
+                @click="kickUser(room.id, player)"
+              >
+                踢出
+              </Btn>
             </div>
           </div>
         </div>

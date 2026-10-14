@@ -11,6 +11,7 @@ import Input from '@/components/Input.vue'
 import StepperFilter from '@/components/StepperFilter.vue'
 import { request } from '@/utils/request'
 import { useUserStore } from '@/store/user'
+import { useToastStore } from '@/store/toast'
 
 type DietUnit = 'u'
 type DietCaloriesUnit = '%' | 'kCal' | 'kJ'
@@ -55,10 +56,13 @@ type DietSummary = {
   days: DietDay[]
   month: string
   weightChangeLabel: string
+  weights?: Array<{ day_key: string; weight: number }>
+  config?: { standard_calories?: number | string; diet_start_date?: string | null }
 }
 
 const router = useRouter()
 const userStore = useUserStore()
+const toastStore = useToastStore()
 const { userInfo } = storeToRefs(userStore)
 const loading = ref(true)
 const selectedDayKey = ref(currentDayKey())
@@ -70,6 +74,7 @@ const summary = ref<DietSummary>({
   days: [],
   month: '',
   weightChangeLabel: '',
+  weights: [],
 })
 const selectedMonth = ref<string | null>(null)
 
@@ -78,6 +83,7 @@ const settingsModal = reactive({
   saving: false,
   standardCalories: 2000,
   dietStartDate: null as string | null,
+  targetWeight: '' as string | number,
 })
 
 const recordModal = reactive({
@@ -89,9 +95,14 @@ const recordModal = reactive({
   unit: 'u' as DietUnit,
   caloriesUnit: 'kCal' as DietCaloriesUnit,
   caloriesValue: '',
-  caloriesMultiplier: '100',
-  amountValue: '100',
-  quantityValue: '1',
+  caloriesMultiplier: '',
+  amountValue: '',
+  quantityValue: '',
+  // 建议值以 placeholder 呈现：输入为空时按 placeholder 计算，直接输入即覆盖
+  caloriesPlaceholder: '',
+  multiplierPlaceholder: '100',
+  amountPlaceholder: '100',
+  quantityPlaceholder: '1',
 })
 
 function currentMonthKey() {
@@ -122,24 +133,41 @@ function buildMonthOptions(centerMonth = currentMonthKey(), offset = 5) {
   return options
 }
 
-const navItems = [
-  { key: 'back', label: '‹ 返回' },
-  { key: 'add', label: '添加' },
-]
+// 非管理员只读：只看统计图，无设置/添加/当天记录
+const isAdmin = computed(() => Number(userInfo.value?.role) === 3)
+const navItems = computed(() => {
+  const items = [{ key: 'back', label: '‹ 返回' }]
+  if (isAdmin.value) {
+    items.push({ key: 'add', label: '添加' })
+  }
+  return items
+})
 
 const monthOptions = computed(() => buildMonthOptions())
 const currentDay = computed(() => currentDayKey())
-const dietConfig = computed(() => ({
-  standardCalories: userInfo.value.settings?.diet?.standardCalories || 2000,
-  dietStartDate: userInfo.value.settings?.diet?.dietStartDate || null,
-} as { standardCalories: number; dietStartDate: string | null }))
+const dietConfig = computed(() => {
+  // 登录读用户设置；未登录（匿名只读视图）退回 summary 返回的配置
+  const rawStandard = userInfo.value.settings?.diet?.standardCalories ?? (summary.value as any).config?.standard_calories
+  const standardNumber = Number(rawStandard)
+  const rawTargetWeight = (userInfo.value.settings?.diet as any)?.targetWeight
+  const targetWeightNumber = Number(rawTargetWeight)
+  return {
+    standardCalories: Number.isFinite(standardNumber) && standardNumber > 0 ? standardNumber : 2000,
+    dietStartDate: userInfo.value.settings?.diet?.dietStartDate || null,
+    targetWeight: rawTargetWeight != null && rawTargetWeight !== '' && Number.isFinite(targetWeightNumber) && targetWeightNumber > 0
+      ? targetWeightNumber
+      : null,
+  } as { standardCalories: number; dietStartDate: string | null; targetWeight: number | null }
+})
 const totalCalories = computed(() => summary.value.days.reduce((total, day) => total + day.totalCalories - (day.totalNegativeCalories || 0), 0))
 const maxDayCalories = computed(() => Math.max(...summary.value.days.map(day => Math.max(0, day.totalCalories)), 1))
-const maxCalories = computed(() => maxDayCalories.value)
+// 纵轴上限至少包含每日标准，保证标准线始终画在图内
+const maxCalories = computed(() => Math.max(maxDayCalories.value, dietConfig.value.standardCalories))
 const thresholdBottom = computed(() => {
   const standard = Math.max(dietConfig.value.standardCalories, 1)
-  const highest = Math.max(maxDayCalories.value, 1)
-  return Math.max(0, (standard / highest) * 100)
+  // 与柱子同一纵轴（maxCalories 已包含每日标准），保证标准线落在图内
+  const highest = Math.max(maxCalories.value, 1)
+  return Math.max(0, Math.min(100, (standard / highest) * 100))
 })
 
 const recentFoods = computed(() => summary.value.recentFoods.slice(0, 5))
@@ -159,23 +187,36 @@ const parseRecordInput = (value: string) => {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
+// 记录弹窗每个数值有三层来源，按优先级取（预计总热量和提交都只走下面的 getter，不直接读输入框）：
+// 1. 新填入的值：用户本次在输入框里输入的内容（recordModal.*Value）
+// 2. 前值：所选食物上次记录的值（applyFood 时写入 placeholder 展示）
+// 3. 默认值：全新食物没有前值时的兜底（RECORD_DEFAULTS）
+// placeholder 字段承载第 2/3 层：有前值用前值，没有用默认值；热量没有默认值，全新食物必须手动输入
+const RECORD_DEFAULTS = {
+  caloriesMultiplier: 100,
+  amount: 100,
+  quantity: 1,
+}
+
+const resolveRecordNumber = (input: string, placeholder: string, fallback: number) => {
+  const parsed = parseRecordInput(input !== '' ? input : placeholder)
+  return parsed > 0 ? parsed : fallback
+}
+
+// 热量没有默认值：全新食物必须手动输入
 const getRecordCaloriesValue = () => {
-  return parseRecordInput(recordModal.caloriesValue)
+  const raw = recordModal.caloriesValue !== '' ? recordModal.caloriesValue : recordModal.caloriesPlaceholder
+  return parseRecordInput(raw)
 }
 
 const getRecordCaloriesMultiplier = () => {
-  return Math.max(parseRecordInput(recordModal.caloriesMultiplier), 1)
+  const resolved = resolveRecordNumber(recordModal.caloriesMultiplier, recordModal.multiplierPlaceholder, RECORD_DEFAULTS.caloriesMultiplier)
+  return Math.max(resolved, 1)
 }
 
-const getRecordAmount = () => {
-  const amount = parseRecordInput(recordModal.amountValue)
-  return Number.isFinite(amount) && amount > 0 ? amount : 1
-}
+const getRecordAmount = () => resolveRecordNumber(recordModal.amountValue, recordModal.amountPlaceholder, RECORD_DEFAULTS.amount)
 
-const getRecordQuantity = () => {
-  const quantity = parseRecordInput(recordModal.quantityValue)
-  return Number.isFinite(quantity) && quantity > 0 ? quantity : 1
-}
+const getRecordQuantity = () => resolveRecordNumber(recordModal.quantityValue, recordModal.quantityPlaceholder, RECORD_DEFAULTS.quantity)
 
 const getRecordTotalCalories = () => {
   return getRecordAmount() * getRecordQuantity() * getRecordCaloriesValueInKCal() / getRecordCaloriesMultiplier()
@@ -305,7 +346,8 @@ const normalizeCaloriesDisplayValue = (value: number, unit: DietCaloriesUnit) =>
 }
 
 const getRecordCaloriesValueInKCal = () => {
-  return normalizeCaloriesDisplayValue(parseRecordInput(recordModal.caloriesValue), recordModal.caloriesUnit)
+  // 必须走 getRecordCaloriesValue（新填入的值 > 前值），直接读输入框会把留空的 placeholder 当 0
+  return normalizeCaloriesDisplayValue(getRecordCaloriesValue(), recordModal.caloriesUnit)
 }
 
 const formatRelativeDayLabel = (dayKey?: string | null) => {
@@ -388,9 +430,13 @@ const resetRecordModal = () => {
   recordModal.name = ''
   recordModal.unit = 'u'
   recordModal.caloriesValue = ''
-  recordModal.caloriesMultiplier = '100'
-  recordModal.amountValue = '100'
-  recordModal.quantityValue = '1'
+  recordModal.caloriesMultiplier = ''
+  recordModal.amountValue = ''
+  recordModal.quantityValue = ''
+  recordModal.caloriesPlaceholder = ''
+  recordModal.multiplierPlaceholder = formatDietNumber(RECORD_DEFAULTS.caloriesMultiplier)
+  recordModal.amountPlaceholder = formatDietNumber(RECORD_DEFAULTS.amount)
+  recordModal.quantityPlaceholder = formatDietNumber(RECORD_DEFAULTS.quantity)
 }
 
 const openRecordModal = () => {
@@ -405,6 +451,7 @@ const openSettingsModal = () => {
   settingsModal.dietStartDate = dietConfig.value.dietStartDate && dietConfig.value.dietStartDate > currentDay.value
     ? currentDay.value
     : dietConfig.value.dietStartDate || null
+  settingsModal.targetWeight = dietConfig.value.targetWeight != null ? formatDietNumber(dietConfig.value.targetWeight) : ''
 }
 
 const closeRecordModal = () => {
@@ -414,15 +461,21 @@ const closeRecordModal = () => {
 
 const applyFood = (food: DietFood) => {
   const caloriesMultiplier = getStoredCaloriesMultiplier(food.calories_multiplier)
-  const caloriesValue = formatDietNumber(getFoodDisplayCalories(food))
+  const displayCalories = getFoodDisplayCalories(food)
   recordModal.name = food.name
   recordModal.query = food.name
   recordModal.unit = 'u'
   recordModal.caloriesUnit = 'kCal'
-  recordModal.caloriesValue = caloriesValue
-  recordModal.caloriesMultiplier = formatDietNumber(caloriesMultiplier)
-  recordModal.amountValue = formatDietNumber(food.amount && food.amount > 0 ? food.amount : 1)
-  recordModal.quantityValue = formatDietNumber(food.quantity && food.quantity > 0 ? food.quantity : 1)
+  // 前值以 placeholder 展示，输入框留空可直接覆盖
+  recordModal.caloriesValue = ''
+  recordModal.caloriesMultiplier = ''
+  recordModal.amountValue = ''
+  recordModal.quantityValue = ''
+  // 前值恰为 0 视为脏数据（历史提交 bug 产生），不作为前值；负值（如跑步）是合法前值
+  recordModal.caloriesPlaceholder = displayCalories !== 0 ? formatDietNumber(displayCalories) : ''
+  recordModal.multiplierPlaceholder = formatDietNumber(caloriesMultiplier)
+  recordModal.amountPlaceholder = formatDietNumber(food.amount && food.amount > 0 ? food.amount : 1)
+  recordModal.quantityPlaceholder = formatDietNumber(food.quantity && food.quantity > 0 ? food.quantity : 1)
   recordModal.stage = 2
 }
 
@@ -441,9 +494,13 @@ const confirmFood = () => {
   recordModal.unit = 'u'
   recordModal.caloriesUnit = 'kCal'
   recordModal.caloriesValue = ''
-  recordModal.caloriesMultiplier = '100'
-  recordModal.amountValue = '100'
-  recordModal.quantityValue = '1'
+  recordModal.caloriesMultiplier = ''
+  recordModal.amountValue = ''
+  recordModal.quantityValue = ''
+  recordModal.caloriesPlaceholder = ''
+  recordModal.multiplierPlaceholder = formatDietNumber(RECORD_DEFAULTS.caloriesMultiplier)
+  recordModal.amountPlaceholder = formatDietNumber(RECORD_DEFAULTS.amount)
+  recordModal.quantityPlaceholder = formatDietNumber(RECORD_DEFAULTS.quantity)
 }
 
 const formatCaloriesPer100 = (food: DietFood) => `${formatDietNumber(getFoodDisplayCalories(food))}kCal/${formatDietNumber(getFoodDisplayMultiplier(food))}${displayUnit(food.unit)}`
@@ -469,6 +526,7 @@ const backToFoodSelect = () => {
 }
 
 const selectDay = (dayKey: string) => {
+  if (!isAdmin.value) return
   selectedDayKey.value = dayKey
 }
 
@@ -507,10 +565,14 @@ const saveSettings = async (dietStartDate: string | null = settingsModal.dietSta
   settingsModal.saving = true
   try {
     const normalizedDietStartDate = dietStartDate && dietStartDate > currentDay.value ? currentDay.value : dietStartDate
+    const targetWeightInput = Number(settingsModal.targetWeight)
     await userStore.updateSettings({
       diet: {
         standardCalories: settingsModal.standardCalories,
         dietStartDate: normalizedDietStartDate,
+        targetWeight: settingsModal.targetWeight !== '' && settingsModal.targetWeight != null && Number.isFinite(targetWeightInput) && targetWeightInput > 0
+          ? targetWeightInput
+          : null,
       },
     })
     settingsModal.show = false
@@ -552,6 +614,167 @@ const onBottomNavSelect = (key: string) => {
   }
 }
 
+// ==================== 体重记录 ====================
+
+const summaryWeights = computed<Array<{ day_key: string; weight: number }>>(
+  () => (summary.value as any).weights || []
+)
+
+const selectedDayWeight = computed(() => {
+  const hit = summaryWeights.value.find(item => item.day_key === selectedRecordDayKey.value)
+  return hit ? hit.weight : null
+})
+
+// 行内输入框：填入即记录当日体重，清空即删除
+const weightInput = ref('')
+
+// 切换日期 / 刷新数据后回填当日体重（含两天体重相同的情况，按日期变化也要重置）
+watch([selectedRecordDayKey, selectedDayWeight], ([, weight]) => {
+  weightInput.value = weight != null ? formatDietNumber(weight) : ''
+})
+
+let weightCommitTimer: ReturnType<typeof setTimeout> | null = null
+let weightCommitInFlight = false
+
+const saveWeight = async (weight: number) => {
+  try {
+    await request('diet/weight', 'post', {
+      dayKey: selectedRecordDayKey.value,
+      weight,
+    }, { withCredentials: false })
+    toastStore.showToast({ content: '体重已记录', type: 'OK' })
+    await loadSummary()
+  } catch (err: any) {
+    toastStore.showToast({ content: err?.response?.data?.message || err?.message || '保存失败，请稍后重试', type: 'ERR' })
+  }
+}
+
+const deleteWeight = async () => {
+  try {
+    await request(`diet/weight/${selectedRecordDayKey.value}`, 'delete', undefined, { withCredentials: false })
+    await loadSummary()
+  } catch (err: any) {
+    toastStore.showToast({ content: err?.response?.data?.message || err?.message || '删除失败，请稍后重试', type: 'ERR' })
+  }
+}
+
+const commitWeight = async () => {
+  if (!isAdmin.value || weightCommitInFlight) return
+  const typed = weightInput.value.trim()
+  const current = selectedDayWeight.value
+  if (typed === '') {
+    if (current != null) await deleteWeight()
+    return
+  }
+  const weight = parseRecordInput(typed)
+  if (!Number.isFinite(weight) || weight <= 0 || weight > 500) {
+    toastStore.showToast({ content: '请输入有效体重', type: '!' })
+    weightInput.value = current != null ? formatDietNumber(current) : ''
+    return
+  }
+  if (weight === current) return
+  weightCommitInFlight = true
+  try {
+    await saveWeight(weight)
+  } finally {
+    weightCommitInFlight = false
+  }
+}
+
+/** blur 后稍作延迟再提交，给输入框自带的 clear 按钮留出取消窗口（clear = 删除，不应先存再删） */
+const scheduleWeightCommit = () => {
+  if (weightCommitTimer) clearTimeout(weightCommitTimer)
+  weightCommitTimer = setTimeout(() => {
+    weightCommitTimer = null
+    void commitWeight()
+  }, 150)
+}
+
+const onWeightInputClear = () => {
+  if (weightCommitTimer) {
+    clearTimeout(weightCommitTimer)
+    weightCommitTimer = null
+  }
+  void commitWeight()
+}
+
+/**
+ * 体重折线（覆盖在统计图上）：
+ * - 设了目标体重：纵轴顶部 = 100kg，底部 = 目标体重 - 5kg 的固定刻度
+ * - 未设目标体重：退回窗口内 min/max 归一化（上下各留 10% 边距）
+ * - 窗口前/后紧邻的体重（服务端各多返回一条）也连进折线，把线延伸出图表边界，但不画节点
+ */
+const weightChart = computed(() => {
+  const days = summary.value.days
+  const n = days.length
+  if (!n) return { inner: [] as { x: number; y: number; weight: number }[], line: '' }
+
+  const firstDayKey = days[0].dayKey
+  const lastDayKey = days[n - 1].dayKey
+  const sorted = [...summaryWeights.value].sort((a, b) => (a.day_key < b.day_key ? -1 : 1))
+  const before = sorted.length > 0 && sorted[0].day_key < firstDayKey ? sorted[0] : null
+  const after = sorted.length > 0 && sorted[sorted.length - 1].day_key > lastDayKey ? sorted[sorted.length - 1] : null
+
+  const weightMap = new Map(sorted.filter(w => w.day_key >= firstDayKey && w.day_key <= lastDayKey).map(w => [w.day_key, w.weight]))
+  const inner: { x: number; y: number; weight: number }[] = []
+  days.forEach((day, index) => {
+    const w = weightMap.get(day.dayKey)
+    if (w != null) {
+      inner.push({ x: ((index + 0.5) / n) * 100, y: 0, weight: w })
+    }
+  })
+  // 窗口内一个体重都没有时不画线（没有可连的节点）
+  if (!inner.length) return { inner, line: '' }
+
+  const mapY = (weight: number) => {
+    const target = dietConfig.value.targetWeight
+    if (target != null) {
+      const top = 100
+      const bottom = target - 5
+      return Math.max(0, Math.min(100, ((top - weight) / (top - bottom)) * 100))
+    }
+    // 刻度只由窗口内体重决定，延伸点只做映射并截断在图内
+    const values = inner.map(p => p.weight)
+    const min = Math.min(...values)
+    const max = Math.max(...values)
+    const span = Math.max(max - min, 0.5)
+    return Math.max(0, Math.min(100, 10 + ((max - weight) / span) * 80))
+  }
+  inner.forEach(p => {
+    p.y = mapY(p.weight)
+  })
+
+  const linePoints = [...inner]
+  const dayDiff = (fromKey: string, toKey: string) =>
+    Math.round((dayKeyToDate(toKey).getTime() - dayKeyToDate(fromKey).getTime()) / 86400000)
+  if (before) {
+    // 比 firstDayKey 早 k 天 → 槽位 index = -k，x 为负，画到左边界外被 svg 裁掉
+    const k = dayDiff(before.day_key, firstDayKey)
+    linePoints.unshift({ x: ((0.5 - k) / n) * 100, y: mapY(before.weight), weight: before.weight })
+  }
+  if (after) {
+    // 比 lastDayKey 晚 k 天 → 槽位 index = n - 1 + k
+    const k = dayDiff(lastDayKey, after.day_key)
+    linePoints.push({ x: ((n - 0.5 + k) / n) * 100, y: mapY(after.weight), weight: after.weight })
+  }
+  const line = linePoints.length >= 2 ? linePoints.map(p => `${p.x},${p.y}`).join(' ') : ''
+  return { inner, line }
+})
+
+/** 窗口内节点（画空心圆） */
+const weightPoints = computed(() => weightChart.value.inner)
+
+const weightPolyline = computed(() => weightChart.value.line)
+
+// 目标体重参考线（与折线同一纵轴刻度）。折线/节点用的是距顶部百分比，这里要换成 CSS bottom 百分比
+const targetWeightLineBottom = computed(() => {
+  const target = dietConfig.value.targetWeight
+  if (target == null) return null
+  const top = 100
+  const bottom = target - 5
+  return Math.max(0, Math.min(100, ((target - bottom) / (top - bottom)) * 100))
+})
+
 const updateMonth = (value: string | number | null) => {
   if (typeof value === 'string' && value) {
     selectedMonth.value = value
@@ -562,6 +785,7 @@ const updateMonth = (value: string | number | null) => {
 
 const updateCaloriesUnit = (value: number | string | null) => {
   if (value === '%' || value === 'kCal' || value === 'kJ') {
+    // 单位只是标注用户填的数值，切换不做换算
     recordModal.caloriesUnit = value
   }
 }
@@ -580,7 +804,7 @@ onMounted(async () => {
   <List>
     <template v-slot:content>
       <div class="page-head">
-        <Btn class="settings-btn" small @click="openSettingsModal">设置</Btn>
+        <Btn v-if="isAdmin" class="settings-btn" small @click="openSettingsModal">设置</Btn>
       </div>
 
       <Card class="summary-card">
@@ -598,22 +822,45 @@ onMounted(async () => {
         <div class="chart-wrap">
           <div class="chart-bars">
             <div class="threshold-line" :style="{ bottom: `${thresholdBottom}%` }"></div>
+            <div v-if="targetWeightLineBottom != null" class="target-weight-line" :style="{ bottom: `${targetWeightLineBottom}%` }"></div>
             <button v-for="day in chartBars" :key="day.dayKey" class="bar-item" :class="{ active: day.dayKey === selectedDayKey }" @click="selectDay(day.dayKey)">
               <div class="bar-track">
+                <div class="bar-outline" :style="{ height: `${day.barHeight + day.negativeHeight}%` }"></div>
                 <div class="bar-fill" :style="{ height: `${day.barHeight}%`, background: day.barColor }"></div>
                 <div v-if="day.hasNegative" class="bar-fill-negative" :style="{ height: `${day.negativeHeight}%`, bottom: `${day.barHeight}%`, background: day.barColor, opacity: 0.5 }"></div>
               </div>
             </button>
+            <svg v-if="weightPolyline" class="weight-line" viewBox="0 0 100 100" preserveAspectRatio="none">
+              <polyline :points="weightPolyline" />
+            </svg>
+            <div v-for="(point, index) in weightPoints" :key="index" class="weight-dot" :style="{ left: `${point.x}%`, top: `${point.y}%` }"></div>
           </div>
         </div>
       </Card>
 
-      <Card class="today-card">
+      <Card v-if="isAdmin" class="today-card">
         <div class="card-head">
           <div class="card-title">{{ selectedDayLabel }}</div>
           <Btn small class="prev-day-btn" @click="selectDay(prevDayKey(selectedDayKey))">前一天</Btn>
           <Btn v-if="selectedDayKey !== currentDayKey()" small @click="selectDay(currentDayKey())">回到今天</Btn>
           <div class="card-sub">{{ Math.round(selectedDayTotalCalories) }} / {{ dietConfig.standardCalories }} kcal</div>
+        </div>
+
+        <div class="today-weight-row">
+          <div class="today-weight-label">体重</div>
+          <Input
+            class="weight-input"
+            v-model="weightInput"
+            type="number"
+            step="0.1"
+            min="0"
+            inputmode="decimal"
+            placeholder=""
+            @keyup.enter="commitWeight"
+            @blur="scheduleWeightCommit"
+            @clear="onWeightInputClear"
+          />
+          <span class="today-weight-unit">kg</span>
         </div>
 
         <div class="today-items" v-if="selectedDayRecords.length">
@@ -666,6 +913,10 @@ onMounted(async () => {
               </div>
               <div v-if="!searchFoods.length" class="chooser-empty">暂无可选食物</div>
             </div>
+
+            <div class="modal-actions">
+              <Btn @click="closeRecordModal">取消</Btn>
+            </div>
           </template>
 
           <template v-else>
@@ -675,7 +926,7 @@ onMounted(async () => {
               </div>
               <div class="selected-food-qty">
                 <span class="selected-food-qty-label">数量</span>
-                <Input class="quantity-input" v-model="recordModal.quantityValue" type="number" min="1" step="1" placeholder="1" />
+                <Input class="quantity-input" v-model="recordModal.quantityValue" type="number" min="1" step="1" :placeholder="recordModal.quantityPlaceholder || '1'" />
               </div>
             </div>
 
@@ -683,7 +934,7 @@ onMounted(async () => {
               <div class="field-label">输入热量</div>
               <div class="field-row">
                 <div class="search-input-wrap">
-                  <Input class="value-input" v-model="recordModal.caloriesValue" type="number" step="0.1" :placeholder="recordModal.caloriesUnit" />
+                  <Input class="value-input" v-model="recordModal.caloriesValue" type="number" step="0.1" :placeholder="recordModal.caloriesPlaceholder || recordModal.caloriesUnit" />
                   <CircleBtn v-if="recordModal.caloriesValue" class="search-clear-btn" icon="close" :size="18" :font-size="11" aria-label="清除" @click="recordModal.caloriesValue = ''" />
                 </div>
                 <StepperFilter
@@ -696,7 +947,7 @@ onMounted(async () => {
                   :btn-mobile-font-size="11"
                   @update:value="updateCaloriesUnit"
                 />
-                <Input class="unit-multiplier-input" v-model="recordModal.caloriesMultiplier" type="number" min="1" step="1" placeholder="100" />
+                <Input class="unit-multiplier-input" v-model="recordModal.caloriesMultiplier" type="number" min="1" step="1" :placeholder="recordModal.multiplierPlaceholder || '100'" />
                 <span class="unit-text">u</span>
               </div>
             </div>
@@ -705,7 +956,7 @@ onMounted(async () => {
               <div class="field-label">输入分量</div>
               <div class="field-row">
                 <div class="search-input-wrap">
-                  <Input class="value-input" v-model="recordModal.amountValue" type="number" min="1" step="1" placeholder="100" />
+                  <Input class="value-input" v-model="recordModal.amountValue" type="number" min="1" step="1" :placeholder="recordModal.amountPlaceholder || '100'" />
                   <CircleBtn v-if="recordModal.amountValue" class="search-clear-btn" icon="close" :size="18" :font-size="11" aria-label="清除" @click="recordModal.amountValue = ''" />
                 </div>
                 <span class="unit-text">u</span>
@@ -717,6 +968,7 @@ onMounted(async () => {
             </div>
 
             <div class="modal-actions">
+              <Btn @click="closeRecordModal">取消</Btn>
               <Btn @click="backToFoodSelect">上一步</Btn>
               <Btn type="primary" :loading="recordModal.saving" @click="saveRecord">确定</Btn>
             </div>
@@ -730,6 +982,10 @@ onMounted(async () => {
           <div class="field-group">
             <div class="field-label">每日标准 kcal</div>
             <Input v-model="settingsModal.standardCalories" type="number" min="1" step="1" />
+          </div>
+          <div class="field-group">
+            <div class="field-label">目标体重（kg）</div>
+            <Input v-model="settingsModal.targetWeight" type="number" min="1" step="0.1" placeholder="未设置" />
           </div>
           <div class="field-group">
             <div class="field-label">减肥起始日期</div>
@@ -843,12 +1099,13 @@ onMounted(async () => {
   overflow-x: auto;
 }
 
+// 每日标准线：与柱子超标的红色一致
 .threshold-line {
   position: absolute;
   left: 0;
   right: 0;
-  height: 0;
-  border-top: 1px dashed rgba(255, 90, 90, 0.8);
+  height: 1px;
+  background: repeating-linear-gradient(90deg, rgba(255, 77, 79, 0.8) 0 2px, transparent 2px 4px);
   pointer-events: none;
   z-index: 3;
 }
@@ -858,10 +1115,7 @@ onMounted(async () => {
   z-index: 1;
   display: flex;
   align-items: end;
-  justify-content: center;
-  gap: 4px;
-  width: max-content;
-  min-width: 100%;
+  width: 100%;
   height: 120px;
 }
 
@@ -873,18 +1127,32 @@ onMounted(async () => {
   padding: 0;
   background: transparent;
   cursor: pointer;
-  flex: 0 0 4px;
-  width: 4px;
-  min-width: 4px;
+  /* 每天占一等分槽位，4px 柱体居中，间距随容器宽度自适应 */
+  flex: 1 1 0;
+  min-width: 0;
   height: 100%;
+  display: flex;
+  justify-content: center;
 }
 
-.bar-item.active .bar-fill {
+// 选中态光圈画在 bar-outline 上，高度 = 正值段 + 负值段，包住完整柱子
+.bar-outline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: none;
+  border-radius: 999px 999px 0.2rem 0.2rem;
+  pointer-events: none;
+}
+
+.bar-item.active .bar-outline {
+  display: block;
   box-shadow: 0 0 0 2px rgba(66, 185, 131, 0.25), 0 6px 18px rgba(0, 0, 0, 0.12);
 }
 
 .bar-track {
-  width: 100%;
+  width: 4px;
   height: 100%;
   display: flex;
   align-items: end;
@@ -905,6 +1173,81 @@ onMounted(async () => {
   right: 0;
   border-radius: 0.2rem 0.2rem 0 0;
   z-index: 2;
+}
+
+.weight-line {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 4;
+
+  polyline {
+    fill: none;
+    stroke: var(--primary-color, #42b983);
+    stroke-width: 2px;
+    vector-effect: non-scaling-stroke;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+  }
+}
+
+.weight-dot {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  box-sizing: border-box;
+  background: transparent;
+  border: 1.5px solid #000;
+  pointer-events: none;
+  z-index: 5;
+}
+
+// 暗色模式下用浅色描边，避免和深色背景融在一起
+:global(:root.dark .weight-dot) {
+  border-color: rgba(255, 255, 255, 0.85);
+}
+
+// 目标体重线：与体重折线同色，虚线密度与每日标准线一致
+.target-weight-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: repeating-linear-gradient(90deg, var(--primary-color, #42b983) 0 2px, transparent 2px 4px);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.today-weight-row {
+  margin-top: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+
+  .today-weight-label {
+    color: var(--text-secondary);
+    font-size: 12px;
+    flex: none;
+  }
+
+  .weight-input {
+    width: 110px;
+
+    // :deep(.input) {
+    //   padding: 0.35rem 0.6rem;
+    //   font-size: 13px;
+    // }
+  }
+
+  .today-weight-unit {
+    color: var(--text-secondary);
+    font-size: 12px;
+    flex: none;
+  }
 }
 
 .today-items {
@@ -1160,7 +1503,6 @@ onMounted(async () => {
   }
 
   .chart-bars {
-    gap: 6px;
     height: 96px;
   }
 

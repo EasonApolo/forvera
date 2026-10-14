@@ -239,6 +239,9 @@ export class GameRoom extends AutoSyncData implements IGameRoom {
 
   roundResults: RoundResult[];
 
+  /** 房间设置：允许悔棋（五子棋） */
+  allowUndo: boolean;
+
   startTime: number;
   duration: number;
   timer: NodeJS.Timeout | null;
@@ -259,6 +262,7 @@ export class GameRoom extends AutoSyncData implements IGameRoom {
     this.register('round', 'public');
     this.register('roundStatus', 'public');
     this.register('roundResults', 'public');
+    this.register('allowUndo', 'public');
     this.register('startTime', 'public');
     this.register('duration', 'public');
 
@@ -285,6 +289,9 @@ export class GameRoom extends AutoSyncData implements IGameRoom {
 
     // 对局记录列表。
     this.roundResults = [];
+
+    // 房间设置：允许悔棋（五子棋，默认关闭）
+    this.allowUndo = false;
 
     this.startTime = 0;
     this.duration = 0;
@@ -503,6 +510,22 @@ export class GameRoom extends AutoSyncData implements IGameRoom {
     user.connectStatus = 'disconnected';
   }
 
+  /** 从房间彻底移除一个用户（踢出/清理）：删除用户与顺序，必要时转移房主 */
+  removeUser({ userId }: { userId: string }) {
+    const user = this.users[userId];
+    if (!user) return null;
+    delete this.users[userId];
+    const index = this.userOrder.indexOf(userId);
+    if (index >= 0) this.userOrder.splice(index, 1);
+    if (this.hostId === userId) {
+      this.hostId = this.userOrder[0] || '';
+    }
+    this.setDirty('users');
+    this.setDirty('userOrder');
+    this.sync();
+    return user;
+  }
+
   shuffleUsers() {
     this.userOrder = shuffle(this.userOrder);
   }
@@ -566,7 +589,7 @@ export class GameRoom extends AutoSyncData implements IGameRoom {
     this.game?.onUnmounted?.({ room: this });
     this.status = 'waiting';
     this.turn = 0;
-    this.round = 0;
+    // round 随房间存在单调累加（重启/换游戏不清零），对局记录的局号才连续
     // roundResults 从房间创建起累积，重启游戏不清空
     this.sync();
   }
@@ -699,7 +722,8 @@ export class GameRoom extends AutoSyncData implements IGameRoom {
     if (allReady) {
       this.gotoBeforeRound();
     } else if (allEnd) {
-      this.gotoAfterGame();
+      // 都选择不玩了：回到准备态（与重启按钮一致），而不是进入 settlement
+      this.gotoBeforeGame();
     }
     if (allReady || allEnd) {
       Object.values(this.users).forEach((u) => {
@@ -957,6 +981,26 @@ export class GameGateway
     return this.ok(ack);
   }
 
+  @SubscribeMessage('clearRoundResults')
+  onClearRoundResults(
+    @MessageBody() data: { roomId: string },
+    @ConnectedSocket() client: Socket,
+    ack?: Ack,
+  ) {
+    const { room, user } = this.getRoomAndUser(client, ack);
+    if (!room.isHost(user.id)) {
+      return this.fail(ack, '只有房主可以清除对局记录');
+    }
+    if (!room.roundResults.length) {
+      return this.fail(ack, '没有可清除的对局记录');
+    }
+
+    room.roundResults = [];
+    room.sync();
+
+    return this.ok(ack);
+  }
+
   @SubscribeMessage('renameUser')
   onRename(
     @MessageBody() data: { userId: string; newName: string },
@@ -980,13 +1024,16 @@ export class GameGateway
 
   @SubscribeMessage('updateGameSettings')
   onUpdateSettings(
-    @MessageBody() data: { roomId: string; roundSeconds?: number },
+    @MessageBody() data: { roomId: string; allowUndo?: boolean },
     @ConnectedSocket() client: Socket,
     ack?: Ack,
   ) {
     const { room, user, roomId } = this.getRoomAndUser(client, ack);
     if (!room.isHost(user.id)) {
       return this.fail(ack, '只有房主可以修改设置');
+    }
+    if (typeof data?.allowUndo === 'boolean') {
+      room.allowUndo = data.allowUndo;
     }
     room.sync();
     return this.ok(ack);
@@ -1084,6 +1131,39 @@ export class GameGateway
     return { success: true, message: 'Room closed successfully' };
   }
 
+  /** 管理员把用户踢出房间：通知本人 -> 移除 -> 广播给其他玩家 -> 断开其连接 */
+  kickUser(roomId: string, userId: string) {
+    const room = this.rooms.get(roomId);
+    if (!room) {
+      throw new WsException(`Room not found: ${roomId}`);
+    }
+    const user = room.users[userId];
+    if (!user) {
+      throw new WsException(`User not found: ${userId}`);
+    }
+
+    // 先给本人发 kicked（走可靠通道），再移除并广播
+    const clientId = user.clientId;
+    const wasConnected = user.connectStatus === 'connected';
+    if (wasConnected && clientId) {
+      room.emitToUser({ user, event: 'kicked' });
+    }
+    room.removeUser({ userId });
+    room.emitToAll({ event: 'userKicked', data: { userId } });
+
+    // 延迟断开，保证 kicked 消息先送达（in().disconnectSockets 对 Server/Namespace 都成立）
+    if (wasConnected && clientId) {
+      setTimeout(() => {
+        try {
+          this.server.in(clientId).disconnectSockets(true);
+        } catch (error) {
+          console.error('Failed to disconnect kicked client', error);
+        }
+      }, 200);
+    }
+    return { success: true, message: 'User kicked successfully' };
+  }
+
   private ok(ack?: Ack) {
     const response = { success: true };
     if (ack) ack(response);
@@ -1133,6 +1213,15 @@ export class GameController {
   @Roles(3)
   async closeRoom(@Param('roomId') roomId: string) {
     return this.gateway.closeRoom(roomId);
+  }
+
+  @Delete('rooms/:roomId/users/:userId')
+  @Roles(3)
+  async kickUser(
+    @Param('roomId') roomId: string,
+    @Param('userId') userId: string,
+  ) {
+    return this.gateway.kickUser(roomId, userId);
   }
 }
 

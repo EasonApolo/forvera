@@ -181,6 +181,8 @@ class Gomoku implements Game {
   /** 悔棋：只能撤回最近一手，且必须是自己下的、此刻已轮到别人；悔过后不可连续悔 */
   canUndo(room: GameRoom, userId: string): boolean {
     if (!room.isGamePlaying() || room.roundStatus !== 'ing') return false;
+    // 房主未开启「允许悔棋」时不可悔棋
+    if (!room.allowUndo) return false;
     if (room.winnerId || room.isDraw) return false;
     if (!room.lastMove || !room.lastMoveUserId) return false;
     return room.lastMoveUserId === userId && room.currentPlayerId !== userId;

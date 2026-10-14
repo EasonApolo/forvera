@@ -27,8 +27,8 @@ export interface IDrawGuessUser extends IGameUser {
  * game durations
  */
 export const DrawGuessDurations = {
-  CategoryHintDelay: 15000,
-  WordLengthHintDelay: 30000,
+  CategoryHintDelay: 12000,
+  WordLengthHintDelay: 24000,
   /** 换词窗口：绘制开始后这么多毫秒内画家仍可换词 */
   ChangeWordWindow: 35000,
   TurnBeforeDuration: 3000,

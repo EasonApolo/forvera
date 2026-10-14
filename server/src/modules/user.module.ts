@@ -32,6 +32,7 @@ export class UpdateUserSettingsDTO {
     diet?: {
       standardCalories?: number;
       dietStartDate?: string | null;
+      targetWeight?: number | null;
     };
   };
 }
@@ -51,6 +52,7 @@ export interface User extends Document {
     diet?: {
       standardCalories?: number;
       dietStartDate?: string | null;
+      targetWeight?: number | null;
     };
     aiSetting?: AiSetting;
   };

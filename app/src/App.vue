@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import Toast from './components/Toast.vue'
+import RequestProgressBar from './components/RequestProgressBar.vue'
 import { useUserStore } from './store/user'
 import { useThemeStore } from './store/theme'
 import ImageViewer from './components/ImageViewer.vue'
@@ -18,6 +19,7 @@ themeStore.init()
       <component :is="Component" />
     </keep-alive>
   </router-view>
+  <RequestProgressBar />
   <transition name="toast-slide">
     <Toast />
   </transition>

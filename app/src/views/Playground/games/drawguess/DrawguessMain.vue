@@ -319,13 +319,8 @@ watch(
       setChatTitle()
     }
     if (room.turnStatus === 'after') {
-      addMessage({
-        id: `system-${Date.now()}`,
-        type: 'system',
-        content: `第${room.turn}回合结束，${
-          room.correctUserIds.length > 0 ? `${room.correctUserIds.length}个人` : `没有人`
-        }猜对${room.correctUserIds.length > 0 ? '了' : ''}，答案是：${room.word}`,
-      })
+      // 「回合结束+答案」系统消息由服务端发送（onAfterTurnStart），
+      // 与「xx猜对了」同通道有序，不会再早于最后一条猜对消息
     }
     if (room.roundStatus === 'after') {
       addMessage({
@@ -388,21 +383,30 @@ const sendReaction = (value: DrawGuessReaction) => {
 // 计数渐变：目标变化时逐级过渡（5=>6=>7...），差值过大直接跳变
 const displayLikes = ref(0)
 const displayDislikes = ref(0)
-const tweenCounter = (display: { value: number }, target: number) => {
-  if (display.value === target) return
-  if (Math.abs(target - display.value) > 20) {
-    display.value = target
-    return
-  }
-  const step = () => {
+// 新目标会中止上一次未完成的渐变，否则两个 step 循环会互相拉扯（5=>6=>5=>6 来回跳）
+const makeTweenCounter = (display: Ref<number>) => {
+  let token = 0
+  return (target: number) => {
+    token += 1
+    const current = token
     if (display.value === target) return
-    display.value += display.value < target ? 1 : -1
-    if (display.value !== target) setTimeout(step, 90)
+    if (Math.abs(target - display.value) > 20) {
+      display.value = target
+      return
+    }
+    const step = () => {
+      if (current !== token) return
+      if (display.value === target) return
+      display.value += display.value < target ? 1 : -1
+      if (display.value !== target) setTimeout(step, 90)
+    }
+    step()
   }
-  step()
 }
-watch(activeLikes, (target) => tweenCounter(displayLikes, target))
-watch(activeDislikes, (target) => tweenCounter(displayDislikes, target))
+const tweenLikes = makeTweenCounter(displayLikes)
+const tweenDislikes = makeTweenCounter(displayDislikes)
+watch(activeLikes, tweenLikes)
+watch(activeDislikes, tweenDislikes)
 
 // 进度条最少 8 格：每票占比 = 1 / max(8, 总票数)，超过 8 票按比例收缩
 const reactionUnit = computed(() => 100 / Math.max(8, activeLikes.value + activeDislikes.value))

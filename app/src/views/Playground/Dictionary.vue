@@ -139,6 +139,34 @@ const loadLearningWords = async () => {
   learningTotal.value = Number(res?.total) || 0
 }
 
+// ==================== 全部词汇（按字母表分组） ====================
+
+/** 分类树里包含所有已查过的词（含未分类组），摊平去重后按字母排序 */
+const allWordGroups = computed(() => {
+  const unique = new Map<string, string>()
+  const stack = [...categoryTree.value]
+  while (stack.length) {
+    const node = stack.pop()!
+    for (const w of node.words) {
+      if (!unique.has(w.wordLower)) unique.set(w.wordLower, w.word)
+    }
+    stack.push(...node.children)
+  }
+  const sorted = Array.from(unique.values()).sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))
+  const groups: { letter: string; words: string[] }[] = []
+  for (const word of sorted) {
+    const letter = word[0].toUpperCase()
+    const last = groups[groups.length - 1]
+    if (last && last.letter === letter) {
+      last.words.push(word)
+    } else {
+      groups.push({ letter, words: [word] })
+    }
+  }
+  return groups
+})
+const allWordCount = computed(() => allWordGroups.value.reduce((sum, group) => sum + group.words.length, 0))
+
 const addLearningWords = async () => {
   const text = learningInput.value.trim()
   if (!text || learningAdding.value) return
@@ -530,6 +558,19 @@ onMounted(() => {
         </div>
       </Card>
 
+      <Card v-if="pageMode === 'home'">
+        <template #title>全部词汇<span class="learning-total">（{{ allWordCount }}）</span></template>
+        <div class="all-words-list">
+          <div v-if="!allWordCount" class="category-empty">no result</div>
+          <template v-for="group in allWordGroups" :key="group.letter">
+            <div class="letter-header">{{ group.letter }}</div>
+            <div class="word-chip" v-for="word in group.words" :key="word" @click="goWord(word)">
+              {{ word }}
+            </div>
+          </template>
+        </div>
+      </Card>
+
       <Card v-if="pageMode === 'home' && isAdmin">
         <template #title>待学词<span class="learning-total">（{{ learningTotal }}）</span></template>
         <div class="learning-list">
@@ -742,6 +783,43 @@ onMounted(() => {
   text-align: left;
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+// 全部词汇卡片：字母分组 + 词块
+.all-words-list {
+  text-align: left;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.45rem;
+  max-height: 22rem;
+  overflow-y: auto;
+
+  .letter-header {
+    flex: 1 0 100%;
+    font-size: 12px;
+    font-weight: bold;
+    color: var(--text-secondary);
+    margin-top: 0.35rem;
+
+    &:first-child {
+      margin-top: 0;
+    }
+  }
+
+  .word-chip {
+    padding: 0.2rem 0.5rem;
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 13px;
+    line-height: 18px;
+    cursor: pointer;
+    transition: 0.15s ease;
+
+    &:hover {
+      color: var(--primary-color);
+    }
+  }
 }
 
 // 待学词卡片

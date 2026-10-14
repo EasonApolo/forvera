@@ -36,6 +36,7 @@ const room = reactive<IGameRoom>({
   id: roomId,
   status: 'waiting',
   hostId: '',
+  gameKey: 'drawguess',
   users: reactive({}),
   userOrder: [],
   turn: 0,
@@ -45,6 +46,7 @@ const room = reactive<IGameRoom>({
   startTime: 0,
   duration: 0,
   roundResults: [],
+  allowUndo: false,
 })
 const userList = computed(() => {
   return room.userOrder.map(uid => room.users[uid])
@@ -55,11 +57,12 @@ const isMeActing = computed(() => {
   return (
     room.status === 'playing' &&
     room.roundStatus === 'ing' &&
+    // turn 已结束（after）无法操作，不再显示流线；before 仍保留提示即将轮到谁
+    room.turnStatus !== 'after' &&
     selectedGame.value?.imActing?.({ room, userId: userId.value, ws })
   )
 })
 const joinError = ref('')
-const hasRoom = computed(() => !!room.id && !!userId.value)
 
 function startGame() {
   selectedGame.value?.setup?.({ room, userId: userId.value, ws })
@@ -101,6 +104,8 @@ const canUndoGomoku = (targetUserId: string) => {
     targetUserId === userId.value &&
     room.status === 'playing' &&
     room.roundStatus === 'ing' &&
+    // 房主需在设置里开启「允许悔棋」
+    room.allowUndo &&
     !gomokuRoom.winnerId &&
     !gomokuRoom.isDraw &&
     // 只能撤回最近一手（自己下的），且此刻已轮到别人；悔过后不可连续悔
@@ -117,6 +122,13 @@ function restartGame() {
   if (!confirm('确定重启房间吗？')) return
   socket?.emit('restartGame', { roomId: room.id }, wsErrorHandler)
 }
+function clearRoundResults() {
+  if (!confirm('确定清除对局记录吗？')) return
+  socket?.emit('clearRoundResults', { roomId: room.id }, wsErrorHandler)
+}
+function updateAllowUndo(value: boolean) {
+  socket?.emit('updateGameSettings', { roomId: room.id, allowUndo: value }, wsErrorHandler)
+}
 function onSyncRoom(newData: IGameRoom) {
   if (!newData) return
 
@@ -131,7 +143,8 @@ function onSyncRoom(newData: IGameRoom) {
         }
       }
     } else {
-      room[key] = newData[key]
+      // sync 的 key 集合是动态的（各游戏附加字段），走 any 索引赋值
+      ;(room as any)[key] = (newData as any)[key]
     }
   }
 }
@@ -145,6 +158,8 @@ const reliableWrappedHandlers = new Map<
   string,
   Map<(data: any) => void, (msg: WsEventMsg) => void>
 >()
+// socket 建立前（子组件 onMounted 早于父组件 connect）注册的处理器，等 socket 就绪后补挂
+const pendingSocketHandlers: Array<{ type: string; wrapped: (msg: WsEventMsg) => void }> = []
 
 function createIncomingReliableEngine() {
   reliable = new ReliableEngine<any>({
@@ -176,14 +191,24 @@ function on(type: string, callback: (data: any) => void) {
     reliableWrappedHandlers.set(type, new Map())
   }
   reliableWrappedHandlers.get(type)!.set(callback, wrapped)
-  socket?.on(type, wrapped)
+  if (socket) {
+    socket.on(type, wrapped)
+  } else {
+    // socket 未建立（子组件 onMounted 早于父组件 connect）：暂存，setupHandlers 里补挂
+    pendingSocketHandlers.push({ type, wrapped })
+  }
 }
 function off(type: string, callback?: (data: any) => void) {
+  const detach = (wrapped: (msg: WsEventMsg) => void) => {
+    if (socket) socket.off(type, wrapped)
+    const pendingIndex = pendingSocketHandlers.findIndex(h => h.type === type && h.wrapped === wrapped)
+    if (pendingIndex >= 0) pendingSocketHandlers.splice(pendingIndex, 1)
+  }
   if (!callback) {
     const callbackMap = reliableWrappedHandlers.get(type)
     if (callbackMap) {
       for (const wrapped of callbackMap.values()) {
-        socket?.off(type, wrapped)
+        detach(wrapped)
       }
       callbackMap.clear()
     }
@@ -191,8 +216,8 @@ function off(type: string, callback?: (data: any) => void) {
   }
   const wrapped = reliableWrappedHandlers.get(type)?.get(callback)
   if (!wrapped) return
-  socket?.off(type, wrapped)
-  reliableWrappedHandlers.get(type)?.delete(callback)
+  detach(wrapped)
+  reliableWrappedHandlers.get(type)!.delete(callback)
 }
 const ws = { emit, on, off } as any as WebSocket
 const wsErrorHandler = (resp: any) => {
@@ -216,6 +241,11 @@ function connect() {
 function setupHandlers() {
   if (!socket) return
 
+  // 补挂 socket 建立前注册的处理器（子组件 onMounted 早于父组件 connect）
+  for (const { type, wrapped } of pendingSocketHandlers.splice(0)) {
+    socket.on(type, wrapped)
+  }
+
   socket.on('connect', () => {
     connected.value = true
     createIncomingReliableEngine()
@@ -225,12 +255,9 @@ function setupHandlers() {
     socket!.emit('joinRoom', { roomId: roomId, userId: userId.value }, (resp: any) => {
       if (resp?.success === false) {
         joinError.value = resp.message || '加入房间失败'
-        loading.value = false
         toastStore.showToast({ content: joinError.value, type: '!' })
         socket!.disconnect()
-        return
       }
-      loading.value = false
     })
   })
 
@@ -239,7 +266,6 @@ function setupHandlers() {
   })
 
   socket.on('connect_error', (error: any) => {
-    loading.value = false
     connected.value = false
     joinError.value = error?.message || '连接失败'
   })
@@ -269,6 +295,26 @@ function setupHandlers() {
   on('roomClosed', () => {
     joinError.value = '房间已关闭'
     toastStore.showToast({ content: '房间已被关闭', type: '!' })
+  })
+
+  // 被管理员踢出：提示并退出房间页
+  on('kicked', () => {
+    toastStore.showToast({ content: '你已被移出房间', type: '!' })
+    router.push({ name: 'playground' })
+  })
+
+  // 其他玩家被踢：从本地房间状态移除（sync 只合并不删除，需要显式处理）
+  on('userKicked', ({ userId }: { userId: string }) => {
+    const name = room.users[userId]?.name
+    delete room.users[userId]
+    room.userOrder = room.userOrder.filter((id: string) => id !== userId)
+    if (name) {
+      addMessage({
+        id: `system-${Date.now()}`,
+        type: 'system',
+        content: `${name} 被移出了房间`,
+      })
+    }
   })
 
   // 延迟 / 丢包：定时 ping，用 ack 计算 RTT。
@@ -357,7 +403,6 @@ function cancelEditName() {
 
 const showSettings = ref(false)
 const settings = ref<Record<string, unknown>>({})
-const loading = ref(true)
 
 // ==================== 网络状态 ====================
 
@@ -503,7 +548,9 @@ watch(
         const roundResult = newVal[j]
         if (roundResult && roundResult.users && roundResult.users[userId] !== undefined) {
           if (roundResult.users[userId].isWinner) {
-            data[i][j] = '✓'
+            // 并列第一（不止一个赢家）时全部显示 🤝
+            const winnerCount = Object.values(roundResult.users).filter((r: any) => r.isWinner).length
+            data[i][j] = winnerCount > 1 ? '🤝' : '✓'
           }
         }
       }
@@ -525,15 +572,13 @@ onMounted(() => {
 onUnmounted(() => {
   socket?.disconnect()
   if (pingTimer !== null) window.clearInterval(pingTimer)
-  if (countdownTimer !== null) window.clearInterval(countdownTimer)
 })
 </script>
 
 <template>
   <List>
     <template #content>
-      <div v-if="!hasRoom || (loading && !joinError)" class="gt-center">加载中...</div>
-      <div v-else-if="joinError" class="gt-center gt-error">{{ joinError }}</div>
+      <div v-if="joinError" class="gt-center gt-error">{{ joinError }}</div>
 
       <div v-else class="game-view">
         <!-- 顶部：左上游戏名+状态，右上设置 -->
@@ -547,7 +592,7 @@ onUnmounted(() => {
               />
               <span v-else class="game-name">{{ selectedGameItem?.name || '你画我猜' }}</span>
             </div>
-            {{ room.roundStatus }} / {{ room.turnStatus }}
+            <!-- {{ room.roundStatus }} / {{ room.turnStatus }} -->
             <component :is="selectedGame?.gameinfo" v-if="selectedGame?.gameinfo" :room="room" />
           </template>
           <template #right>
@@ -652,6 +697,7 @@ onUnmounted(() => {
         <!-- 房主控制 -->
         <div v-if="room.status === 'waiting' && isHost" class="start-btn">
           <Btn type="primary" @click="startGame">开始游戏</Btn>
+          <Btn v-if="room.roundResults.length" @click="clearRoundResults">清除对局记录</Btn>
         </div>
 
         <component
@@ -736,6 +782,14 @@ onUnmounted(() => {
         <div class="item">
           <div class="label">显示网络状态（延迟 / 丢包）</div>
           <Checkbox v-model="showNetStats" :size="14" />
+        </div>
+        <div v-if="isHost" class="item">
+          <div class="label">允许悔棋（五子棋）</div>
+          <Checkbox
+            :model-value="!!room.allowUndo"
+            :size="14"
+            @update:model-value="(value: any) => updateAllowUndo(!!value)"
+          />
         </div>
       </Modal>
 
@@ -1039,7 +1093,7 @@ onUnmounted(() => {
 
         &.system {
           background-color: var(--quote-bg);
-          align-self: center;
+          align-self: flex-start;
           font-style: italic;
           color: var(--text-secondary);
         }
@@ -1084,9 +1138,7 @@ onUnmounted(() => {
 
     .chat-input-area {
       display: flex;
-      padding: 8px;
-      background-color: var(--quote-bg);
-      border-top: 1px solid var(--border-light);
+      padding: 0 8px 8px;
       align-items: baseline;
 
       // 只管布局；边框/内边距由 Input 组件自身样式负责（class 落在组件根 wrapper 上）

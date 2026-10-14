@@ -1,7 +1,5 @@
 import { DietService } from './diet.module';
 
-const creatorId = '62177e23b5742725de6c4e35';
-
 const execQuery = (value: unknown) => ({
   sort: () => execQuery(value),
   select: () => execQuery(value),
@@ -32,13 +30,14 @@ describe('DietService food suggestions', () => {
     ]);
     const recordsFind = jest.fn().mockReturnValue(execQuery([]));
     const service = new DietService(
-      { findById: () => execQuery({ settings: {} }) } as any,
+      { findOne: () => execQuery(null) } as any,
       { find: recordsFind, aggregate } as any,
       { find: () => execQuery([]) } as any,
+      { find: () => execQuery([]), findOne: () => execQuery(null) } as any,
     );
 
-    const recent = await service.getSummary(creatorId);
-    const january = await service.getSummary(creatorId, '2025-01');
+    const recent = await service.getSummary();
+    const january = await service.getSummary('2025-01');
 
     expect(recent.foods.map((food) => food.name)).toEqual(['丰盛的饭', '老食物']);
     expect(recent.foods[0]).toMatchObject({ amount: 150, quantity: 2 });
@@ -46,10 +45,11 @@ describe('DietService food suggestions', () => {
     expect(recent.recentFoods).toEqual(recent.foods.slice(0, 5));
     expect(january.foods).toEqual(recent.foods);
     expect(recordsFind).toHaveBeenCalledWith(expect.objectContaining({ recorded_time: expect.any(Object) }));
-    expect(aggregate.mock.calls[0][0][0].$match).toEqual({ creator: expect.any(Object) });
+    // 不再按 creator 过滤
+    expect(aggregate.mock.calls[0][0][0].$match).toEqual({});
   });
 
-  it('saves records with amount and quantity without a separate food table', async () => {
+  it('saves records with amount and quantity without creator', async () => {
     const recordSave = jest.fn().mockResolvedValue({ _id: 'record' });
     const statSave = jest.fn().mockResolvedValue({});
     const recordModel = jest.fn().mockImplementation(() => ({ save: recordSave }));
@@ -59,15 +59,17 @@ describe('DietService food suggestions', () => {
       {} as any,
       recordModel as any,
       statModel as any,
+      {} as any,
     );
 
-    await service.createRecord(creatorId, {
+    await service.createRecord({
       name: '丰盛的饭', unit: 'u', amount: 100, quantity: 2, caloriesPerUnit: 200,
       recordedTime: '2025-01-01T12:00:00Z',
     });
 
     expect(recordSave).toHaveBeenCalledTimes(1);
     expect(recordModel.mock.calls[0][0]).toMatchObject({ food_name: '丰盛的饭', amount: 100, quantity: 2 });
+    expect(recordModel.mock.calls[0][0]).not.toHaveProperty('creator');
     expect(statSave).toHaveBeenCalledTimes(1);
   });
 });

@@ -31,6 +31,15 @@ import UserManageVue from './views/UserManage.vue'
 import BackupManageVue from './views/BackupManage.vue'
 import DictionaryVue from './views/Playground/Dictionary.vue'
 
+// 最后访问的主要路由：仅这三个 tab 记录，打开首页时优先回到它
+const MAIN_ROUTE_NAMES = ['postList', 'twit', 'playground']
+const LAST_MAIN_ROUTE_KEY = 'lastMainRoute'
+
+function redirectLastMainRoute() {
+  const saved = localStorage.getItem(LAST_MAIN_ROUTE_KEY)
+  return MAIN_ROUTE_NAMES.includes(saved || '') ? { name: saved } : { name: 'postList' }
+}
+
 const routerOptions = {
   history: createWebHistory(),
   routes: [
@@ -38,7 +47,7 @@ const routerOptions = {
       path: '/',
       component: HomeVue,
       children: [
-        { path: '', redirect: { name: 'postList' } },
+        { path: '', redirect: () => redirectLastMainRoute() },
         { path: 'postList', component: PostListVue, name: 'postList' },
         { path: 'twit', component: MessageVue, name: 'twit' },
         { path: 'playground', component: Playground, name: 'playground' },
@@ -110,6 +119,13 @@ const routerOptions = {
 
 const pinia = createPinia()
 export const router = createRouter(routerOptions)
+
+// 记录最后访问的主要路由（供首页重定向）
+router.afterEach((to) => {
+  if (typeof to.name === 'string' && MAIN_ROUTE_NAMES.includes(to.name)) {
+    localStorage.setItem(LAST_MAIN_ROUTE_KEY, to.name)
+  }
+})
 
 router.beforeEach(async (to, from) => {
   const userStore = useUserStore(pinia)

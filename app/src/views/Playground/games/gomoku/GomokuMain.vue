@@ -258,7 +258,8 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div v-if="room.status === 'playing' || room.roundStatus === 'after'" class="gomoku">
+  <!-- 只在准备态隐藏：游戏中、局末结算（settlement，还在看战绩）都保留棋盘 -->
+  <div v-if="room.status !== 'waiting'" class="gomoku">
     <div v-if="room.winnerId" class="bar result">
       {{ room.users[room.winnerId]?.name || '' }} 获胜 🎉
     </div>
@@ -274,11 +275,13 @@ onUnmounted(() => {
         :allow-pinching="true"
         :highlight="canPlace"
         @pointerdown="onPointerDown"
-      />
-      <div v-if="pendingCell && canPlace" class="pending-actions">
-        <Btn small @click="cancelPending">取消</Btn>
-        <Btn small type="primary" @click="confirmPending">确认</Btn>
-      </div>
+      >
+        <!-- 确认/取消走 board 右侧控制插槽，和 fitwindow 同行，不再叠住它 -->
+        <template #control-right v-if="pendingCell && canPlace">
+          <Btn small @click="cancelPending">取消</Btn>
+          <Btn small type="primary" @click="confirmPending">确认</Btn>
+        </template>
+      </GameBoard>
     </div>
   </div>
 </template>
@@ -303,14 +306,6 @@ onUnmounted(() => {
 
   .board-wrap {
     position: relative;
-
-    .pending-actions {
-      position: absolute;
-      right: 0.5rem;
-      bottom: 0.5rem;
-      display: flex;
-      gap: 0.5rem;
-    }
   }
 }
 </style>

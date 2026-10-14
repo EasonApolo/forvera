@@ -16,6 +16,7 @@ describe('Gomoku game', () => {
     white = { id: 'white', totalScore: 0 } as unknown as GameUser;
     room = {
       isGamePlaying: () => true,
+      allowUndo: true,
       roundStatus: 'ing',
       turnStatus: 'ing',
       turn: 1,

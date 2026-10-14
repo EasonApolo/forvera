@@ -1,7 +1,8 @@
-import { BadRequestException, Body, Controller, Delete, Get, Injectable, Module, NotFoundException, Param, Post, Query, Request } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Injectable, Module, NotFoundException, Param, Post, Query } from '@nestjs/common';
 import { InjectModel, MongooseModule } from '@nestjs/mongoose';
 import { Document, Model, Schema, Types } from 'mongoose';
 import { ValidateObjectId } from 'src/shared/validate-object-id.pipes';
+import { Public } from '../guards/jwt-auth.guard';
 import { UserSchema } from 'src/modules/user.module';
 
 type DietUnit = 'g' | 'ml' | 'u';
@@ -41,7 +42,8 @@ export class CreateDietRecordDto {
 }
 
 export const DietRecordSchema = new Schema({
-  creator: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  // creator 为历史字段：新记录不再写入，旧数据保留不过滤
+  creator: { type: Schema.Types.ObjectId, ref: 'User', index: true },
   food_name: { type: String, required: true },
   unit: { type: String, enum: ['g', 'ml', 'u'], required: true },
   calories_per_unit: { type: Number, required: true },
@@ -55,7 +57,7 @@ export const DietRecordSchema = new Schema({
 });
 
 export const DietDailyStatSchema = new Schema({
-  creator: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  creator: { type: Schema.Types.ObjectId, ref: 'User', index: true },
   day_key: { type: String, required: true },
   total_calories: { type: Number, default: 0 },
   total_negative_calories: { type: Number, default: 0 },
@@ -74,12 +76,33 @@ type DietSummaryDay = {
   recordCount: number;
 };
 
+export interface DietWeightDocument extends Document {
+  day_key: string;
+  weight: number;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+const DietWeightSchema = new Schema<DietWeightDocument>(
+  {
+    day_key: { type: String, required: true, unique: true },
+    weight: { type: Number, required: true },
+  },
+  {
+    collection: 'dietweights',
+    timestamps: true,
+  },
+);
+
+const DIET_WEIGHT_MODEL_NAME = 'DietWeight';
+
 @Injectable()
 export class DietService {
   constructor(
     @InjectModel('User') private readonly userModel: Model<any>,
     @InjectModel('DietRecord') private readonly recordModel: Model<DietRecordItem>,
     @InjectModel('DietDailyStat') private readonly dailyStatModel: Model<DietDailyStatItem>,
+    @InjectModel(DIET_WEIGHT_MODEL_NAME) private readonly weightModel: Model<DietWeightDocument>,
   ) {}
 
   private toDateStart(date: Date) {
@@ -150,7 +173,7 @@ export class DietService {
     return `${name || ''}`.trim();
   }
 
-  private async calcWeightChangeLabel(creatorId: string, config: { standard_calories: number; diet_start_date: string | null }) {
+  private async calcWeightChangeLabel(config: { standard_calories: number; diet_start_date: string | null }) {
     const startDayKey = config.diet_start_date?.trim();
     if (!startDayKey) return '';
 
@@ -164,7 +187,7 @@ export class DietService {
     endDate.setDate(endDate.getDate() + 1); // end is exclusive
 
     const stats = await this.dailyStatModel
-      .find({ creator: creatorId, day_key: { $gte: startDayKey, $lte: endDayKey } })
+      .find({ day_key: { $gte: startDayKey, $lte: endDayKey } })
       .sort({ day_key: 1 })
       .lean()
       .exec();
@@ -183,9 +206,10 @@ export class DietService {
     return new Date(year, month - 1, day, 12, 0, 0, 0);
   }
 
-  async getSummary(creatorId: string, month?: string) {
+  async getSummary(month?: string) {
     try {
-      const user = await this.userModel.findById(creatorId).select('settings').lean().exec();
+      // 不再按用户过滤；饮食配置取自任一配置过 diet 的用户（单用户应用）
+      const user = await this.userModel.findOne({ 'settings.diet': { $exists: true } }).select('settings').lean().exec();
       const dietSettings = (user as any)?.settings?.diet || {};
       const config = {
         standard_calories: dietSettings.standardCalories || 2000,
@@ -195,23 +219,36 @@ export class DietService {
       const { month: monthKey, start, end } = isMonthMode ? this.parseMonth(month) : this.parseRecentRange(30);
       const dayKeyStart = this.toDayKey(start);
       const dayKeyEnd = this.toDayKey(end);
-      const [records, dailyStats, latestRecords] = await Promise.all([
+      const [records, dailyStats, latestRecords, weightsInWindow, weightBefore, weightAfter] = await Promise.all([
         this.recordModel
-          .find({ creator: creatorId, recorded_time: { $gte: start, $lt: end } })
+          .find({ recorded_time: { $gte: start, $lt: end } })
           .sort({ recorded_time: -1, created_time: -1 })
           .exec(),
         this.dailyStatModel
-          .find({ creator: creatorId, day_key: { $gte: dayKeyStart, $lt: dayKeyEnd } })
+          .find({ day_key: { $gte: dayKeyStart, $lt: dayKeyEnd } })
           .sort({ day_key: 1 })
           .exec(),
         // 全量记录按 food_name 去重取最近一条（不受当前查看的月份窗口限制），搜索与最近添加都从这里出
         this.recordModel.aggregate([
-          { $match: { creator: new Types.ObjectId(creatorId) } },
+          { $match: {} },
           { $sort: { recorded_time: -1, created_time: -1 } },
           { $group: { _id: '$food_name', record: { $first: '$$ROOT' } } },
           { $sort: { 'record.recorded_time': -1, 'record.created_time': -1 } },
         ]),
+        this.weightModel
+          .find({ day_key: { $gte: dayKeyStart, $lt: dayKeyEnd } })
+          .sort({ day_key: 1 })
+          .lean()
+          .exec(),
+        // 窗口外紧邻的前/后各一条体重，前端用来把折线延伸出图表边界
+        this.weightModel.findOne({ day_key: { $lt: dayKeyStart } }).sort({ day_key: -1 }).lean().exec(),
+        this.weightModel.findOne({ day_key: { $gte: dayKeyEnd } }).sort({ day_key: 1 }).lean().exec(),
       ]);
+      const weights = [
+        ...(weightBefore ? [weightBefore] : []),
+        ...weightsInWindow,
+        ...(weightAfter ? [weightAfter] : []),
+      ];
 
       const foods = latestRecords.map(({ record: r }) => ({
         _id: r._id,
@@ -230,12 +267,13 @@ export class DietService {
       return {
         config,
         foods,
+        weights,
         recentFoods,
         records,
         dailyStats,
         days: isMonthMode ? this.buildMonthDays(monthKey, statsMap) : this.buildRecentDays(30, statsMap),
         month: monthKey,
-        weightChangeLabel: await this.calcWeightChangeLabel(creatorId, config),
+        weightChangeLabel: await this.calcWeightChangeLabel(config),
       };
     } catch (error) {
       const isMonthMode = !!month && /^\d{4}-\d{2}$/.test(month);
@@ -249,6 +287,7 @@ export class DietService {
         foods: [],
         recentFoods: [],
         records: [],
+        weights: [],
         dailyStats: [],
         days: isMonthMode ? this.buildMonthDays(monthKey, new Map()) : this.buildRecentDays(30, new Map()),
         month: monthKey,
@@ -257,7 +296,7 @@ export class DietService {
     }
   }
 
-  async createRecord(creatorId: string, dto: CreateDietRecordDto) {
+  async createRecord(dto: CreateDietRecordDto) {
     const name = this.normalizeName(dto.name);
     if (!name) {
       throw new BadRequestException('Name is required');
@@ -287,7 +326,6 @@ export class DietService {
     const totalCalories = Math.round((amount * quantity * caloriesPerUnit / caloriesMultiplier) * 100) / 100;
 
     const record = await new this.recordModel({
-      creator: creatorId,
       food_name: name,
       unit,
       calories_per_unit: caloriesPerUnit,
@@ -303,10 +341,9 @@ export class DietService {
     const dayKey = this.toDayKey(normalizedRecordedTime);
     const grossPositive = totalCalories > 0 ? totalCalories : 0;
     const grossNegative = totalCalories < 0 ? Math.abs(totalCalories) : 0;
-    const existingStat = await this.dailyStatModel.findOne({ creator: creatorId, day_key: dayKey }).exec();
+    const existingStat = await this.dailyStatModel.findOne({ day_key: dayKey }).exec();
     if (!existingStat) {
       await new this.dailyStatModel({
-        creator: creatorId,
         day_key: dayKey,
         total_calories: grossPositive,
         total_negative_calories: grossNegative,
@@ -331,15 +368,42 @@ export class DietService {
     return record;
   }
 
-  async deleteRecord(creatorId: string, recordId: string) {
-    const record = await this.recordModel.findOne({ _id: recordId, creator: creatorId }).exec();
+  /** 记录/覆盖某日体重（kg） */
+  async saveWeight(dto: { dayKey?: string; weight?: number }) {
+    const dayKey = `${dto?.dayKey || ''}`.trim();
+    const weight = Number(dto?.weight);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) {
+      throw new BadRequestException('Invalid dayKey');
+    }
+    if (!Number.isFinite(weight) || weight <= 0 || weight > 500) {
+      throw new BadRequestException('Invalid weight');
+    }
+
+    const saved = await this.weightModel.findOneAndUpdate(
+      { day_key: dayKey },
+      { $set: { weight } },
+      { upsert: true, new: true },
+    );
+    return saved;
+  }
+
+  async deleteWeight(dayKey: string) {
+    const key = `${dayKey || ''}`.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) {
+      throw new BadRequestException('Invalid dayKey');
+    }
+    const deleted = await this.weightModel.deleteMany({ day_key: key });
+    return { success: true, deletedCount: deleted.deletedCount || 0 };
+  }
+
+  async deleteRecord(recordId: string) {    const record = await this.recordModel.findOne({ _id: recordId }).exec();
     if (!record) {
       throw new NotFoundException('Record not found');
     }
 
     const dayKey = this.toDayKey(record.recorded_time || new Date());
     const totalCalories = Number(record.total_calories) || 0;
-    const existingStat = await this.dailyStatModel.findOne({ creator: creatorId, day_key: dayKey }).exec();
+    const existingStat = await this.dailyStatModel.findOne({ day_key: dayKey }).exec();
 
     await this.recordModel.findByIdAndDelete(recordId).exec();
 
@@ -372,27 +436,34 @@ export class DietService {
 export class DietController {
   constructor(private readonly dietService: DietService) {}
 
-  private getUserId(req: any) {
-    const userId = req?.user?.userId;
-    if (!userId) {
-      throw new BadRequestException('User is required');
-    }
-    return `${userId}`;
-  }
-
+  @Public()
   @Get('summary')
-  async summary(@Request() req: any, @Query('month') month?: string) {
-    return await this.dietService.getSummary(this.getUserId(req), month);
+  async summary(@Query('month') month?: string) {
+    return await this.dietService.getSummary(month);
   }
 
+  @Public()
   @Post('record')
-  async createRecord(@Request() req: any, @Body() dto: CreateDietRecordDto) {
-    return await this.dietService.createRecord(this.getUserId(req), dto);
+  async createRecord(@Body() dto: CreateDietRecordDto) {
+    return await this.dietService.createRecord(dto);
   }
 
+  @Public()
+  @Post('weight')
+  async saveWeight(@Body() dto: { dayKey?: string; weight?: number }) {
+    return await this.dietService.saveWeight(dto);
+  }
+
+  @Public()
+  @Delete('weight/:dayKey')
+  async deleteWeight(@Param('dayKey') dayKey: string) {
+    return await this.dietService.deleteWeight(dayKey);
+  }
+
+  @Public()
   @Delete('record/:id')
-  async deleteRecord(@Request() req: any, @Param('id', new ValidateObjectId()) id: string) {
-    return await this.dietService.deleteRecord(this.getUserId(req), id);
+  async deleteRecord(@Param('id', new ValidateObjectId()) id: string) {
+    return await this.dietService.deleteRecord(id);
   }
 }
 
@@ -402,6 +473,7 @@ export class DietController {
       { name: 'User', schema: UserSchema },
       { name: 'DietRecord', schema: DietRecordSchema },
       { name: 'DietDailyStat', schema: DietDailyStatSchema },
+      { name: DIET_WEIGHT_MODEL_NAME, schema: DietWeightSchema },
     ]),
   ],
   controllers: [DietController],

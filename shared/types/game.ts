@@ -48,6 +48,9 @@ export interface IGameRoom {
   duration: number
 
   roundResults: RoundResult[]
+
+  /** 房间设置：允许悔棋（五子棋） */
+  allowUndo?: boolean
 }
 
 /**

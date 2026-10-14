@@ -250,6 +250,19 @@ class DrawGuess implements Game {
       likes: room.likes,
       dislikes: room.dislikes,
     };
+    // 回合结束系统消息由服务端发：与「xx猜对了」走同一可靠通道，保证按顺序晚于最后一条猜对消息
+    const correctCount = room.correctUserIds.length;
+    room.emitToAll({
+      event: 'message',
+      data: {
+        id: `system-turn-end-${room.round}-${room.turn}-${Date.now()}`,
+        userName: '',
+        type: 'system',
+        content: `第${room.turn}回合结束，${
+          correctCount > 0 ? `${correctCount}个人` : '没有人'
+        }猜对${correctCount > 0 ? '了' : ''}，答案是：${room.word}`,
+      },
+    });
     return { duration: DrawGuessDurations.TurnAfterDuration };
   }
 
@@ -496,8 +509,19 @@ class DrawGuess implements Game {
       const allGuessersCorrect = Object.values(room.users).every((u) => {
         return u.id === room.drawerId || room.correctUserIds.includes(u.id);
       });
+      // 如果所有人都猜对了，提前结束回合。
+      // 延迟到本轮 onMessageBefore 返回、框架广播完这条「猜对了」之后再结束，
+      // 保证「回合结束」系统消息晚于最后的猜对消息
       if (allGuessersCorrect) {
-        room.gotoAfterTurn();
+        setTimeout(() => {
+          if (
+            room.isGamePlaying() &&
+            room.roundStatus === 'ing' &&
+            room.turnStatus === 'ing'
+          ) {
+            room.gotoAfterTurn();
+          }
+        }, 0);
       }
 
       // 将msg替换为猜对文案

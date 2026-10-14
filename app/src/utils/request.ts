@@ -2,6 +2,7 @@ import { ip as baseURL } from '../config'
 import axios, { AxiosRequestConfig, Method } from 'axios'
 import { useUserStore } from '../store/user'
 import { useToastStore } from '../store/toast'
+import { endRequestProgress, startRequestProgress } from './requestProgress'
 
 type RequestOptions = {
   withCredentials?: boolean
@@ -75,6 +76,7 @@ export async function request(
     }
   }
 
+  startRequestProgress()
   try {
     const res = await axios(options)
     return res.data
@@ -110,5 +112,7 @@ export async function request(
       }
     }
     throw err
+  } finally {
+    endRequestProgress()
   }
 }

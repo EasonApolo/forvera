@@ -65,18 +65,24 @@ const setCanvasSize = () => {
   ctx.scale(dpr, dpr)
 }
 
-const setZoom = (delta: number, x?: number, y?: number) => {
+/** 以 (anchorX, anchorY)（视口坐标）为不动点缩放到 nextScale，调整 offset 使锚点下的内容保持不动 */
+const applyZoom = (nextScale: number, anchorX: number, anchorY: number) => {
   const viewport = viewportRef.value
   if (!viewport) return
   const rect = viewport.getBoundingClientRect()
-  const nextScale = limit({ value: scale.value + delta, min: 0.1, max: 3 })
-  const anchorX = x ?? rect.left + rect.width / 2
-  const anchorY = y ?? rect.top + rect.height / 2
   const localX = (anchorX - rect.left - offsetX.value) / scale.value
   const localY = (anchorY - rect.top - offsetY.value) / scale.value
   scale.value = nextScale
   offsetX.value = anchorX - rect.left - localX * nextScale
   offsetY.value = anchorY - rect.top - localY * nextScale
+}
+
+const setZoom = (delta: number, x?: number, y?: number) => {
+  const rect = viewportRef.value?.getBoundingClientRect()
+  if (!rect) return
+  const anchorX = x ?? rect.left + rect.width / 2
+  const anchorY = y ?? rect.top + rect.height / 2
+  applyZoom(limit({ value: scale.value + delta, min: 0.1, max: 3 }), anchorX, anchorY)
 }
 
 /**
@@ -95,7 +101,8 @@ const resetCanvasView = () => {
 const onWheel = (event: WheelEvent) => {
   event.preventDefault()
   if (!allowPinching) return
-  setZoom(event.deltaY < 0 ? 0.08 : -0.08, event.offsetX, event.offsetY)
+  // 锚点必须是视口 client 坐标（setZoom 内部会减 rect.left）；offsetX 是相对目标元素的，用它会把锚点整体偏移
+  setZoom(event.deltaY < 0 ? 0.08 : -0.08, event.clientX, event.clientY)
 }
 
 /**
@@ -155,7 +162,15 @@ const onPointerMove = (event: PointerEvent) => {
         min: 0.1,
         max: 2.2,
       })
-      scale.value = nextScale
+      // 以两指中点为不动点缩放（中点随手指移动，天然带上平移分量）
+      const viewportRect = viewportRef.value?.getBoundingClientRect()
+      const midpointX = (first.x + second.x) / 2
+      const midpointY = (first.y + second.y) / 2
+      if (viewportRect) {
+        applyZoom(nextScale, viewportRect.left + midpointX, viewportRect.top + midpointY)
+      } else {
+        scale.value = nextScale
+      }
     }
   } else if (activePointers.size === 1) {
     if (isPanning.value) {
