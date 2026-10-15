@@ -63,6 +63,12 @@ const replyTo = (message?: Message) => {
   showReplyPanel.value = true
 }
 
+// edit
+const editMessage = (message: Message) => {
+  messageStore.editMessage(message)
+  showReplyPanel.value = true
+}
+
 const closeReplyPanel = () => {
   showReplyPanel.value = false
   messageStore.clearMessageInput()
@@ -150,6 +156,7 @@ watch(
               @click.stop="toggleMessageStatus(message)"
               >{{ message.status === 1 ? '隐藏' : '显示' }}</span
             >
+            <span v-if="isAdmin" @click.stop="editMessage(message)">编辑</span>
             <span v-if="isAdmin" @click.stop="deleteMessage(message)">删除</span
             >{{ formatDate(message.created_time) }}
           </div>
@@ -173,6 +180,7 @@ watch(
             </div>
             <div class="date">
               <span @click.stop="replyTo(reply)">回复</span
+              ><span v-if="isAdmin" @click.stop="editMessage(reply)">编辑</span
               ><span v-if="isAdmin" @click.stop="deleteMessage(reply)">删除</span
               >{{ formatDate(reply.created_time) }}
             </div>

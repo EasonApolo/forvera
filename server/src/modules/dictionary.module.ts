@@ -90,6 +90,30 @@ const WordAnalysisSchema: GenAISchema = {
       type: Type.STRING,
       description: '最终用于展示和入库的词形（与 canonicalWord 一致）',
     },
+    pronunciation: {
+      type: Type.OBJECT,
+      description:
+        '该词主要读音音标（IPA，含斜杠 /…/）；英音美音相同时可只填一个',
+      nullable: true,
+      properties: {
+        british: {
+          type: Type.STRING,
+          description: '英式音标（IPA，含斜杠）；无可靠英音时留空',
+          nullable: true,
+        },
+        american: {
+          type: Type.STRING,
+          description: '美式音标（IPA，含斜杠）；无可靠美音时留空',
+          nullable: true,
+        },
+      },
+    },
+    briefMeanings: {
+      type: Type.STRING,
+      description:
+        '全词最简洁中文释义的单行概括：按词义顺序用中文分号；分隔，不加词性标签、不加括号解释，如 spade → 铲子；黑桃花色；铲子挖掘',
+      nullable: true,
+    },
     rootAnalysis: {
       type: Type.OBJECT,
       description: '词根解析、词源演变故事及同根词',
@@ -142,6 +166,12 @@ const WordAnalysisSchema: GenAISchema = {
                 meaning: {
                   type: Type.STRING,
                   description: '极简中文释义，禁止冗余括号解释',
+                },
+                phonetic: {
+                  type: Type.STRING,
+                  description:
+                    '该词义的特殊读音音标（IPA，含斜杠），如某词性重音位移、个别词义异读；与主音标相同则无特殊读音，留空',
+                  nullable: true,
                 },
                 classification: {
                   type: Type.ARRAY,
@@ -206,6 +236,8 @@ const WordAnalysisSchema: GenAISchema = {
     'canonicalWord',
     'word',
     'meanings',
+    'pronunciation',
+    'briefMeanings',
   ],
 };
 
@@ -329,6 +361,12 @@ class DictionaryService {
 
   4. 释义简洁性：
   - meaning 必须极简直白，严禁括号补充说明。
+
+  4.5 音标与简洁释义：
+  - pronunciation 给出该词的主要读音音标（IPA，含斜杠 /…/），英音美音分别填入 british/american；两者相同时可以只填一个，另一个留空。
+  - 音标必须使用正确的 Unicode IPA 字符（如 ˈɪŋ），严禁输出乱码形式（如 ËˆÉªÅ‹，那是 UTF-8 被错误按 Windows-1252 解码的结果）。
+  - 若某个词性（或某个词义）存在特殊读音，如名词/动词重音位移（record、present）、个别词义异读，则在该 definitions 项的 phonetic 中给出对应读音；无特殊读音的词义 phonetic 一律留空。大部分词应只有 pronunciation 一处音标。
+  - briefMeanings 是全词最简洁释义的单行概括：按词义顺序用中文分号；分隔，不加词性标签、不加括号解释。示例：spade → 铲子；黑桃花色；铲子挖掘。
 
   5. 同义词层级：
   - 先按词性分类，再按词义分类。
@@ -659,6 +697,12 @@ class DictionaryController {
         await this.dictionaryService.upsertAiLink(word, aiRecordId);
       },
     });
+    // 查过的词视为已学，从待学列表移除（失败不影响查询结果）
+    try {
+      await this.dictionaryService.deleteLearningWord(word);
+    } catch (e) {
+      console.error('delete learning word failed', e);
+    }
   }
 
   @Public()

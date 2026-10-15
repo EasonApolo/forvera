@@ -926,7 +926,7 @@ const getActionText = (action: string, amount?: number, totalAmount?: number) =>
               v-model="chatInput"
               class="chat-input"
               placeholder="输入消息..."
-              @keyup.enter="sendMessage"
+              @enter="sendMessage"
             />
             <button class="chat-send-btn" :disabled="!chatInput.trim()" @click="sendMessage">
               发送

@@ -856,7 +856,7 @@ onMounted(async () => {
             min="0"
             inputmode="decimal"
             placeholder=""
-            @keyup.enter="commitWeight"
+            @enter="commitWeight"
             @blur="scheduleWeightCommit"
             @clear="onWeightInputClear"
           />
@@ -890,7 +890,7 @@ onMounted(async () => {
           <template v-if="recordModal.stage === 1">
             <div class="search-row">
               <div class="search-input-wrap">
-                <Input v-model="recordModal.query" placeholder="输入食物名称" @keyup.enter="confirmFood" />
+                <Input v-model="recordModal.query" placeholder="输入食物名称" @enter="confirmFood" />
                 <CircleBtn
                   v-if="recordModal.query"
                   class="search-clear-btn"

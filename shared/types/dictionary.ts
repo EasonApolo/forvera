@@ -4,6 +4,8 @@
 
 export type DictionaryDefinition = {
   meaning: string
+  /** 该词义的特殊读音（IPA，含斜杠），如某词性重音位移；无则省略 */
+  phonetic?: string | null
   example: string
   exampleTranslation: string
   /** 该词义的 3~5 层通用分类路径（从大类到小类） */
@@ -30,6 +32,13 @@ export type DictionaryWordAnalysis = {
   /** 输入疑似拼写错误时模型推断的正确原形；无则为空 */
   correctedWord?: string | null
   word: string
+  /** 主要音标：英式/美式（IPA，含斜杠）；相同时可只填一个 */
+  pronunciation?: {
+    british?: string | null
+    american?: string | null
+  } | null
+  /** 全词最简洁释义，各词义用中文分号；分隔，如「铲子；黑桃花色；铲子挖掘」 */
+  briefMeanings?: string | null
   rootAnalysis: {
     root: string
     rootMeaning: string

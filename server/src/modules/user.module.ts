@@ -34,6 +34,9 @@ export class UpdateUserSettingsDTO {
       dietStartDate?: string | null;
       targetWeight?: number | null;
     };
+    stock?: {
+      chartWidth?: number;
+    };
   };
 }
 
@@ -55,6 +58,9 @@ export interface User extends Document {
       targetWeight?: number | null;
     };
     aiSetting?: AiSetting;
+    stock?: {
+      chartWidth?: number;
+    };
   };
 }
 
@@ -173,6 +179,16 @@ export class UserService implements OnModuleInit {
       nextSettings.diet = {
         ...(currentSettings.diet || {}),
         ...incoming.diet,
+      };
+    }
+
+    if (incoming.stock && typeof incoming.stock === 'object') {
+      const width = Number(incoming.stock.chartWidth);
+      nextSettings.stock = {
+        ...(currentSettings.stock || {}),
+        ...(Number.isFinite(width) && incoming.stock.chartWidth != null
+          ? { chartWidth: Math.min(90, Math.max(10, Math.round(width))) }
+          : {}),
       };
     }
 

@@ -16,6 +16,7 @@ export const useMessageStore = defineStore('message', {
       messageWrapper: {
         replyToUsername: '',
         anonymous: true,
+        editTarget: null as Message | null,
       },
       loading: false,
       anonymousNameList: [],
@@ -31,6 +32,11 @@ export const useMessageStore = defineStore('message', {
         this.messageWrapper.replyToUsername = message.user.username
       }
     },
+    editMessage(message: Message) {
+      this.clearMessageInput()
+      this.messageInput.content = message.content
+      this.messageWrapper.editTarget = message
+    },
     clearMessageInput() {
       this.messageInput = {
         content: '',
@@ -40,6 +46,7 @@ export const useMessageStore = defineStore('message', {
         progress: 0,
       }
       this.messageWrapper.replyToUsername = ''
+      this.messageWrapper.editTarget = null
     },
     async fetchMessages(isLogin: boolean, year?: number, keyword?: string) {
       this.messages = []
@@ -128,6 +135,19 @@ export const useMessageStore = defineStore('message', {
         status,
       })
       if (res) {
+        const updatedIndex = this.messages.findIndex(m => m._id === res._id)
+        if (updatedIndex !== -1) {
+          this.messages.splice(updatedIndex, 1, res)
+        }
+      }
+      return res
+    },
+    async updateMessageContent(messageId: string, content: string) {
+      const res: Message = await request(`twit/${messageId}/content`, 'PUT', {
+        content,
+      })
+      if (res) {
+        this.processMessages(res)
         const updatedIndex = this.messages.findIndex(m => m._id === res._id)
         if (updatedIndex !== -1) {
           this.messages.splice(updatedIndex, 1, res)

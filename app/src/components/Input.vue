@@ -24,12 +24,21 @@ const props = withDefaults(
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
   (e: 'clear'): void
+  /** 回车（已在组件内过滤输入法选词时的 composing 回车） */
+  (e: 'enter'): void
 }>()
 
 const inputType = computed(() => (props.password ? 'password' : props.type))
 
 const onInput = (event: Event) => {
   emit('update:modelValue', (event.target as HTMLInputElement).value)
+}
+
+const onKeydown = (event: KeyboardEvent) => {
+  if (event.key !== 'Enter') return
+  // 输入法候选选词时的回车（isComposing / keyCode 229）不触发 enter
+  if (event.isComposing || (event as any).keyCode === 229) return
+  emit('enter')
 }
 
 const onClickClear = () => {
@@ -48,6 +57,7 @@ const onClickClear = () => {
       :value="modelValue"
       :placeholder="placeholder"
       @input="onInput"
+      @keydown="onKeydown"
     />
     <CircleBtn
       v-if="allowClear && modelValue"

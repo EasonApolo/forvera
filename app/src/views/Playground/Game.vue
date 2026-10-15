@@ -767,7 +767,7 @@ onUnmounted(() => {
                 v-model="chatText"
                 class="chat-input"
                 placeholder="输入..."
-                @keyup.enter="sendMessage"
+                @enter="sendMessage"
               />
               <Btn class="chat-send-btn" type="primary" :disabled="!chatText.trim()" @click="sendMessage">
                 发送

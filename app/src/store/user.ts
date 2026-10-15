@@ -19,6 +19,9 @@ export const useUserStore = defineStore('user', {
           standardCalories?: number
           dietStartDate?: string | null
         }
+        stock?: {
+          chartWidth?: number
+        }
       },
     },
   }),

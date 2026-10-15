@@ -11,16 +11,8 @@ export interface MarketItem {
   currency?: string
   /** 当前最新价 */
   lastPrice?: number
-  /** 当日涨跌金额 */
-  change?: number
-  /** 当日涨跌幅，百分比 */
-  changePercent?: number
-  /** 列表顺序 */
-  order?: number
-  /** 所属分组 ID */
-  groupId?: string
-  /** 备注说明 */
-  remark?: string
+  /** 添加时间（毫秒） */
+  addedAt?: number
 }
 
 export interface MarketChart {
@@ -46,6 +38,8 @@ export interface MarketChart {
   low: number[]
   /** 成交量列表 */
   volume: number[]
+  /** 实时报价概要 */
+  quote?: MarketQuote
 }
 
 export interface MarketSearchResult {
@@ -62,3 +56,35 @@ export interface MarketSearchResult {
 }
 
 export interface MarketChartResult extends MarketChart {}
+
+/** 实时报价概要（来自腾讯 qt 数据段） */
+export interface MarketQuote {
+  price: number
+  change: number
+  changePercent: number
+  high: number
+  low: number
+  /** 市盈率 TTM */
+  pe: number | null
+  /** 总市值（亿元） */
+  marketCap: number | null
+  /** 市场状态描述，如「交易中」「已收盘」「未开盘」「盘前交易」 */
+  marketStatus?: string
+}
+
+/** K 线范围：3mo=日K（60个交易日），1y=周K（52周），10y=月K（10年） */
+export type ChartRange = '3mo' | '1y' | '10y'
+
+export interface StockComment {
+  _id?: string
+  /** 标的代码 */
+  symbol: string
+  /** 评论用户（populate 后含 username） */
+  user?: { username: string } | string
+  /** 评论内容 */
+  content: string
+  /** 标签 */
+  tags?: string[]
+  /** 评论时间 */
+  created_time: string | Date
+}

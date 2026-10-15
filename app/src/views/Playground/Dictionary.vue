@@ -9,6 +9,7 @@ import Btn from '@/components/Btn.vue'
 import AiStream from '@/components/AiStream.vue'
 import GreyText from '@/components/GreyText.vue'
 import { request } from '@/utils/request'
+import { fixMojibake } from '@/utils/common'
 import { ip } from '@/config'
 import type { DictionaryDefinition, DictionaryRecord, DictionaryWordAnalysis } from 'shared/types/dictionary'
 import BottomNavBar from '@/components/layout/BottomNavBar.vue'
@@ -28,6 +29,29 @@ const word = ref('')
 const searchWord = ref('')
 const result = ref<DictionaryWordAnalysis | null>(null)
 const displayRoot = computed(() => result.value?.rootAnalysis?.root?.trim().replace(/^-+|-+$/g, '').toLowerCase() || '')
+// 标题下方音标行：英音美音不同时区分显示，否则只显示一个
+const pronunciationLine = computed(() => {
+  const p = result.value?.pronunciation
+  if (!p) return ''
+  const br = p.british?.trim()
+  const am = p.american?.trim()
+  if (br && am && br !== am) return `英 ${br} 美 ${am}`
+  return br || am || ''
+})
+
+// 音标偶发模型乱码（UTF-8 被当 CP1252 解码，如 ËˆÉªÅ‹），展示前统一修复
+const fixAnalysisMojibake = (analysis: DictionaryWordAnalysis) => {
+  const p = analysis?.pronunciation
+  if (p) {
+    if (p.british) p.british = fixMojibake(p.british)
+    if (p.american) p.american = fixMojibake(p.american)
+  }
+  for (const meaning of analysis?.meanings || []) {
+    for (const def of meaning.definitions || []) {
+      if (def.phonetic) def.phonetic = fixMojibake(def.phonetic)
+    }
+  }
+}
 const streamText = ref('')
 const streamModelId = ref('')
 const streamStatus = ref<'connecting' | 'streaming'>('connecting')
@@ -270,6 +294,7 @@ const analyze = async (targetWord?: string, isRegenerate = false, navigate = tru
     if (!completed) throw new Error('查询中断，请重新查询以继续接收')
 
     result.value = JSON.parse(content) as DictionaryWordAnalysis
+    fixAnalysisMojibake(result.value)
     word.value = q
 
     // 变形词/拼写纠错：模型判定后改为查询原形或纠错词（只重定向一层，避免循环）
@@ -609,6 +634,8 @@ onMounted(() => {
       </div>
       <div class="display" v-if="pageMode === 'word' && result">
         <div class="word">{{ result.word }}</div>
+        <div v-if="pronunciationLine" class="word-phonetic">{{ pronunciationLine }}</div>
+        <div v-if="result.briefMeanings" class="word-brief">{{ result.briefMeanings }}</div>
         <GreyText>词根</GreyText>
         <Card>
           <div class="text">{{ displayRoot }}</div>
@@ -631,6 +658,7 @@ onMounted(() => {
             <div class="sub-title">{{ meaning.partOfSpeech }}</div>
             <div v-for="(def, index) in meaning.definitions" :key="index" class="sub-section">
               <div class="text">{{ def.meaning }}</div>
+              <div v-if="def.phonetic" class="secondary-text">{{ def.phonetic }}</div>
               <div v-if="def.classification?.length" class="secondary-text classification-line">
                 分类:
                 <template v-for="(label, index) in def.classification" :key="`${label}-${index}`">
@@ -676,7 +704,7 @@ onMounted(() => {
       </div>
     </div>
     <div class="search-row">
-      <Input v-model="searchWord" small @keydown.enter="handleSearchEnter" />
+      <Input v-model="searchWord" small @enter="handleSearchEnter" />
       <Btn :disabled="!canSearch" :loading="loading" @click="analyze(searchWord)">查询</Btn>
     </div>
   </Modal>
@@ -944,6 +972,23 @@ onMounted(() => {
   .word {
     font-size: 1.75rem;
     font-weight: 600;
+    margin-bottom: 0.5rem;
+  }
+
+  // 标题下方两行：音标 + 最简洁释义，居中灰色、无 label
+  .word-phonetic,
+  .word-brief {
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+  }
+
+  .word-phonetic {
+    margin-top: -0.25rem;
+  }
+
+  .word-brief {
     margin-bottom: 0.5rem;
   }
 

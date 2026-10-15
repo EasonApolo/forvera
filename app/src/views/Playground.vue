@@ -46,12 +46,12 @@ const cardMap: PlaygroundCard[] = [
     content: 'requirements',
   },
   { key: 'diet', type: 'route', title: '🍽Diet', content: 'diet' },
+  { key: 'stock', type: 'route', title: '📈我来画K线', content: 'stock' },
   {
     key: 'underConstruction',
     type: 'group',
     title: '🚧施工中',
     content: [
-      { key: 'stock', type: 'route', title: '股市', content: 'stock' },
       { key: 'village', type: 'route', title: '🏘Village', content: 'village' },
       { key: 'pet', type: 'route', title: 'AGENT', content: 'pet' },
     ],

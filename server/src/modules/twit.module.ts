@@ -35,6 +35,10 @@ export class UpdateTwitStatusDTO {
   status: 0 | 1;
 }
 
+export class UpdateTwitContentDTO {
+  content: string;
+}
+
 // Interface
 export interface Twit extends Document {
   user: string;
@@ -194,6 +198,17 @@ export class TwitService {
       .exec()
   }
 
+  async updateTwitContent(twitId: string, content: string) {
+    const twit = await this.twitModel.findById(twitId)
+    if (!twit) return null
+    // 仅修改文字，不动时间/用户名/图片等
+    await this.twitModel.findByIdAndUpdate(twitId, { content })
+    if (twit.ancestor) {
+      return await this.getTwitById(twit.ancestor)
+    }
+    return await this.getTwitById(twitId)
+  }
+
   populateTwit(query) {
     return query
       .populate('user', 'username')
@@ -326,6 +341,15 @@ export class TwitController {
     @Body() body: UpdateTwitStatusDTO,
   ) {
     return await this.twitService.updateTwitStatus(twitId, body.status)
+  }
+
+  @Roles(3)
+  @Put('/:twitId/content')
+  async updateTwitContent(
+    @Param('twitId') twitId,
+    @Body() body: UpdateTwitContentDTO,
+  ) {
+    return await this.twitService.updateTwitContent(twitId, body.content)
   }
 }
 

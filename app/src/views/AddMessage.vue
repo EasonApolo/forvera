@@ -14,6 +14,7 @@ import DraggableGallery from '../components/DraggableGallery.vue'
 import Textarea from '../components/Textarea.vue'
 import { getUrlFromFD } from '../store/write'
 import { useToastStore } from '../store/toast'
+import { useImageStore } from '../store/image'
 
 const props = withDefaults(defineProps<{ msg?: string; floating?: boolean }>(), {
   floating: false,
@@ -23,14 +24,26 @@ const emit = defineEmits<{
   (e: 'sent'): void
 }>()
 
-const [messageStore, userStore, toastStore, mainStore] = [
+const [messageStore, userStore, toastStore, mainStore, imageStore] = [
   useMessageStore(),
   useUserStore(),
   useToastStore(),
   useMainStore(),
+  useImageStore(),
 ]
 const { messageInput, messageWrapper } = storeToRefs(messageStore)
 const { isLogin } = storeToRefs(userStore)
+
+// edit mode
+const isEditing = computed(() => !!messageWrapper.value.editTarget)
+const editPreviewImages = computed(() =>
+  (messageWrapper.value.editTarget?.files || []).map(f => f.thumb)
+)
+const clickEditImage = (index: number) => {
+  const target = messageWrapper.value.editTarget
+  if (!target) return
+  imageStore.preview(target.files[index].url)
+}
 
 // file input
 const allSelectedImages: Array<SelectedImage> = reactive([])
@@ -64,10 +77,32 @@ const closePanel = () => {
 }
 
 // send message
-const sendBtnContent = '发送'
+const sendBtnContent = computed(() => (isEditing.value ? '保存' : '发送'))
 const send = async () => {
   if (!messageInput.value.content.length) {
     toastStore.showToast({ content: '内容不能为空', type: 'ERR' })
+    return
+  }
+  if (isEditing.value) {
+    const target = messageWrapper.value.editTarget!
+    loading.value.send = true
+    const res = await messageStore.updateMessageContent(
+      target._id,
+      messageInput.value.content
+    )
+    loading.value.send = false
+    if (res) {
+      toastStore.showToast({ content: '编辑成功～', type: 'OK' })
+    } else {
+      toastStore.showToast({ content: '编辑失败，看看控制台', type: 'ERR' })
+    }
+    messageStore.clearMessageInput()
+    if (props.floating) {
+      emit('sent')
+      emit('close')
+    } else {
+      mainStore.router.go(-1)
+    }
     return
   }
   if (messageInput.value.content.length < 4) {
@@ -118,17 +153,22 @@ const loading = ref({ send: false })
     <div class="input-wrapper">
       <div class="content">
         <div class="tips">
-          - {{ userStore.isLogin ? '' : '当前未登录，登录后' }}可以{{
-            messageWrapper.replyToUsername ? '' : '附带最多3张图片和'
-          }}切换身份。<br />
-          - 退出页面会清空，不要在这里打一堆字哦。<br />
-          - 正在以{{
-            messageWrapper.anonymous ? '随机' : userStore.userInfo.username
-          }}身份{{
-            messageWrapper.replyToUsername
-              ? `回复${messageWrapper.replyToUsername}`
-              : '发言'
-          }}。<br />
+          <template v-if="isEditing">
+            - 编辑模式中，仅可修改文字，图片不可编辑。<br />
+          </template>
+          <template v-else>
+            - {{ userStore.isLogin ? '' : '当前未登录，登录后' }}可以{{
+              messageWrapper.replyToUsername ? '' : '附带最多3张图片和'
+            }}切换身份。<br />
+            - 退出页面会清空，不要在这里打一堆字哦。<br />
+            - 正在以{{
+              messageWrapper.anonymous ? '随机' : userStore.userInfo.username
+            }}身份{{
+              messageWrapper.replyToUsername
+                ? `回复${messageWrapper.replyToUsername}`
+                : '发言'
+            }}。<br />
+          </template>
         </div>
         <Textarea
           class="input text-input"
@@ -136,7 +176,14 @@ const loading = ref({ send: false })
           :rows="3"
         />
         <DraggableGallery
-          v-if="!messageWrapper.anonymous && displayImages?.length"
+          v-if="isEditing && editPreviewImages.length"
+          :images="editPreviewImages"
+          class="gallery"
+          :is-draggable="false"
+          :onClick="clickEditImage"
+        ></DraggableGallery>
+        <DraggableGallery
+          v-if="!isEditing && !messageWrapper.anonymous && displayImages?.length"
           :images="displayImages"
           class="gallery"
           :is-draggable="true"
@@ -151,12 +198,14 @@ const loading = ref({ send: false })
           <div class="right">
             <FileInput
               v-if="
+                !isEditing &&
                 !messageWrapper.anonymous && !messageWrapper.replyToUsername
               "
               :change="fileInputChange"
               :multiple="true"
             ></FileInput>
             <Btn
+              v-if="!isEditing"
               class="action"
               @click="toggleAnonymous"
               :type="messageWrapper.anonymous ? 'primary' : undefined"
@@ -173,17 +222,22 @@ const loading = ref({ send: false })
       <div class="input-wrapper">
         <div class="content">
           <div class="tips">
-            - {{ userStore.isLogin ? '' : '当前未登录，登录后' }}可以{{
-              messageWrapper.replyToUsername ? '' : '附带最多3张图片和'
-            }}切换身份。<br />
-            - 退出页面会清空，不要在这里打一堆字哦。<br />
-            - 正在以{{
-              messageWrapper.anonymous ? '随机' : userStore.userInfo.username
-            }}身份{{
-              messageWrapper.replyToUsername
-                ? `回复${messageWrapper.replyToUsername}`
-                : '发言'
-            }}。<br />
+            <template v-if="isEditing">
+              - 编辑模式中，仅可修改文字，图片不可编辑。<br />
+            </template>
+            <template v-else>
+              - {{ userStore.isLogin ? '' : '当前未登录，登录后' }}可以{{
+                messageWrapper.replyToUsername ? '' : '附带最多3张图片和'
+              }}切换身份。<br />
+              - 退出页面会清空，不要在这里打一堆字哦。<br />
+              - 正在以{{
+                messageWrapper.anonymous ? '随机' : userStore.userInfo.username
+              }}身份{{
+                messageWrapper.replyToUsername
+                  ? `回复${messageWrapper.replyToUsername}`
+                  : '发言'
+              }}。<br />
+            </template>
           </div>
           <Textarea
             class="input text-input"
@@ -191,7 +245,14 @@ const loading = ref({ send: false })
             :rows="3"
           />
           <DraggableGallery
-            v-if="!messageWrapper.anonymous && displayImages?.length"
+            v-if="isEditing && editPreviewImages.length"
+            :images="editPreviewImages"
+            class="gallery"
+            :is-draggable="false"
+            :onClick="clickEditImage"
+          ></DraggableGallery>
+          <DraggableGallery
+            v-if="!isEditing && !messageWrapper.anonymous && displayImages?.length"
             :images="displayImages"
             class="gallery"
             :is-draggable="true"
@@ -205,12 +266,14 @@ const loading = ref({ send: false })
             <div class="right">
               <FileInput
                 v-if="
+                  !isEditing &&
                   !messageWrapper.anonymous && !messageWrapper.replyToUsername
                 "
                 :change="fileInputChange"
                 :multiple="true"
               ></FileInput>
               <Btn
+                v-if="!isEditing"
                 class="action"
                 @click="toggleAnonymous"
                 :type="messageWrapper.anonymous ? 'primary' : undefined"
