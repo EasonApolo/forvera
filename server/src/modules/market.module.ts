@@ -50,8 +50,8 @@ async function fetchTencentText(url: string) {
 export class MarketService {
   private chartCache = new Map<string, { expiresAt: number; data: MarketChartResult }>()
 
-  private getCacheKey(symbol: string, range: string) {
-    return `${symbol}#${range}`
+  private getCacheKey(symbol: string, range: string, count?: number) {
+    return `${symbol}#${range}#${count ?? ''}`
   }
 
   async searchSymbols(query: string): Promise<MarketSearchResult[]> {
@@ -104,13 +104,20 @@ export class MarketService {
       .slice(0, 18)
   }
 
-  async fetchChart(symbol: string, range: string): Promise<MarketChartResult> {
+  async fetchChart(symbol: string, range: string, count?: number): Promise<MarketChartResult> {
     // 腾讯代码区分大小写（usAAPL.OQ），不做 upper 归一化
     const normalized = symbol.trim()
     if (!normalized) {
       throw new BadRequestException('symbol 不能为空')
     }
-    const key = this.getCacheKey(normalized, range)
+    // 数据条数：客户端可在设置里调整，限制在 10~800，缺省用默认值
+    const defaultCount = KLINE_COUNTS[range] || 52
+    const requested = Number(count)
+    const safeCount =
+      Number.isFinite(requested) && count != null
+        ? Math.min(800, Math.max(10, Math.round(requested)))
+        : defaultCount
+    const key = this.getCacheKey(normalized, range, safeCount)
     const cached = this.chartCache.get(key)
     const now = Date.now()
     if (cached && cached.expiresAt > now) {
@@ -118,9 +125,8 @@ export class MarketService {
     }
 
     const ktype = range === '10y' ? 'month' : range === '3mo' ? 'day' : 'week'
-    const count = KLINE_COUNTS[range] || 52
     const text = await fetchTencentText(
-      `${TENCENT_KLINE_URL}?param=${encodeURIComponent(normalized)},${ktype},,,${count},qfq`
+      `${TENCENT_KLINE_URL}?param=${encodeURIComponent(normalized)},${ktype},,,${safeCount},qfq`
     )
     const json = JSON.parse(text)
     const item = json?.data?.[normalized]
@@ -249,6 +255,7 @@ export interface StockCommentDocument extends Document {
   symbol: string
   content: string
   tags: string[]
+  targetPrice?: number | null
   created_time: Date
 }
 
@@ -258,6 +265,7 @@ export const StockCommentSchema = new Schema(
     symbol: String,
     content: String,
     tags: [String],
+    targetPrice: { type: Number, default: null },
     created_time: { type: Date, default: Date.now },
   },
   { timestamps: false },
@@ -270,8 +278,20 @@ export class StockCommentService {
     private readonly commentModel: Model<StockCommentDocument>,
   ) {}
 
-  async addComment(symbol: string, content: string, tags: string[] = []) {
+  /** date 为 K 线选中日期（YYYY-MM-DD），作为评论时间；缺省用当前时间 */
+  async addComment(
+    symbol: string,
+    content: string,
+    tags: string[] = [],
+    date?: string,
+    targetPrice?: number | null,
+  ) {
     const normalized = symbol.trim()
+    const validDate = /^\d{4}-\d{2}-\d{2}$/.test(date || '')
+    const validTarget =
+      typeof targetPrice === 'number' && Number.isFinite(targetPrice) && targetPrice > 0
+        ? Math.round(targetPrice * 10000) / 10000
+        : null
     return new this.commentModel({
       symbol: normalized,
       content,
@@ -279,7 +299,8 @@ export class StockCommentService {
         .map(tag => tag.trim())
         .filter(Boolean)
         .slice(0, 5),
-      created_time: new Date(),
+      targetPrice: validTarget,
+      created_time: validDate ? new Date(`${date}T00:00:00`) : new Date(),
     }).save()
   }
 
@@ -291,8 +312,17 @@ export class StockCommentService {
       .exec()
   }
 
-  /** 编辑只改内容和标签，不动 created_time（显示时间不变） */
-  async updateComment(id: string, content: string, tags: string[] = []) {
+  /** 编辑只改内容、标签和期望价格，不动 created_time（显示时间不变） */
+  async updateComment(
+    id: string,
+    content: string,
+    tags: string[] = [],
+    targetPrice?: number | null,
+  ) {
+    const validTarget =
+      typeof targetPrice === 'number' && Number.isFinite(targetPrice) && targetPrice > 0
+        ? Math.round(targetPrice * 10000) / 10000
+        : null
     return this.commentModel
       .findByIdAndUpdate(
         id,
@@ -300,6 +330,7 @@ export class StockCommentService {
           $set: {
             content,
             tags: tags.map(tag => tag.trim()).filter(Boolean).slice(0, 5),
+            targetPrice: validTarget,
           },
         },
         { new: true },
@@ -318,6 +349,10 @@ export class AddStockCommentDTO {
   symbol: string
   content: string
   tags?: string[]
+  /** K 线选中日期 YYYY-MM-DD，作为评论时间 */
+  date?: string
+  /** 期望价格（画 K 线横虚线），无则空 */
+  targetPrice?: number | null
 }
 
 @Controller('api/market')
@@ -335,8 +370,17 @@ export class MarketController {
 
   @Public()
   @Get('chart')
-  async chart(@Query('symbol') symbol: string, @Query('range') range: string) {
-    return this.marketService.fetchChart(symbol, range || '1y')
+  async chart(
+    @Query('symbol') symbol: string,
+    @Query('range') range: string,
+    @Query('count') count: string,
+  ) {
+    const parsed = Number(count)
+    return this.marketService.fetchChart(
+      symbol,
+      range || '1y',
+      count != null && count !== '' && Number.isFinite(parsed) ? parsed : undefined,
+    )
   }
 
   @Public()
@@ -357,19 +401,25 @@ export class MarketController {
     if (!content) {
       throw new BadRequestException('评论内容不能为空')
     }
-    return this.commentService.addComment(body.symbol, content, body.tags || [])
+    return this.commentService.addComment(
+      body.symbol,
+      content,
+      body.tags || [],
+      body.date,
+      body.targetPrice,
+    )
   }
 
   @Patch('comments/:id')
   async updateComment(
     @Param('id') id: string,
-    @Body() body: { content?: string; tags?: string[] },
+    @Body() body: { content?: string; tags?: string[]; targetPrice?: number | null },
   ) {
     const content = (body.content || '').trim()
     if (!content) {
       throw new BadRequestException('评论内容不能为空')
     }
-    return this.commentService.updateComment(id, content, body.tags || [])
+    return this.commentService.updateComment(id, content, body.tags || [], body.targetPrice)
   }
 
   @Delete('comments/:id')

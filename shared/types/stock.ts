@@ -85,6 +85,8 @@ export interface StockComment {
   content: string
   /** 标签 */
   tags?: string[]
+  /** 期望价格（画在 K 线图上的横虚线），无则空 */
+  targetPrice?: number | null
   /** 评论时间 */
   created_time: string | Date
 }

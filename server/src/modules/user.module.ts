@@ -36,6 +36,17 @@ export class UpdateUserSettingsDTO {
     };
     stock?: {
       chartWidth?: number;
+      watchlist?: {
+        symbol: string;
+        name: string;
+        type?: string;
+        exchange?: string;
+        currency?: string;
+        addedAt?: number;
+      }[];
+      tags?: string[];
+      tooltipOffset?: { x?: number; y?: number };
+      dataRange?: { day?: number; week?: number; month?: number };
     };
   };
 }
@@ -60,6 +71,17 @@ export interface User extends Document {
     aiSetting?: AiSetting;
     stock?: {
       chartWidth?: number;
+      watchlist?: {
+        symbol: string;
+        name: string;
+        type?: string;
+        exchange?: string;
+        currency?: string;
+        addedAt?: number;
+      }[];
+      tags?: string[];
+      tooltipOffset?: { x?: number; y?: number };
+      dataRange?: { day?: number; week?: number; month?: number };
     };
   };
 }
@@ -184,11 +206,64 @@ export class UserService implements OnModuleInit {
 
     if (incoming.stock && typeof incoming.stock === 'object') {
       const width = Number(incoming.stock.chartWidth);
+      const watchlist = Array.isArray(incoming.stock.watchlist)
+        ? incoming.stock.watchlist
+            .filter(
+              (item) =>
+                item &&
+                typeof item.symbol === 'string' &&
+                typeof item.name === 'string',
+            )
+            .map((item) => ({
+              symbol: item.symbol,
+              name: item.name,
+              type: typeof item.type === 'string' ? item.type : '',
+              exchange: typeof item.exchange === 'string' ? item.exchange : undefined,
+              currency: typeof item.currency === 'string' ? item.currency : undefined,
+              addedAt: Number.isFinite(Number(item.addedAt)) ? Number(item.addedAt) : undefined,
+            }))
+            .slice(0, 200)
+        : null;
+      const tags = Array.isArray(incoming.stock.tags)
+        ? incoming.stock.tags
+            .filter((tag) => typeof tag === 'string')
+            .map((tag) => tag.trim())
+            .filter(Boolean)
+            .slice(0, 30)
+        : null;
+      const offset = incoming.stock.tooltipOffset;
+      const toNum = (v: unknown) => {
+        const n = Number(v);
+        return Number.isFinite(n) && v != null && v !== '' ? Math.round(n) : null;
+      };
+      const tooltipOffset =
+        offset && typeof offset === 'object'
+          ? { x: toNum(offset.x) ?? 20, y: toNum(offset.y) ?? 20 }
+          : null;
+      const dataRangeRaw = incoming.stock.dataRange;
+      const clampRange = (v: unknown, def: number) => {
+        const n = Number(v);
+        return Number.isFinite(n) && v != null && v !== ''
+          ? Math.min(800, Math.max(10, Math.round(n)))
+          : def;
+      };
+      const dataRange =
+        dataRangeRaw && typeof dataRangeRaw === 'object'
+          ? {
+              day: clampRange(dataRangeRaw.day, 60),
+              week: clampRange(dataRangeRaw.week, 52),
+              month: clampRange(dataRangeRaw.month, 120),
+            }
+          : null;
       nextSettings.stock = {
         ...(currentSettings.stock || {}),
         ...(Number.isFinite(width) && incoming.stock.chartWidth != null
           ? { chartWidth: Math.min(90, Math.max(10, Math.round(width))) }
           : {}),
+        ...(watchlist ? { watchlist } : {}),
+        ...(tags ? { tags } : {}),
+        ...(tooltipOffset ? { tooltipOffset } : {}),
+        ...(dataRange ? { dataRange } : {}),
       };
     }
 

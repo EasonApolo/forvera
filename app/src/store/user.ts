@@ -21,6 +21,17 @@ export const useUserStore = defineStore('user', {
         }
         stock?: {
           chartWidth?: number
+          watchlist?: {
+            symbol: string
+            name: string
+            type?: string
+            exchange?: string
+            currency?: string
+            addedAt?: number
+          }[]
+          tags?: string[]
+          tooltipOffset?: { x?: number; y?: number }
+          dataRange?: { day?: number; week?: number; month?: number }
         }
       },
     },

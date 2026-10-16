@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import Card from './Card.vue'
 import Btn from './Btn.vue'
 import CircleBtn from './CircleBtn.vue'
 import Modal from './Modal.vue'
+import Input from './Input.vue'
 import Textarea from './Textarea.vue'
 import KlineChart from './KlineChart.vue'
 import { request } from '../utils/request'
@@ -16,10 +17,12 @@ const props = defineProps<{
   symbol: string
   name: string
   range: ChartRange
+  expanded: boolean
 }>()
 const emit = defineEmits<{
   (e: 'remove'): void
   (e: 'update:range', range: ChartRange): void
+  (e: 'update:expanded', expanded: boolean): void
 }>()
 
 const toastStore = useToastStore()
@@ -52,12 +55,25 @@ const currentTab = computed({
   set: (range: ChartRange) => emit('update:range', range),
 })
 
+// K 线数据条数（日K/周K/月K，设置里可改，默认 60/52/120）
+const dataRangeCounts = computed<Record<ChartRange, number>>(() => {
+  const dr = userStore.userInfo.settings.stock?.dataRange
+  const pick = (v: number | undefined, def: number) =>
+    Number.isFinite(Number(v)) && Number(v) > 0 ? Math.round(Number(v)) : def
+  return {
+    '3mo': pick(dr?.day, 60),
+    '1y': pick(dr?.week, 52),
+    '10y': pick(dr?.month, 120),
+  }
+})
+
 const loadChart = async (range: ChartRange) => {
   if (charts.value[range] || chartLoading.value[range]) return
   chartLoading.value[range] = true
   try {
     charts.value[range] = await request(
-      `market/chart?symbol=${encodeURIComponent(props.symbol)}&range=${range}`
+      `market/chart?symbol=${encodeURIComponent(props.symbol)}&range=${range}` +
+        `&count=${dataRangeCounts.value[range]}`
     )
   } catch (e) {
     console.error(e)
@@ -92,20 +108,56 @@ const switchTab = (range: ChartRange) => {
   loadChart(range)
 }
 
-// 点击名称在名称/代码之间切换
-const showCode = ref(false)
+// K 线竖线选中的日期（评论时间用），由 KlineChart 同步过来
+const selectedTradeDate = ref('')
+
+// 评论时间只显示日期（created_time 已被服务端规范为某个交易日的零点）
+const commentDate = (comment: StockComment) =>
+  formatDate(String(comment.created_time)).slice(0, 10)
+
+// 右侧展示的评论：日期 ≤ 选中日期 的最近一条；早于最早评论则回退到最早的一条
+const displayedComment = computed(() => {
+  const selected = selectedTradeDate.value
+  if (!selected) return comments.value[0] ?? null
+  return (
+    comments.value.find(c => commentDate(c) <= selected) ??
+    comments.value[comments.value.length - 1] ??
+    null
+  )
+})
+// K 线图上的评论标记：日期 + 期望价格
+const commentMarks = computed(() =>
+  comments.value.map(c => ({ date: commentDate(c), targetPrice: c.targetPrice ?? null }))
+)
+
+// 折叠态：expanded 由父组件统一管理，同时只展开一张卡片
+// 展开时确保当前 tab 的 K 线数据已拉取（切过 range 的其它卡片展开会补请求）
+watch(
+  () => props.expanded,
+  value => {
+    if (!value) return
+    if (!activated.value) {
+      activate()
+      return
+    }
+    if (!charts.value[currentTab.value]) loadChart(currentTab.value)
+  },
+)
 
 // comments
 const comments = ref<StockComment[]>([])
 const showCommentModal = ref(false)
 const commentInput = ref('')
+const targetPriceInput = ref('')
 const commentLoading = ref(false)
 
-// 只展示最新一条评论（列表按时间倒序，第一个即最新），纯文本无卡片
-const latestComment = computed(() => comments.value[0] ?? null)
-
-// 第二行：最新评论的标签
-const latestTags = computed(() => latestComment.value?.tags ?? [])
+// 解析期望价格：空或非正数视为无
+const parseTargetPrice = (): number | null => {
+  const raw = targetPriceInput.value.trim()
+  if (!raw) return null
+  const value = Number(raw)
+  return Number.isFinite(value) && value > 0 ? value : null
+}
 
 const loadComments = async () => {
   try {
@@ -122,6 +174,7 @@ const openCommentModal = () => {
   }
   editingCommentId.value = null
   commentInput.value = ''
+  targetPriceInput.value = ''
   selectedTags.value = []
   showCommentModal.value = true
 }
@@ -135,7 +188,7 @@ const canBrowseNewer = computed(() => browseIndex.value > 0)
 const canBrowseOlder = computed(() => browseIndex.value < comments.value.length - 1)
 
 const openBrowseModal = () => {
-  if (!latestComment.value) return
+  if (!displayedComment.value) return
   browseIndex.value = 0
   showBrowseModal.value = true
 }
@@ -159,7 +212,9 @@ const openEditComment = () => {
   if (!comment?._id) return
   editingCommentId.value = comment._id
   commentInput.value = comment.content
-  selectedTags.value = [...(comment.tags ?? [])]
+  targetPriceInput.value = comment.targetPrice != null ? String(comment.targetPrice) : ''
+  // 已在设置里删除的 tag 视为遗失，只选中仍然存在的
+  selectedTags.value = (comment.tags ?? []).filter(t => availableTags.value.includes(t))
   showBrowseModal.value = false
   showCommentModal.value = true
 }
@@ -185,8 +240,12 @@ const deleteBrowseComment = async () => {
   }
 }
 
-// tags：固定几个标签，可勾选一个或多个
-const FIXED_TAGS = ['看涨', '看跌', '长期', '短期']
+// tags：候选标签来自用户设置（设置里可管理），默认四个；编辑时已被设置删除的 tag 视为遗失，不再选中
+const DEFAULT_TAGS = ['看涨', '看跌', '长期', '短期']
+const availableTags = computed(() => {
+  const tags = userStore.userInfo.settings.stock?.tags
+  return tags?.length ? tags : DEFAULT_TAGS
+})
 const selectedTags = ref<string[]>([])
 const toggleTag = (tag: string) => {
   const index = selectedTags.value.indexOf(tag)
@@ -204,14 +263,15 @@ const submitComment = async () => {
     return
   }
   commentLoading.value = true
+  const targetPrice = parseTargetPrice()
   try {
     if (editingCommentId.value) {
       const updated: StockComment = await request(
         `market/comments/${editingCommentId.value}`,
         'patch',
-        { content, tags: selectedTags.value }
+        { content, tags: selectedTags.value, targetPrice }
       )
-      // 只更新内容与标签，created_time 不变，顺序不变
+      // 只更新内容、标签和期望价格，created_time 不变，顺序不变
       const index = comments.value.findIndex(c => c._id === editingCommentId.value)
       if (index >= 0) comments.value[index] = updated
       toastStore.showToast({ content: '已更新', type: 'OK' })
@@ -220,6 +280,8 @@ const submitComment = async () => {
         symbol: props.symbol,
         content,
         tags: selectedTags.value,
+        date: selectedTradeDate.value || undefined,
+        targetPrice,
       })
       comments.value.unshift(comment)
       toastStore.showToast({ content: '评论成功', type: 'OK' })
@@ -243,6 +305,12 @@ const chartWidth = computed(() => {
   const w = Number(userStore.userInfo.settings.stock?.chartWidth)
   return Number.isFinite(w) && w >= 10 && w <= 90 ? w : 60
 })
+
+// K 线提示框相对指针的偏移（设置里可改，默认 20,20）
+const tooltipOffset = computed(() => ({
+  x: Number(userStore.userInfo.settings.stock?.tooltipOffset?.x) || 20,
+  y: Number(userStore.userInfo.settings.stock?.tooltipOffset?.y) || 20,
+}))
 
 onMounted(() => {
   // 进入视口（提前 100px）才触发首次加载
@@ -271,38 +339,43 @@ onUnmounted(() => {
 
 <template>
   <Card :ref="(el: any) => (cardEl = el?.$el ?? el)" class="stock-card">
-    <div class="stock-header">
-      <span class="stock-name" :title="showCode ? name : symbol" @click="showCode = !showCode">{{
-        showCode ? symbol : name
-      }}</span>
-      <span class="stock-price" v-if="lastPrice != null">{{ lastPrice.toFixed(2) }}</span>
+    <div class="stock-header" @click="emit('update:expanded', !props.expanded)">
+      <span class="trading-dot" :class="{ active: isTrading }"></span>
+      <span class="stock-name">{{ name }}</span>
       <span
         v-if="changePercent != null"
         class="stock-change"
         :class="{ up: priceUp, down: !priceUp }"
         >{{ priceUp ? '+' : '' }}{{ changePercent.toFixed(2) }}%</span
       >
+      <span class="stock-price" v-if="lastPrice != null">{{ lastPrice.toFixed(2) }}</span>
       <span v-if="pe != null" class="stock-meta">{{ pe.toFixed(2) }}</span>
       <span v-if="marketCap" class="stock-meta">{{ marketCap }}</span>
-      <span v-if="isTrading" class="trading-badge">交易中</span>
       <CircleBtn
         class="stock-delete"
         icon="close"
         :size="16"
         :font-size="12"
-        @click="remove"
+        @click.stop="remove"
       ></CircleBtn>
     </div>
+    <template v-if="expanded">
     <div class="stock-tags-row">
       <div class="latest-tags">
-        <span v-for="tag in latestTags" :key="tag" class="comment-badge">{{ tag }}</span>
+        <span v-for="tag in displayedComment?.tags ?? []" :key="tag" class="comment-badge">{{ tag }}</span>
       </div>
       <Btn size="small" class="tags-row-btn" @click="openCommentModal">评论</Btn>
     </div>
     <div class="stock-body">
       <div class="stock-chart" :style="{ width: chartWidth + '%' }">
         <div class="chart-area">
-          <KlineChart :chart="currentChart" :loading="chartLoading[currentTab]" />
+          <KlineChart
+            :chart="currentChart"
+            :loading="chartLoading[currentTab]"
+            :comment-marks="commentMarks"
+            :tooltip-offset="tooltipOffset"
+            @update:selected-date="selectedTradeDate = $event"
+          />
         </div>
         <div class="chart-tabs">
           <span
@@ -315,14 +388,15 @@ onUnmounted(() => {
           >
         </div>
       </div>
-      <div class="stock-comments" :class="{ clickable: !!latestComment }" @click="openBrowseModal">
-        <template v-if="latestComment">
-          <div class="comment-time">{{ formatDate(String(latestComment.created_time)) }}</div>
-          <div class="comment-text">{{ latestComment.content }}</div>
+      <div class="stock-comments" :class="{ clickable: !!displayedComment }" @click="openBrowseModal">
+        <template v-if="displayedComment">
+          <div class="comment-time">{{ commentDate(displayedComment) }}</div>
+          <div class="comment-text">{{ displayedComment.content }}</div>
         </template>
         <div v-else class="comment-empty">暂无评论</div>
       </div>
     </div>
+    </template>
 
     <Modal
       :show="showCommentModal"
@@ -339,9 +413,13 @@ onUnmounted(() => {
       "
     >
       <Textarea v-model="commentInput" :rows="10" placeholder="输入评论内容" />
+      <div class="target-price-row">
+        <span class="target-price-label">期望价格</span>
+        <Input v-model="targetPriceInput" placeholder="选填，画在 K 线图上" />
+      </div>
       <div class="tag-picker">
         <span
-          v-for="tag in FIXED_TAGS"
+          v-for="tag in availableTags"
           :key="tag"
           class="tag-option"
           :class="{ active: selectedTags.includes(tag) }"
@@ -379,7 +457,7 @@ onUnmounted(() => {
         ></CircleBtn>
       </div>
       <template v-if="browseComment">
-        <div class="browse-time">{{ formatDate(String(browseComment.created_time)) }}</div>
+        <div class="browse-time">{{ commentDate(browseComment) }}</div>
         <div class="browse-content">{{ browseComment.content }}</div>
       </template>
       <div class="browse-actions">
@@ -393,19 +471,18 @@ onUnmounted(() => {
 <style lang="less" scoped>
 .stock-card {
   text-align: left;
-  padding: 0.5rem 0.75rem;
+  padding: 0.375rem 0.5rem;
 }
 
 .stock-header {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
-  gap: 0.25rem 0.5rem;
+  gap: 0.25rem;
 
   .stock-name {
     font-size: 12px;
     font-weight: bold;
-    cursor: pointer;
   }
 
   .stock-price {
@@ -432,12 +509,17 @@ onUnmounted(() => {
     color: var(--text-secondary);
   }
 
-  .trading-badge {
-    font-size: 11px;
-    padding: 0.1rem 0.45rem;
-    border-radius: 999px;
-    color: #fff;
-    background: var(--primary-color);
+  .trading-dot {
+    flex: 0 0 auto;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #c4c4c4;
+    align-self: center;
+
+    &.active {
+      background: var(--primary-color);
+    }
   }
 
   .stock-delete {
@@ -592,6 +674,22 @@ onUnmounted(() => {
   justify-content: flex-end;
   gap: 0.5rem;
   margin-top: 0.75rem;
+}
+
+.target-price-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+
+  .target-price-label {
+    flex: 0 0 auto;
+    font-size: 13px;
+  }
+
+  > :nth-child(2) {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
 }
 
 .tag-picker {
