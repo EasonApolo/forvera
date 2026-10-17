@@ -114,10 +114,10 @@ const isAdmin = computed(() => Number(userInfo.value?.role) === 3)
 
 const navItems = computed(() => {
   const items: Array<{ key: string; label: string; active?: boolean }> = [{ key: 'back', label: '‹ 返回' }]
+  items.push({ key: 'list', label: '词库', active: pageMode.value === 'home' })
   if (isAdmin.value) {
     items.push({ key: 'action', label: '查询', active: currentTab.value === 'action' })
   }
-  items.push({ key: 'list', label: '词库', active: pageMode.value === 'home' })
   return items
 })
 

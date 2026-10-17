@@ -74,3 +74,43 @@ export const fixMojibake = (s: string): string => {
     return s
   }
 }
+/** 进度计算方式：跌幅=线性跌幅占比，ln=对数模型，sigmoid=S 型曲线（两头慢中间快） */
+export type ProgressMethod = 'linear' | 'ln' | 'sigmoid'
+
+/**
+ * 目标进度百分比（0=起点价，100=到达目标价，反向可为负，可超 100）：
+ * - linear 跌幅：(then-current)/(then-target)
+ * - ln 对数：(ln then - ln current)/(ln then - ln target)，贴合几何布朗运动/复利心理
+ * - sigmoid S 型：价格空间 logistic，s(p)=1/(1+e^(-k(p-m)))，m=中点、k=5/|跨度|，
+ *   端点归一到 0/100，呈现“慢→快→慢”
+ * 价格为非正数（ln 要求）、当时价=目标价或无意义时分母为 0，返回 null。
+ */
+export const progressPercent = (
+  current: number,
+  thenPrice: number,
+  target: number,
+  method: ProgressMethod = 'ln'
+): number | null => {
+  if (
+    !Number.isFinite(current) ||
+    !Number.isFinite(thenPrice) ||
+    !Number.isFinite(target) ||
+    thenPrice === target
+  ) {
+    return null
+  }
+  if (method === 'linear') {
+    return ((thenPrice - current) / (thenPrice - target)) * 100
+  }
+  if (method === 'ln') {
+    if (current <= 0 || thenPrice <= 0 || target <= 0) return null
+    return ((Math.log(thenPrice) - Math.log(current)) / (Math.log(thenPrice) - Math.log(target))) * 100
+  }
+  // sigmoid
+  const k = 5 / Math.abs(thenPrice - target)
+  const mid = (thenPrice + target) / 2
+  const s = (p: number) => 1 / (1 + Math.exp(-k * (p - mid)))
+  const denom = s(thenPrice) - s(target)
+  if (denom === 0) return null
+  return ((s(thenPrice) - s(current)) / denom) * 100
+}

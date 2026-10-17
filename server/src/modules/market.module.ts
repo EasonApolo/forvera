@@ -95,6 +95,8 @@ export class MarketService {
         type,
       }))
       .filter(item => ['us', 'hk', 'sh', 'sz'].includes(item.market) && TYPE_MAP[item.type])
+      // 美股指数（usIXIC/usNDX 等）腾讯 K 线接口只回最新 1 条，无历史数据，搜出来也画不了图
+      .filter(item => !(item.market === 'us' && item.type === 'ZS'))
       .map(item => ({
         // 统一编码：usAAPL.OQ / hk00700 / sh600519（前缀小写，代码大写）
         symbol: `${item.market}${item.code.toUpperCase()}`,
@@ -256,6 +258,7 @@ export interface StockCommentDocument extends Document {
   content: string
   tags: string[]
   targetPrice?: number | null
+  currentPrice?: number | null
   created_time: Date
 }
 
@@ -266,6 +269,8 @@ export const StockCommentSchema = new Schema(
     content: String,
     tags: [String],
     targetPrice: { type: Number, default: null },
+    // 评论创建时的当前价格，用于计算完成百分比（编辑评论时不更新）
+    currentPrice: { type: Number, default: null },
     created_time: { type: Date, default: Date.now },
   },
   { timestamps: false },
@@ -285,12 +290,17 @@ export class StockCommentService {
     tags: string[] = [],
     date?: string,
     targetPrice?: number | null,
+    currentPrice?: number | null,
   ) {
     const normalized = symbol.trim()
     const validDate = /^\d{4}-\d{2}-\d{2}$/.test(date || '')
     const validTarget =
       typeof targetPrice === 'number' && Number.isFinite(targetPrice) && targetPrice > 0
         ? Math.round(targetPrice * 10000) / 10000
+        : null
+    const validCurrent =
+      typeof currentPrice === 'number' && Number.isFinite(currentPrice) && currentPrice > 0
+        ? Math.round(currentPrice * 10000) / 10000
         : null
     return new this.commentModel({
       symbol: normalized,
@@ -300,6 +310,7 @@ export class StockCommentService {
         .filter(Boolean)
         .slice(0, 5),
       targetPrice: validTarget,
+      currentPrice: validCurrent,
       created_time: validDate ? new Date(`${date}T00:00:00`) : new Date(),
     }).save()
   }
@@ -353,6 +364,8 @@ export class AddStockCommentDTO {
   date?: string
   /** 期望价格（画 K 线横虚线），无则空 */
   targetPrice?: number | null
+  /** 评论时的当前价格（客户端随实时报价带上），无则空 */
+  currentPrice?: number | null
 }
 
 @Controller('api/market')
@@ -407,6 +420,7 @@ export class MarketController {
       body.tags || [],
       body.date,
       body.targetPrice,
+      body.currentPrice,
     )
   }
 

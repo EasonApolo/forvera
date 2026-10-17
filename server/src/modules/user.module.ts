@@ -36,6 +36,13 @@ export class UpdateUserSettingsDTO {
     };
     stock?: {
       chartWidth?: number;
+      chartHeight?: number;
+      /** 进度计算方式：linear=跌幅线性，ln=对数（默认），sigmoid=S 型曲线 */
+      progressMethod?: 'linear' | 'ln' | 'sigmoid';
+      /** K 线纵轴最低点：low=时间段最低价，zero=0 点（默认） */
+      yMin?: 'low' | 'zero';
+      /** 默认分组：无设置时视为「无分组」 */
+      defaultGroup?: string;
       watchlist?: {
         symbol: string;
         name: string;
@@ -43,7 +50,10 @@ export class UpdateUserSettingsDTO {
         exchange?: string;
         currency?: string;
         addedAt?: number;
+        group?: string;
       }[];
+      /** 分组列表 */
+      groups?: string[];
       tags?: string[];
       tooltipOffset?: { x?: number; y?: number };
       dataRange?: { day?: number; week?: number; month?: number };
@@ -71,6 +81,10 @@ export interface User extends Document {
     aiSetting?: AiSetting;
     stock?: {
       chartWidth?: number;
+      chartHeight?: number;
+      progressMethod?: 'linear' | 'ln' | 'sigmoid';
+      yMin?: 'low' | 'zero';
+      defaultGroup?: string;
       watchlist?: {
         symbol: string;
         name: string;
@@ -78,7 +92,9 @@ export interface User extends Document {
         exchange?: string;
         currency?: string;
         addedAt?: number;
+        group?: string;
       }[];
+      groups?: string[];
       tags?: string[];
       tooltipOffset?: { x?: number; y?: number };
       dataRange?: { day?: number; week?: number; month?: number };
@@ -206,6 +222,16 @@ export class UserService implements OnModuleInit {
 
     if (incoming.stock && typeof incoming.stock === 'object') {
       const width = Number(incoming.stock.chartWidth);
+      const height = Number(incoming.stock.chartHeight);
+      const progressMethod = ['linear', 'ln', 'sigmoid'].includes(incoming.stock.progressMethod)
+        ? incoming.stock.progressMethod
+        : null;
+      const yMin = ['low', 'zero'].includes(incoming.stock.yMin) ? incoming.stock.yMin : null;
+      // 空串合法：表示把默认分组重置为「无分组」
+      const defaultGroup =
+        typeof incoming.stock.defaultGroup === 'string'
+          ? incoming.stock.defaultGroup.trim().slice(0, 30)
+          : null;
       const watchlist = Array.isArray(incoming.stock.watchlist)
         ? incoming.stock.watchlist
             .filter(
@@ -221,8 +247,19 @@ export class UserService implements OnModuleInit {
               exchange: typeof item.exchange === 'string' ? item.exchange : undefined,
               currency: typeof item.currency === 'string' ? item.currency : undefined,
               addedAt: Number.isFinite(Number(item.addedAt)) ? Number(item.addedAt) : undefined,
+              group: typeof item.group === 'string' && item.group.trim() ? item.group.trim() : undefined,
             }))
             .slice(0, 200)
+        : null;
+      const groups = Array.isArray(incoming.stock.groups)
+        ? Array.from(
+            new Set(
+              incoming.stock.groups
+                .filter((g) => typeof g === 'string')
+                .map((g) => g.trim())
+                .filter(Boolean),
+            ),
+          ).slice(0, 50)
         : null;
       const tags = Array.isArray(incoming.stock.tags)
         ? incoming.stock.tags
@@ -260,7 +297,14 @@ export class UserService implements OnModuleInit {
         ...(Number.isFinite(width) && incoming.stock.chartWidth != null
           ? { chartWidth: Math.min(90, Math.max(10, Math.round(width))) }
           : {}),
+        ...(Number.isFinite(height) && incoming.stock.chartHeight != null
+          ? { chartHeight: Math.min(300, Math.max(40, Math.round(height))) }
+          : {}),
+        ...(progressMethod ? { progressMethod } : {}),
+        ...(yMin ? { yMin } : {}),
+        ...(defaultGroup !== null ? { defaultGroup } : {}),
         ...(watchlist ? { watchlist } : {}),
+        ...(groups ? { groups } : {}),
         ...(tags ? { tags } : {}),
         ...(tooltipOffset ? { tooltipOffset } : {}),
         ...(dataRange ? { dataRange } : {}),

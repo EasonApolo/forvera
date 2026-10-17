@@ -181,9 +181,10 @@ const formatBytes = (bytes?: number) => {
     }
   }
   &.small {
-    padding: .125rem .25rem;
+    padding: .25rem .25rem;
     font-size: .75rem;
     width: auto;
+    line-height: 0.75rem;
 
     .loading-svg {
       width: 14px;

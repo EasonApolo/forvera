@@ -8,7 +8,7 @@ import Input from './Input.vue'
 import Textarea from './Textarea.vue'
 import KlineChart from './KlineChart.vue'
 import { request } from '../utils/request'
-import { formatDate } from '../utils/common'
+import { formatDate, progressPercent, type ProgressMethod } from '../utils/common'
 import { useToastStore } from '../store/toast'
 import { useUserStore } from '../store/user'
 import type { ChartRange, MarketChartResult, StockComment } from 'shared/types/stock'
@@ -18,11 +18,14 @@ const props = defineProps<{
   name: string
   range: ChartRange
   expanded: boolean
+  /** header 显示模式：评价=tag+进度，基本面=价格+市盈+市值，管理=修改分组+删除 */
+  headerMode?: 'eval' | 'fundamental' | 'manage'
 }>()
 const emit = defineEmits<{
   (e: 'remove'): void
   (e: 'update:range', range: ChartRange): void
   (e: 'update:expanded', expanded: boolean): void
+  (e: 'change-group'): void
 }>()
 
 const toastStore = useToastStore()
@@ -90,8 +93,16 @@ const activate = () => {
 
 const currentChart = computed(() => charts.value[currentTab.value])
 
-// 顶栏报价：优先用接口带的实时报价（qt），否则退回周K最后收盘
-const quote = computed(() => currentChart.value?.quote)
+// 顶栏报价：优先用当前 tab 图表带的实时报价；range 是全部卡片共用的，
+// 别的卡片切 tab 会导致本卡片当前 tab 无数据，此时退回任意已加载图表的报价
+// （任一图表接口内嵌的 qt 都是同一个实时行情）
+const quote = computed(() => {
+  if (currentChart.value?.quote) return currentChart.value.quote
+  for (const c of Object.values(charts.value)) {
+    if (c?.quote) return c.quote
+  }
+  return undefined
+})
 const lastPrice = computed(() => quote.value?.price ?? null)
 const changePercent = computed(() => quote.value?.changePercent ?? null)
 const priceUp = computed(() => (changePercent.value ?? 0) >= 0)
@@ -111,24 +122,73 @@ const switchTab = (range: ChartRange) => {
 // K 线竖线选中的日期（评论时间用），由 KlineChart 同步过来
 const selectedTradeDate = ref('')
 
+// 评论日期缺省用当前图表最后一根K线的日期（最后一个交易日），
+// 避免图表未加载完时提交把非交易日（如周末）当成评论日期
+const defaultCommentDate = computed(() => {
+  const chart = currentChart.value
+  const n = chart?.timestamps.length ?? 0
+  if (!chart || !n) return ''
+  return formatDate(new Date(chart.timestamps[n - 1]).toISOString()).slice(0, 10)
+})
+
 // 评论时间只显示日期（created_time 已被服务端规范为某个交易日的零点）
 const commentDate = (comment: StockComment) =>
   formatDate(String(comment.created_time)).slice(0, 10)
 
-// 右侧展示的评论：日期 ≤ 选中日期 的最近一条；早于最早评论则回退到最早的一条
+// 右侧展示的评论：日期 ≤ 选中日期 的最近一条；早于最早评论则回退到最早的一条。
+// 月K 的节点日期是每月1号，按整月比较，否则当月评论永远排在当月K线之后选不中
 const displayedComment = computed(() => {
   const selected = selectedTradeDate.value
   if (!selected) return comments.value[0] ?? null
+  const keyOf = (d: string) => (props.range === '10y' ? d.slice(0, 7) : d)
+  const selectedKey = keyOf(selected)
   return (
-    comments.value.find(c => commentDate(c) <= selected) ??
+    comments.value.find(c => keyOf(commentDate(c)) <= selectedKey) ??
     comments.value[comments.value.length - 1] ??
     null
   )
 })
-// K 线图上的评论标记：日期 + 期望价格
+// K 线图上的评论标记：日期 + 期望价格 + 评论时的价格
 const commentMarks = computed(() =>
-  comments.value.map(c => ({ date: commentDate(c), targetPrice: c.targetPrice ?? null }))
+  comments.value.map(c => ({
+    date: commentDate(c),
+    targetPrice: c.targetPrice ?? null,
+    currentPrice: c.currentPrice ?? null,
+  }))
 )
+
+// 进度计算方式（设置里可切换，默认对数）
+const progressMethod = computed<ProgressMethod>(() => {
+  const m = userStore.userInfo.settings.stock?.progressMethod
+  return m === 'linear' || m === 'sigmoid' ? m : 'ln'
+})
+
+// 评论价格信息一行：目标、当前（弹窗打开时定格）、起始（评论时价格）、进度（整数无小数点）；
+// 无目标价则只显示起始
+const completionText = (comment: StockComment | null | undefined): string | null => {
+  if (!comment) return null
+  const then = comment.currentPrice
+  if (then == null) return null
+  const parts: string[] = []
+  if (comment.targetPrice != null) parts.push(`目标 ${comment.targetPrice}`)
+  const cur = modalPriceSnapshot.value
+  if (cur != null) parts.push(`当前 ${cur.toFixed(2)}`)
+  parts.push(`起始 ${then}`)
+  if (comment.targetPrice != null && cur != null) {
+    const percent = progressPercent(cur, then, comment.targetPrice, progressMethod.value)
+    if (percent != null) parts.push(`进度 ${Math.round(percent)}%`)
+  }
+  return parts.join(' · ')
+}
+// header 的 tag 和完成百分比固定按最新评论，不随 K 线选中日期变化
+const headerCompletion = computed(() => {
+  const comment = comments.value[0]
+  const cur = lastPrice.value
+  if (!comment || comment.targetPrice == null || comment.currentPrice == null || cur == null) {
+    return null
+  }
+  return progressPercent(cur, comment.currentPrice, comment.targetPrice, progressMethod.value)
+})
 
 // 折叠态：expanded 由父组件统一管理，同时只展开一张卡片
 // 展开时确保当前 tab 的 K 线数据已拉取（切过 range 的其它卡片展开会补请求）
@@ -173,11 +233,16 @@ const openCommentModal = () => {
     return
   }
   editingCommentId.value = null
+  editingCommentDate.value = ''
   commentInput.value = ''
   targetPriceInput.value = ''
   selectedTags.value = []
+  modalPriceSnapshot.value = lastPrice.value
   showCommentModal.value = true
 }
+
+// 评论弹窗里的“当前价格”：打开弹窗时定格，不随后续行情刷新
+const modalPriceSnapshot = ref<number | null>(null)
 
 // 浏览评论弹窗：点击卡片上的评论打开，可左右切换历史评论
 const showBrowseModal = ref(false)
@@ -189,7 +254,10 @@ const canBrowseOlder = computed(() => browseIndex.value < comments.value.length 
 
 const openBrowseModal = () => {
   if (!displayedComment.value) return
-  browseIndex.value = 0
+  // 打开时定位到卡片上正在显示的那条评论，而不是永远最新一条
+  const index = comments.value.indexOf(displayedComment.value)
+  browseIndex.value = index >= 0 ? index : 0
+  modalPriceSnapshot.value = lastPrice.value
   showBrowseModal.value = true
 }
 const browseNewer = () => {
@@ -201,7 +269,13 @@ const browseOlder = () => {
 
 // 编辑评论（复用添加弹窗，标题区分；更新不影响显示时间）
 const editingCommentId = ref<string | null>(null)
+// 编辑中的评论原日期（添加模式为空，展示选中K线日期）
+const editingCommentDate = ref('')
 const commentModalTitle = computed(() => (editingCommentId.value ? '编辑评论' : '添加评论'))
+// 弹窗里展示的评论日期：编辑用原日期，添加用 K 线选中日期（缺省最后一个交易日）
+const commentModalDate = computed(
+  () => editingCommentDate.value || selectedTradeDate.value || defaultCommentDate.value
+)
 
 const openEditComment = () => {
   if (!userStore.isLogin) {
@@ -211,8 +285,10 @@ const openEditComment = () => {
   const comment = browseComment.value
   if (!comment?._id) return
   editingCommentId.value = comment._id
+  editingCommentDate.value = commentDate(comment)
   commentInput.value = comment.content
   targetPriceInput.value = comment.targetPrice != null ? String(comment.targetPrice) : ''
+  modalPriceSnapshot.value = lastPrice.value
   // 已在设置里删除的 tag 视为遗失，只选中仍然存在的
   selectedTags.value = (comment.tags ?? []).filter(t => availableTags.value.includes(t))
   showBrowseModal.value = false
@@ -280,13 +356,15 @@ const submitComment = async () => {
         symbol: props.symbol,
         content,
         tags: selectedTags.value,
-        date: selectedTradeDate.value || undefined,
+        date: selectedTradeDate.value || defaultCommentDate.value || undefined,
         targetPrice,
+        currentPrice: lastPrice.value ?? undefined,
       })
       comments.value.unshift(comment)
       toastStore.showToast({ content: '评论成功', type: 'OK' })
     }
     editingCommentId.value = null
+    editingCommentDate.value = ''
     showCommentModal.value = false
   } catch (e) {
     toastStore.showToast({ content: '操作失败', type: 'ERR' })
@@ -300,10 +378,12 @@ const remove = () => {
   }
 }
 
-// 图表宽度（来自 user.settings.stock，由页面顶栏的设置弹窗维护，默认 60%）
-const chartWidth = computed(() => {
-  const w = Number(userStore.userInfo.settings.stock?.chartWidth)
-  return Number.isFinite(w) && w >= 10 && w <= 90 ? w : 60
+// 图表宽度不再可配：K 线与评论始终平分，无评论时 K 线占满
+
+// K 线图高度（设置里可改，默认 80px）
+const chartHeight = computed(() => {
+  const h = Number(userStore.userInfo.settings.stock?.chartHeight)
+  return Number.isFinite(h) && h >= 40 && h <= 300 ? h : 80
 })
 
 // K 线提示框相对指针的偏移（设置里可改，默认 20,20）
@@ -311,6 +391,9 @@ const tooltipOffset = computed(() => ({
   x: Number(userStore.userInfo.settings.stock?.tooltipOffset?.x) || 20,
   y: Number(userStore.userInfo.settings.stock?.tooltipOffset?.y) || 20,
 }))
+
+// K 线纵轴最低点（设置里可改，默认 0 点）
+const yMin = computed(() => (userStore.userInfo.settings.stock?.yMin === 'low' ? 'low' : 'zero'))
 
 onMounted(() => {
   // 进入视口（提前 100px）才触发首次加载
@@ -348,10 +431,33 @@ onUnmounted(() => {
         :class="{ up: priceUp, down: !priceUp }"
         >{{ priceUp ? '+' : '' }}{{ changePercent.toFixed(2) }}%</span
       >
-      <span class="stock-price" v-if="lastPrice != null">{{ lastPrice.toFixed(2) }}</span>
-      <span v-if="pe != null" class="stock-meta">{{ pe.toFixed(2) }}</span>
-      <span v-if="marketCap" class="stock-meta">{{ marketCap }}</span>
+      <template v-if="(headerMode ?? 'eval') === 'eval'">
+        <Btn
+          v-for="tag in comments[0]?.tags ?? []"
+          :key="tag"
+          small
+          >{{ tag }}</Btn
+        >
+        <span v-if="headerCompletion != null" class="stock-completion"
+          >{{ headerCompletion.toFixed(0) }}%</span
+        >
+      </template>
+      <template v-else-if="(headerMode ?? 'eval') === 'fundamental'">
+        <span class="stock-price" v-if="lastPrice != null">{{ lastPrice.toFixed(2) }}</span>
+        <span v-if="pe != null" class="stock-meta">{{ pe.toFixed(2) }}</span>
+        <span v-if="marketCap" class="stock-meta">{{ marketCap }}</span>
+      </template>
       <CircleBtn
+        v-if="headerMode === 'manage'"
+        class="stock-group-btn"
+        icon="menu"
+        :size="16"
+        :font-size="12"
+        aria-label="修改分组"
+        @click.stop="emit('change-group')"
+      ></CircleBtn>
+      <CircleBtn
+        v-if="headerMode === 'manage'"
         class="stock-delete"
         icon="close"
         :size="16"
@@ -360,41 +466,43 @@ onUnmounted(() => {
       ></CircleBtn>
     </div>
     <template v-if="expanded">
-    <div class="stock-tags-row">
-      <div class="latest-tags">
-        <span v-for="tag in displayedComment?.tags ?? []" :key="tag" class="comment-badge">{{ tag }}</span>
-      </div>
-      <Btn size="small" class="tags-row-btn" @click="openCommentModal">评论</Btn>
-    </div>
     <div class="stock-body">
-      <div class="stock-chart" :style="{ width: chartWidth + '%' }">
-        <div class="chart-area">
+      <div class="stock-chart">
+        <div class="chart-area" :style="{ height: chartHeight + 'px' }">
           <KlineChart
             :chart="currentChart"
             :loading="chartLoading[currentTab]"
             :comment-marks="commentMarks"
+            :active-date="displayedComment ? commentDate(displayedComment) : undefined"
             :tooltip-offset="tooltipOffset"
+            :y-min="yMin"
             @update:selected-date="selectedTradeDate = $event"
           />
         </div>
-        <div class="chart-tabs">
-          <span
-            v-for="(label, range) in rangeLabels"
-            :key="range"
-            class="chart-tab"
-            :class="{ active: currentTab === range }"
-            @click="switchTab(range as ChartRange)"
-            >{{ label }}</span
-          >
-        </div>
       </div>
-      <div class="stock-comments" :class="{ clickable: !!displayedComment }" @click="openBrowseModal">
-        <template v-if="displayedComment">
+      <div v-if="displayedComment" class="stock-comments clickable" @click="openBrowseModal">
+        <div :style="{ height: chartHeight + 'px' }">
           <div class="comment-time">{{ commentDate(displayedComment) }}</div>
           <div class="comment-text">{{ displayedComment.content }}</div>
-        </template>
-        <div v-else class="comment-empty">暂无评论</div>
+        </div>
       </div>
+    </div>
+    <div class="stock-footer">
+      <div class="chart-tabs">
+        <Btn
+          v-for="(label, range) in rangeLabels"
+          :key="range"
+          small
+          class="chart-tab"
+          :type="currentTab === range ? 'primary' : undefined"
+          :class="{ active: currentTab === range }"
+          @click="switchTab(range as ChartRange)"
+          >{{ label }}</Btn
+        >
+      </div>
+      <Btn v-if="userStore.isAdmin" size="small" class="comment-add-btn" @click="openCommentModal"
+        >评论</Btn
+      >
     </div>
     </template>
 
@@ -409,22 +517,27 @@ onUnmounted(() => {
         () => {
           showCommentModal = false
           editingCommentId = null
+          editingCommentDate = ''
         }
       "
     >
+      <div v-if="commentModalDate" class="comment-modal-date">日期：{{ commentModalDate }}</div>
       <Textarea v-model="commentInput" :rows="10" placeholder="输入评论内容" />
       <div class="target-price-row">
         <span class="target-price-label">期望价格</span>
         <Input v-model="targetPriceInput" placeholder="选填，画在 K 线图上" />
+        <span v-if="modalPriceSnapshot != null" class="snapshot-price"
+          >当前 {{ modalPriceSnapshot.toFixed(2) }}</span
+        >
       </div>
       <div class="tag-picker">
-        <span
+        <Btn
           v-for="tag in availableTags"
           :key="tag"
-          class="tag-option"
-          :class="{ active: selectedTags.includes(tag) }"
+          small
+          :type="selectedTags.includes(tag) ? 'primary' : undefined"
           @click="toggleTag(tag)"
-          >{{ tag }}</span
+          >{{ tag }}</Btn
         >
       </div>
     </Modal>
@@ -435,6 +548,23 @@ onUnmounted(() => {
       title="评论"
       :hide-footer="true"
     >
+      <template v-if="browseComment">
+        <div class="browse-time">{{ commentDate(browseComment) }}</div>
+        <div class="browse-content">{{ browseComment.content }}</div>
+        <div v-if="completionText(browseComment)" class="browse-completion">
+          {{ completionText(browseComment) }}
+        </div>
+        <div class="browse-tags">
+          <Btn
+            v-for="tag in browseComment.tags"
+            :key="tag"
+            small
+            :type="selectedTags.includes(tag) ? 'primary' : undefined"
+          >
+            {{ tag }}
+          </Btn>
+        </div>
+      </template>
       <div class="browse-nav">
         <CircleBtn
           icon="chevron-left"
@@ -456,11 +586,7 @@ onUnmounted(() => {
           @click="browseNewer"
         ></CircleBtn>
       </div>
-      <template v-if="browseComment">
-        <div class="browse-time">{{ commentDate(browseComment) }}</div>
-        <div class="browse-content">{{ browseComment.content }}</div>
-      </template>
-      <div class="browse-actions">
+      <div v-if="userStore.isAdmin" class="browse-actions">
         <Btn size="small" @click="openEditComment">编辑</Btn>
         <Btn size="small" @click="deleteBrowseComment">删除</Btn>
       </div>
@@ -486,6 +612,12 @@ onUnmounted(() => {
   }
 
   .stock-price {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--primary-color);
+  }
+
+  .stock-completion {
     font-size: 12px;
     font-weight: 700;
     color: var(--primary-color);
@@ -522,8 +654,12 @@ onUnmounted(() => {
     }
   }
 
-  .stock-delete {
+  // 管理模式下 ☰ 和删除按钮靠右并排，大小一致
+  .stock-group-btn {
     margin-left: auto;
+  }
+
+  .stock-delete {
     font-size: 12px;
     color: #aaa;
     cursor: pointer;
@@ -540,52 +676,29 @@ onUnmounted(() => {
   margin-top: 0.5rem;
 }
 
+// 最后一行：日K/周K/月K 靠左，评论靠右
+.stock-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+
+  .comment-add-btn {
+    margin-left: auto;
+  }
+}
+
+.chart-tabs {
+  display: flex;
+  gap: 0.5rem;
+}
+
 .stock-chart {
-  flex: 0 0 auto;
+  flex: 1 1 0;
   min-width: 0;
 
   .chart-area {
     position: relative;
-    height: 80px;
-  }
-
-  .chart-tabs {
-    display: flex;
-    gap: 0.5rem;
-    margin-top: 0.25rem;
-
-    .chart-tab {
-      font-size: 12px;
-      color: var(--text-secondary);
-      cursor: pointer;
-      padding: 0.125rem 0.375rem;
-      border-radius: 4px;
-      height: 16px;
-
-      &.active {
-        color: #fff;
-        background: var(--primary-color);
-      }
-    }
-  }
-}
-
-.stock-tags-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 0.375rem;
-
-  .latest-tags {
-    flex: 1 1 auto;
-    min-width: 0;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.25rem;
-  }
-
-  .tags-row-btn {
-    flex: 0 0 auto;
   }
 
   .comment-badge {
@@ -599,9 +712,8 @@ onUnmounted(() => {
 }
 
 .stock-comments {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 0;
-  max-height: 104px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -609,12 +721,16 @@ onUnmounted(() => {
   font-size: 12px;
   line-height: 1.4;
 
+  .comment-preview {
+    flex: 0 0 auto;
+  }
+
   .comment-text {
     word-break: break-word;
     display: -webkit-box;
     -webkit-box-orient: vertical;
-    -webkit-line-clamp: 5;
-    line-clamp: 5;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
     overflow: hidden;
   }
 
@@ -639,7 +755,6 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   gap: 0.75rem;
-  margin-bottom: 0.5rem;
 
   .disabled {
     opacity: 0.3;
@@ -657,7 +772,6 @@ onUnmounted(() => {
 .browse-time {
   font-size: 11px;
   color: #aaa;
-  margin-bottom: 0.25rem;
 }
 
 .browse-content {
@@ -665,15 +779,26 @@ onUnmounted(() => {
   line-height: 1.5;
   word-break: break-word;
   white-space: pre-wrap;
-  height: 300px;
+  height: 160px;
   overflow-y: auto;
+}
+
+.browse-completion {
+  margin-top: 0.375rem;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .browse-actions {
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
-  margin-top: 0.75rem;
+}
+
+.comment-modal-date {
+  margin-bottom: 0.375rem;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .target-price-row {
@@ -684,6 +809,13 @@ onUnmounted(() => {
   .target-price-label {
     flex: 0 0 auto;
     font-size: 13px;
+  }
+
+  .snapshot-price {
+    flex: 0 0 auto;
+    font-size: 12px;
+    color: var(--text-secondary);
+    white-space: nowrap;
   }
 
   > :nth-child(2) {
@@ -697,21 +829,5 @@ onUnmounted(() => {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.375rem;
-
-  .tag-option {
-    font-size: 12px;
-    padding: 0.2rem 0.55rem;
-    border-radius: 999px;
-    border: 1px solid var(--border-light);
-    color: var(--text-secondary);
-    cursor: pointer;
-    user-select: none;
-
-    &.active {
-      color: #fff;
-      background: var(--primary-color);
-      border-color: var(--primary-color);
-    }
-  }
 }
 </style>

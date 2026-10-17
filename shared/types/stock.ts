@@ -11,6 +11,8 @@ export interface MarketItem {
   currency?: string
   /** 当前最新价 */
   lastPrice?: number
+  /** 所属分组名，空则未分组 */
+  group?: string
   /** 添加时间（毫秒） */
   addedAt?: number
 }
@@ -87,6 +89,8 @@ export interface StockComment {
   tags?: string[]
   /** 期望价格（画在 K 线图上的横虚线），无则空 */
   targetPrice?: number | null
+  /** 评论时的当前价格（计算完成百分比用），无则空 */
+  currentPrice?: number | null
   /** 评论时间 */
   created_time: string | Date
 }

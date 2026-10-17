@@ -5,25 +5,54 @@ import type { MarketChartResult } from 'shared/types/stock'
 const props = defineProps<{
   chart: MarketChartResult | null
   loading?: boolean
-  /** 评论标记：日期 + 期望价格（无期望价格则当日只画短竖线刻度） */
-  commentMarks?: { date: string; targetPrice: number | null }[]
+  /** 评论标记：日期 + 期望价格（无期望价格则当日只画短竖线刻度）+ 评论时的价格 */
+  commentMarks?: { date: string; targetPrice: number | null; currentPrice?: number | null }[]
+  /** 当前 active（右侧展示的）评论日期，其当时价格用横虚线标出 */
+  activeDate?: string
   /** 提示框相对指针的偏移，默认 20,20 */
   tooltipOffset?: { x?: number; y?: number }
+  /** 纵轴最低点：low=时间段最低价，zero=0 点（默认） */
+  yMin?: 'low' | 'zero'
 }>()
 
 // candlesticks
 const CHART_W = 320
 const CHART_H = 150
+
+// 统一价格量程：最高点取 K 线 high 与当前 active 评论的目标价/当时价的最大值，
+// 只有选中评论参与计算（老评论的离谱目标价不影响整图）；最低点按 yMin 设置取 0 或最低价。
+// active 评论变化 → range 变化 → 蜡烛/虚线/刻度全部重算重绘
+const priceRange = computed((): { min: number; max: number } | null => {
+  const chart = props.chart
+  const n = chart?.timestamps.length ?? 0
+  if (!chart || !n) return null
+  const values: number[] = []
+  for (const v of chart.high) if (v != null && Number.isFinite(v) && v > 0) values.push(v)
+  for (const v of chart.low) if (v != null && Number.isFinite(v) && v > 0) values.push(v)
+  const active = (props.commentMarks ?? []).find(m => m.date === props.activeDate)
+  if (active) {
+    if (active.targetPrice != null && active.targetPrice > 0) values.push(active.targetPrice)
+    if (active.currentPrice != null && active.currentPrice > 0) values.push(active.currentPrice)
+  }
+  if (!values.length) return null
+  const max = Math.max(...values)
+  const min = props.yMin === 'low' ? Math.min(...values) : 0
+  if (!(max > min)) return null
+  return { min, max }
+})
+
+const yOf = (range: { min: number; max: number }, v: number) =>
+  CHART_H - ((v - range.min) / (range.max - range.min)) * CHART_H
+
 const candles = computed(() => {
   const chart = props.chart
-  if (!chart) return []
+  const range = priceRange.value
+  if (!chart || !range) return []
   const n = chart.timestamps.length
   if (!n) return []
   const slotW = CHART_W / n
   const bodyW = Math.max(1, slotW * 0.6)
-  const max = Math.max(...chart.high.filter(v => v != null), 0)
-  if (max <= 0) return []
-  const y = (v: number) => CHART_H - (v / max) * CHART_H
+  const y = (v: number) => yOf(range, v)
   const list: Array<{
     mid: number
     highY: number
@@ -61,39 +90,59 @@ const downColor = '#26a69a'
 // 无期望价格的节点画短竖线刻度
 const pad2 = (v: number) => String(v).padStart(2, '0')
 const commentMarksLayer = computed(() => {
-  const empty = { verticals: [] as Array<{ x: number; y1: number; y2: number }>, horizontals: [] as Array<{ y: number }> }
+  const empty = {
+    verticals: [] as Array<{ x: number; y1: number; y2: number }>,
+    horizontals: [] as Array<{ y: number; kind: 'target' | 'current' }>,
+  }
   const chart = props.chart
-  const marks = props.commentMarks
-  if (!chart || !marks?.length) return empty
+  const range = priceRange.value
+  if (!chart || !range) return empty
   const n = chart.timestamps.length
   if (!n) return empty
-  const max = Math.max(...chart.high.filter(v => v != null), 0)
-  if (max <= 0) return empty
-  const byDate = new Map(marks.map(m => [m.date, m.targetPrice]))
+  const marks = props.commentMarks ?? []
   const slotW = CHART_W / n
-  const y = (v: number) => CHART_H - (v / max) * CHART_H
+  const y = (v: number) => yOf(range, v)
   // 坐标钳制在图内，目标价超出量程时线指向边缘
   const clampY = (v: number) => Math.max(0, Math.min(CHART_H, y(v)))
   const verticals: Array<{ x: number; y1: number; y2: number }> = []
-  const targets = new Set<number>()
+  // 最新价横虚线常驻（灰色，无论有无评论/目标价）；active 评论的当时价线另画
+  const horizontals: Array<{ y: number; kind: 'target' | 'current' }> = []
+  const latest = chart.closes[n - 1]
+  if (latest != null && Number.isFinite(latest)) {
+    horizontals.push({ y: clampY(latest), kind: 'current' })
+  }
+  // 竖虚线才需要日期对应到某根K线的 x 坐标
+  const interval =
+    chart.interval || (chart.range === '10y' ? 'month' : chart.range === '3mo' ? 'day' : 'week')
+  const candleDates: string[] = []
   for (let i = 0; i < n; i++) {
     const ts = chart.timestamps[i]
-    const close = chart.closes[i]
-    if (ts == null || close == null) continue
+    if (ts == null) {
+      candleDates.push('')
+      continue
+    }
     const d = new Date(ts)
-    const ds = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
-    if (!byDate.has(ds)) continue
-    const x = (i + 0.5) * slotW
-    const target = byDate.get(ds)
-    if (target != null && target > 0) {
-      verticals.push({ x, y1: clampY(close), y2: clampY(target) })
-      targets.add(target)
+    candleDates.push(`${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`)
+  }
+  const keyOf = (ds: string) => (interval === 'month' ? ds.slice(0, 7) : ds)
+  for (const m of marks) {
+    const idx = candleDates.findIndex(ds => ds && keyOf(ds) >= keyOf(m.date))
+    if (idx < 0) continue
+    const close = chart.closes[idx]
+    if (close == null) continue
+    const x = (idx + 0.5) * slotW
+    if (m.targetPrice != null && m.targetPrice > 0) {
+      verticals.push({ x, y1: clampY(close), y2: clampY(m.targetPrice) })
     } else {
       const yc = clampY(close)
       verticals.push({ x, y1: Math.max(0, yc - 6), y2: Math.min(CHART_H, yc + 6) })
     }
   }
-  const horizontals = Array.from(targets).map(t => ({ y: clampY(t) }))
+  // 横虚线：常驻最新价（灰色）+ active 评论的目标价（主题色）；当时价不画线
+  const active = marks.find(m => m.date === props.activeDate)
+  if (active && active.targetPrice != null && active.targetPrice > 0) {
+    horizontals.push({ y: clampY(active.targetPrice), kind: 'target' })
+  }
   return { verticals, horizontals }
 })
 
@@ -149,33 +198,40 @@ const xAxisMarks = computed(() => {
   return marks
 })
 
-// 纵轴刻度：时间段内最高价、当前价（最新收盘）、最低价
+// 纵轴刻度：目标（active 评论的目标价，未设则无此 tick）、最高、最低，tick 恒绘制；
+// label 按 目标>最高>最低 优先级，与任一已显示 label 的值差距 <10%（以已显示值为基准）
+// 则该 label 省略（tick 保留）。当前价由常驻横虚线标示，不再画 tick
 const yAxisMarks = computed(() => {
   const chart = props.chart
+  const range = priceRange.value
   const n = chart?.timestamps.length ?? 0
-  if (!chart || !n) return []
-  const max = Math.max(...chart.high.filter(v => v != null), 0)
-  if (max <= 0) return []
-  const lows = chart.low.filter(v => v != null)
-  const high = max
-  const low = lows.length ? Math.min(...lows) : 0
-  const current = chart.closes[n - 1]
-  const marks: Array<{ topPercent: number; label: string; tag: string }> = []
-  const seen = new Set<number>()
-  const push = (value: number | null | undefined, tag: string) => {
-    if (value == null || !Number.isFinite(value)) return
+  if (!chart || !n || !range) return []
+  const active = (props.commentMarks ?? []).find(m => m.date === props.activeDate)
+  const target = active?.targetPrice != null && active.targetPrice > 0 ? active.targetPrice : null
+  // 最高/最低 tick 只取 K 线本身的值，不参与目标价（目标价只影响量程缩放）
+  const highs = chart.high.filter(v => v != null && v > 0)
+  const high = highs.length ? Math.max(...highs) : null
+  const lows = chart.low.filter(v => v != null && v > 0)
+  const low = lows.length ? Math.min(...lows) : null
+  const candidates: Array<{ value: number | null | undefined; tag: string }> = [
+    { value: target, tag: 'target' },
+    { value: high, tag: 'high' },
+    { value: low, tag: 'low' },
+  ]
+  const marks: Array<{ topPercent: number; label?: string; tag: string }> = []
+  const labeled: number[] = []
+  for (const { value, tag } of candidates) {
+    if (value == null || !Number.isFinite(value)) continue
+    const topPercent = (1 - (value - range.min) / (range.max - range.min)) * 100
+    // 与任一已显示 label 的值差距 <10% → label 省略，tick 线照画
+    if (labeled.some(v => Math.abs(value - v) / v < 0.1)) {
+      marks.push({ topPercent, tag })
+      continue
+    }
+    labeled.push(value)
     const key = Math.round(value * 100) / 100
-    if (seen.has(key)) return
-    seen.add(key)
-    marks.push({
-      topPercent: (1 - value / max) * 100,
-      label: key.toFixed(2),
-      tag,
-    })
+    marks.push({ topPercent, label: key.toFixed(2), tag })
   }
-  push(high, 'high')
-  push(current, 'current')
-  push(low, 'low')
   return marks
 })
 
@@ -184,8 +240,10 @@ const svgRef = ref<SVGSVGElement | null>(null)
 const dragging = ref(false)
 // 竖线常驻：选中的蜡烛下标，数据到达/切换后默认最右边一根，抬起不清除
 const selectedIndex = ref<number | null>(null)
-// 提示框跟随指针，位于指针右下方 (20px, 20px)，不限定在图内；仅拖拽时展示
+// 提示框跟随指针，位于指针右下方 (x, y) 偏移处，不限定在图内；仅拖拽时展示。
+// 右侧空间放不下时翻转到指针左侧（x 偏移取负、右缘贴指针）
 const pointerPos = ref<{ x: number; y: number } | null>(null)
+const tooltipEl = ref<HTMLElement | null>(null)
 
 const emit = defineEmits<{
   (e: 'update:selectedDate', date: string): void
@@ -290,9 +348,15 @@ const tooltipStyle = computed(() => {
   if (!selectedInfo.value || !pointerPos.value) return undefined
   const offsetX = Number(props.tooltipOffset?.x) || 20
   const offsetY = Number(props.tooltipOffset?.y) || 20
+  const x = pointerPos.value.x
+  const containerW = svgRef.value?.getBoundingClientRect().width ?? 0
+  const width = tooltipEl.value?.offsetWidth ?? 0
+  // 右缘会顶到/超出图表右边缘时，整体翻到指针左侧，保持同样的间距
+  const flip = containerW > 0 && x + offsetX + width > containerW
   return {
-    left: `${pointerPos.value.x + offsetX}px`,
+    left: `${x + (flip ? -offsetX : offsetX)}px`,
     top: `${pointerPos.value.y + offsetY}px`,
+    transform: flip ? 'translateX(-100%)' : undefined,
   }
 })
 </script>
@@ -304,10 +368,10 @@ const tooltipStyle = computed(() => {
       class="chart-svg"
       :viewBox="`0 0 ${CHART_W} ${CHART_H}`"
       preserveAspectRatio="none"
-      @pointerdown="onPointerDown"
-      @pointermove="onPointerMove"
-      @pointerup="onPointerUp"
-      @pointercancel="onPointerUp"
+      @pointerdown.stop="onPointerDown"
+      @pointermove.stop="onPointerMove"
+      @pointerup.stop="onPointerUp"
+      @pointercancel.stop="onPointerUp"
     >
       <g v-for="(c, i) in candles" :key="i">
         <line
@@ -333,7 +397,7 @@ const tooltipStyle = computed(() => {
         :x2="CHART_W"
         :y1="h.y"
         :y2="h.y"
-        stroke="var(--primary-color)"
+        :stroke="h.kind === 'current' ? 'var(--text-secondary)' : 'var(--primary-color)'"
         stroke-width="0.6"
         stroke-dasharray="3 3"
         opacity="0.4"
@@ -370,7 +434,7 @@ const tooltipStyle = computed(() => {
         :style="{ top: m.topPercent + '%' }"
       >
         <span class="y-axis-line"></span>
-        <span class="y-axis-label">{{ m.label }}</span>
+        <span v-if="m.label" class="y-axis-label">{{ m.label }}</span>
       </div>
     </div>
     <div class="axis-layer">
@@ -384,7 +448,7 @@ const tooltipStyle = computed(() => {
         <span v-if="m.label" class="axis-label">{{ m.label }}</span>
       </div>
     </div>
-    <div v-if="selectedInfo && pointerPos" class="chart-tooltip" :style="tooltipStyle">
+    <div v-if="selectedInfo && pointerPos" ref="tooltipEl" class="chart-tooltip" :style="tooltipStyle">
       <div class="tooltip-row">
         <span class="tooltip-date">{{ selectedInfo.date }}</span>
         <span
@@ -415,11 +479,16 @@ const tooltipStyle = computed(() => {
   position: relative;
   width: 100%;
   height: 100%;
+  // 拖拽 K 线时禁止选中文字/触发浏览器手势
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 
   .chart-svg {
     width: 100%;
     height: 100%;
     display: block;
+    // 只允许纵向滚动页面，横向拖动留给 K 线选中日期的手势
     touch-action: pan-y;
     cursor: crosshair;
   }

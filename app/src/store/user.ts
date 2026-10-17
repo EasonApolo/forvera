@@ -21,6 +21,12 @@ export const useUserStore = defineStore('user', {
         }
         stock?: {
           chartWidth?: number
+          chartHeight?: number
+          progressMethod?: 'linear' | 'ln' | 'sigmoid'
+          /** K 线纵轴最低点：low=最低价，zero=0 点（默认） */
+          yMin?: 'low' | 'zero'
+          /** 默认分组，空则为「无分组」 */
+          defaultGroup?: string
           watchlist?: {
             symbol: string
             name: string
@@ -28,7 +34,10 @@ export const useUserStore = defineStore('user', {
             exchange?: string
             currency?: string
             addedAt?: number
+            group?: string
           }[]
+          /** 分组列表 */
+          groups?: string[]
           tags?: string[]
           tooltipOffset?: { x?: number; y?: number }
           dataRange?: { day?: number; week?: number; month?: number }
