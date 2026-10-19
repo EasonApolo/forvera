@@ -17,6 +17,9 @@ import { ReliableEngine, ReliablePacket } from 'shared/reliableEngine'
 import StepperFilter from '@/components/StepperFilter.vue'
 import DrawGuess from './games/drawguess/main.ts'
 import Gomoku from './games/gomoku/main.ts'
+import Xiangqi from './games/xiangqi/main.ts'
+import Checkers from './games/checkers/main.ts'
+import Holdem from './games/holdem/main.ts'
 import Table from '@/components/Table.vue'
 import { create2DArray } from 'shared/utils.ts'
 import Card from '@/components/Card.vue'
@@ -75,19 +78,19 @@ function setUserStatus(status: 'ready' | 'end') {
   socket?.emit('setUserStatus', { userId: userId.value, status }, wsErrorHandler)
 }
 
-// ==================== 五子棋认输 ====================
+// ==================== 棋类认输（五子棋/象棋，房间字段同构） ====================
 
 const showResignConfirm = ref(false)
-const canResignGomoku = (targetUserId: string) => {
-  const gomokuRoom = room as any
+const canResignBoardGame = (targetUserId: string) => {
+  const boardRoom = room as any
   return (
-    selectedGameKey.value === 'gomoku' &&
+    (selectedGameKey.value === 'gomoku' || selectedGameKey.value === 'xiangqi') &&
     targetUserId === userId.value &&
     room.status === 'playing' &&
     room.roundStatus === 'ing' &&
-    !gomokuRoom.winnerId &&
-    !gomokuRoom.isDraw &&
-    (gomokuRoom.blackUserId === userId.value || gomokuRoom.whiteUserId === userId.value)
+    !boardRoom.winnerId &&
+    !boardRoom.isDraw &&
+    (boardRoom.blackUserId === userId.value || boardRoom.whiteUserId === userId.value)
   )
 }
 const confirmResign = () => {
@@ -343,8 +346,12 @@ export interface GameOptions {
   main?: any
   customBadges?: any
   customChatMsg?: any
+  /** 玩家卡内容区（渲染在玩家信息行下方，接收 room/user/userId/socket） */
+  playerBody?: any
   setup?: (params: GameOptionHookParams) => void
   imActing?: (params: GameOptionHookParams) => boolean
+  /** 自定义对局记录表格（如德扑按 profit 展示）；返回 null 表示不显示 */
+  formatRoundResults?: (room: IGameRoom) => { rows: string[]; cols: string[]; data: any[][] } | null
 }
 
 const gameList = [
@@ -357,6 +364,21 @@ const gameList = [
     key: 'gomoku',
     name: '五子棋',
     options: Gomoku,
+  },
+  {
+    key: 'xiangqi',
+    name: '象棋',
+    options: Xiangqi,
+  },
+  {
+    key: 'checkers',
+    name: '跳棋',
+    options: Checkers,
+  },
+  {
+    key: 'holdem',
+    name: '德扑',
+    options: Holdem,
   },
 ]
 // 准备界面仅房主可切换游戏（其他人显示游戏名，跟随房主的选择）
@@ -539,6 +561,15 @@ watch(
   (newVal, oldVal) => {
     const latestRound = newVal.at(-1)
     if (!latestRound) return
+    // 游戏可自定义对局记录表格（默认显示每局获胜 ✓）
+    const formatted = selectedGame.value?.formatRoundResults?.(room)
+    if (formatted) {
+      roundResultsData.show = true
+      roundResultsData.rows = formatted.rows
+      roundResultsData.cols = formatted.cols
+      roundResultsData.data = formatted.data
+      return
+    }
     const userIds = room.userOrder || []
     const roundIds = newVal.map(r => r.round)
     const data = create2DArray(userIds.length, roundIds.length, '')
@@ -589,6 +620,8 @@ onUnmounted(() => {
                 v-if="allowChangeGame"
                 v-model:value="selectedGameName"
                 :options="gameList.map(g => g.name)"
+                :loop="true"
+                :nullable="false"
               />
               <span v-else class="game-name">{{ selectedGameItem?.name || '你画我猜' }}</span>
             </div>
@@ -669,7 +702,7 @@ onUnmounted(() => {
                   @click="showUndoConfirm = true"
                 >悔棋</Btn>
                 <Btn
-                  v-if="canResignGomoku(user.id)"
+                  v-if="canResignBoardGame(user.id)"
                   small
                   type="danger"
                   @click="showResignConfirm = true"
@@ -691,6 +724,15 @@ onUnmounted(() => {
                 >
               </div>
             </div>
+            <!-- 游戏自定义的玩家卡内容区（如德扑的筹码/手牌/操作按钮） -->
+            <component
+              :is="selectedGame?.playerBody"
+              v-if="selectedGame?.playerBody"
+              :room="room as any"
+              :user="user as any"
+              :userId="userId"
+              :socket="ws"
+            />
           </div>
         </div>
 
@@ -709,14 +751,15 @@ onUnmounted(() => {
         ></component>
 
         <!-- 对局记录 -->
-        <div v-if="room.roundStatus === 'after'" class="roundresult-container">
+        <Card v-if="room.roundStatus === 'after'">
+          <template #title>对局记录</template>
           <Table
             v-if="roundResultsData.show"
             :rows="roundResultsData.rows"
             :cols="roundResultsData.cols"
             :content="roundResultsData.data"
           ></Table>
-        </div>
+        </Card>
 
         <!-- 聊天 -->
         <div class="chat-container">
@@ -964,13 +1007,6 @@ onUnmounted(() => {
     flex-wrap: wrap;
     margin-bottom: 10px;
   }
-}
-
-/* 对局记录 */
-.roundresult-container {
-  padding: 8px;
-  border-radius: 8px;
-  background: var(--card-bg);
 }
 
 // ====================  ====================

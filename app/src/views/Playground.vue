@@ -10,12 +10,7 @@ const router = useRouter()
 const userStore = useUserStore()
 const defaultCardOrder = [
   'taxonomy',
-  'requirements',
-  'diet',
-  'stock',
-  'holdem',
-  'gomoku',
-  'drawguess',
+  'daily',
   'game',
   'village',
   'pet',
@@ -40,13 +35,15 @@ type PlaygroundCard = Card | Group
 const cardMap: PlaygroundCard[] = [
   { key: 'taxonomy', type: 'route', title: '🌳Taxonomy', content: 'taxonomy' },
   {
-    key: 'requirements',
-    type: 'route',
-    title: '🧩需求拆解',
-    content: 'requirements',
+    key: 'daily',
+    type: 'group',
+    title: 'Daily',
+    content: [
+      { key: 'diet', type: 'route', title: '🍽Diet', content: 'diet' },
+      { key: 'stock', type: 'route', title: '📈我来画K线', content: 'stock' },
+      { key: 'requirements', type: 'route', title: '🧩需求拆解', content: 'requirements' },
+    ],
   },
-  { key: 'diet', type: 'route', title: '🍽Diet', content: 'diet' },
-  { key: 'stock', type: 'route', title: '📈我来画K线', content: 'stock' },
   {
     key: 'underConstruction',
     type: 'group',
@@ -56,16 +53,7 @@ const cardMap: PlaygroundCard[] = [
       { key: 'pet', type: 'route', title: 'AGENT', content: 'pet' },
     ],
   },
-  {
-    key: 'games',
-    type: 'group',
-    title: 'Games',
-    content: [
-      { key: 'holdem', type: 'route', title: '🃏德扑', content: 'holdem' },
-      { key: 'gomoku', type: 'route', title: '棋牌室', content: 'game' },
-      { key: 'game', type: 'route', title: '你画我猜', content: 'game' },
-    ],
-  },
+  { key: 'game', type: 'route', title: '🎮Games', content: 'game' },
   { key: 'rating', type: 'route', title: '⭐Rating', content: 'rating' },
   {
     key: 'mihoyo',

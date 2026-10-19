@@ -12,6 +12,8 @@ export interface DietRecordItem extends Document {
   food_name: string;
   unit: DietUnit;
   calories_per_unit: number;
+  /** 记录时热量数值使用的单位（% / kCal / kJ），再次添加时按此单位原样回填 */
+  calories_unit: 'kCal' | '%' | 'kJ';
   calories_multiplier?: number;
   amount: number;
   quantity: number;
@@ -37,6 +39,7 @@ export class CreateDietRecordDto {
   amount!: number;
   quantity?: number;
   caloriesPerUnit!: number;
+  caloriesUnit?: 'kCal' | '%' | 'kJ';
   caloriesMultiplier?: number;
   recordedTime?: string;
 }
@@ -47,6 +50,7 @@ export const DietRecordSchema = new Schema({
   food_name: { type: String, required: true },
   unit: { type: String, enum: ['g', 'ml', 'u'], required: true },
   calories_per_unit: { type: Number, required: true },
+  calories_unit: { type: String, enum: ['kCal', '%', 'kJ'], default: 'kCal' },
   calories_multiplier: { type: Number, default: 100 },
   amount: { type: Number, required: true },
   quantity: { type: Number, required: true, default: 1 },
@@ -169,6 +173,11 @@ export class DietService {
     return 'g';
   }
 
+  private normalizeCaloriesUnit(unit?: string): 'kCal' | '%' | 'kJ' {
+    if (unit === '%' || unit === 'kJ') return unit;
+    return 'kCal';
+  }
+
   private normalizeName(name?: string) {
     return `${name || ''}`.trim();
   }
@@ -255,6 +264,7 @@ export class DietService {
         name: r.food_name,
         unit: r.unit,
         calories_per_unit: r.calories_per_unit,
+        calories_unit: r.calories_unit || 'kCal',
         calories_multiplier: r.calories_multiplier,
         amount: r.amount,
         quantity: r.quantity ?? 1,
@@ -329,6 +339,7 @@ export class DietService {
       food_name: name,
       unit,
       calories_per_unit: caloriesPerUnit,
+      calories_unit: this.normalizeCaloriesUnit(dto.caloriesUnit),
       calories_multiplier: caloriesMultiplier,
       amount,
       quantity,

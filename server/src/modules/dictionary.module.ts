@@ -150,13 +150,13 @@ const WordAnalysisSchema: GenAISchema = {
     },
     meanings: {
       type: Type.ARRAY,
-      description: '词义列表（按词性分类）',
+      description: '词义列表（按词性分类：每个不重复的词性恰好一项，同词性的所有词义合并在该项的 definitions 里）',
       items: {
         type: Type.OBJECT,
         properties: {
           partOfSpeech: {
             type: Type.STRING,
-            description: '词性，如 noun, verb, adjective',
+            description: '词性，如 noun, verb, adjective；同一词性在整个列表中只允许出现一次',
           },
           definitions: {
             type: Type.ARRAY,
@@ -343,6 +343,7 @@ class DictionaryService {
   - 若输入既不是有效单词，也没有高置信的相近词，correctedWord 留空。
 
   2. 词义划分（参照 HTE）：
+  - meanings 必须按词性去重分组：每个不重复的词性只对应一个 meanings 项，该词性的所有词义全部放进这一项的 definitions 数组；严禁同一词性出现多个 meanings 项（例如输出两个 noun、各含一条词义是错误的，应合并为一个 noun 项、definitions 里包含全部名词词义）。
   - 词义的数量与划分以 HTE 对该词的收录为准：HTE 将该词归入几个概念类目，就给出几个词义；每个词义的 classification 即对应该类目的路径。
   - 跳过 HTE 中标注为已废弃、古旧或仅限方言的用法（obsolete / archaic / dialectal）：例如 HTE 收录 4 个概念、其中 1 个已废弃，则只给出 3 个词义。
   - 词义划分必须稳定：同一单词的重复查询应得到相同的词义数量和划分，不要自行合并、拆分或新增 HTE 之外的概念。

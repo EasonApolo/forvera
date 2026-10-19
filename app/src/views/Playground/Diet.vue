@@ -21,6 +21,7 @@ type DietFood = {
   name: string
   unit: DietUnit
   calories_per_unit: number
+  calories_unit?: DietCaloriesUnit
   calories_multiplier?: number
   amount?: number
   quantity?: number
@@ -345,6 +346,16 @@ const normalizeCaloriesDisplayValue = (value: number, unit: DietCaloriesUnit) =>
   return value / 4.184
 }
 
+/** kCal 数值换回展示单位对应的数值（applyFood 按原单位回填前值用） */
+const denormalizeCaloriesDisplayValue = (kcal: number, unit: DietCaloriesUnit) => {
+  if (!Number.isFinite(kcal)) return 0
+  if (unit === 'kCal') return kcal
+  if (unit === '%') return kcal * 100 / 2000
+  return kcal * 4.184
+}
+
+const toCaloriesUnit = (unit?: string): DietCaloriesUnit => (unit === '%' || unit === 'kJ' ? unit : 'kCal')
+
 const getRecordCaloriesValueInKCal = () => {
   // 必须走 getRecordCaloriesValue（新填入的值 > 前值），直接读输入框会把留空的 placeholder 当 0
   return normalizeCaloriesDisplayValue(getRecordCaloriesValue(), recordModal.caloriesUnit)
@@ -462,17 +473,20 @@ const closeRecordModal = () => {
 const applyFood = (food: DietFood) => {
   const caloriesMultiplier = getStoredCaloriesMultiplier(food.calories_multiplier)
   const displayCalories = getFoodDisplayCalories(food)
+  // 按当时记录的单位原样恢复（不换算），前值也换回该单位下的数值
+  recordModal.caloriesUnit = toCaloriesUnit(food.calories_unit)
   recordModal.name = food.name
   recordModal.query = food.name
   recordModal.unit = 'u'
-  recordModal.caloriesUnit = 'kCal'
   // 前值以 placeholder 展示，输入框留空可直接覆盖
   recordModal.caloriesValue = ''
   recordModal.caloriesMultiplier = ''
   recordModal.amountValue = ''
   recordModal.quantityValue = ''
   // 前值恰为 0 视为脏数据（历史提交 bug 产生），不作为前值；负值（如跑步）是合法前值
-  recordModal.caloriesPlaceholder = displayCalories !== 0 ? formatDietNumber(displayCalories) : ''
+  recordModal.caloriesPlaceholder = displayCalories !== 0
+    ? formatDietNumber(denormalizeCaloriesDisplayValue(displayCalories, recordModal.caloriesUnit))
+    : ''
   recordModal.multiplierPlaceholder = formatDietNumber(caloriesMultiplier)
   recordModal.amountPlaceholder = formatDietNumber(food.amount && food.amount > 0 ? food.amount : 1)
   recordModal.quantityPlaceholder = formatDietNumber(food.quantity && food.quantity > 0 ? food.quantity : 1)
@@ -551,6 +565,7 @@ const saveRecord = async () => {
       amount,
       quantity,
       caloriesPerUnit,
+      caloriesUnit: recordModal.caloriesUnit,
       caloriesMultiplier: getRecordCaloriesMultiplier(),
       recordedTime: getRecordDateTime(),
     })

@@ -44,11 +44,17 @@ import { ReliableEngine, ReliablePacket } from 'shared/reliableEngine';
 import { shuffle } from 'shared/utils';
 import DrawGuess from './games/drawguess';
 import Gomoku from './games/gomoku';
+import Xiangqi from './games/xiangqi';
+import Checkers from './games/checkers';
+import Holdem from './games/holdem';
 import mongoose, { Connection } from 'mongoose';
 
 const GAME_MAP: Record<string, any> = {
   drawguess: DrawGuess,
   gomoku: Gomoku,
+  xiangqi: Xiangqi,
+  checkers: Checkers,
+  holdem: Holdem,
 };
 
 export interface GameHookParams {

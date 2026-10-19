@@ -488,8 +488,8 @@ const tooltipStyle = computed(() => {
     width: 100%;
     height: 100%;
     display: block;
-    // 只允许纵向滚动页面，横向拖动留给 K 线选中日期的手势
-    touch-action: pan-y;
+    // 横竖手势都留给 K 线（选中日期的拖拽），不在图上触发页面滚动
+    touch-action: none;
     cursor: crosshair;
   }
 
