@@ -1,23 +1,16 @@
 <template>
-  <div class="component-list">
-    <slot name="title" class="layout-title"></slot>
-    <div class="layout-list">
-      <slot name="content"></slot>
-    </div>
+  <slot name="title" class="layout-title"></slot>
+  <div class="layout-list">
+    <slot name="content"></slot>
   </div>
 </template>
 
 <style lang="less">
-.component-list {
-  // 整页滚动（swiper 移除后不再需要中间栏独立滚动），自然高度由文档滚动
-  overflow-x: hidden;
+.layout-list {
+  padding: 0.625rem 0.5rem 8rem;
 
-  .layout-list {
-    padding: 0.625rem 0.5rem 8rem;
-
-    .card:not(:first-child) {
-      margin-top: 0.5rem;
-    }
+  .card:not(:first-child) {
+    margin-top: 0.5rem;
   }
 }
 </style>

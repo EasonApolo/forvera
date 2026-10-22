@@ -131,20 +131,46 @@ const defaultCommentDate = computed(() => {
   return formatDate(new Date(chart.timestamps[n - 1]).toISOString()).slice(0, 10)
 })
 
+// 指定日期在当前图表里的收盘价（评论的「当时价格」）：找到第一根 ≥ 该日期的K线取收盘；
+// 月K 按整月匹配。找不到（图表未加载/超范围）返回 null
+const priceAtDate = (dateStr: string): number | null => {
+  const chart = currentChart.value
+  if (!chart || !dateStr) return null
+  const n = chart.timestamps.length
+  if (!n) return null
+  const interval =
+    chart.interval || (chart.range === '10y' ? 'month' : chart.range === '3mo' ? 'day' : 'week')
+  const keyOf = (d: string) => (interval === 'month' ? d.slice(0, 7) : d)
+  const target = keyOf(dateStr)
+  const pad2 = (v: number) => String(v).padStart(2, '0')
+  for (let i = 0; i < n; i++) {
+    const ts = chart.timestamps[i]
+    if (ts == null) continue
+    const d = new Date(ts)
+    const ds = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+    if (keyOf(ds) >= target) return chart.closes[i] ?? null
+  }
+  return null
+}
+
 // 评论时间只显示日期（created_time 已被服务端规范为某个交易日的零点）
 const commentDate = (comment: StockComment) =>
   formatDate(String(comment.created_time)).slice(0, 10)
 
-// 右侧展示的评论：日期 ≤ 选中日期 的最近一条；早于最早评论则回退到最早的一条。
-// 月K 的节点日期是每月1号，按整月比较，否则当月评论永远排在当月K线之后选不中
+// 右侧展示的评论：时间轴分区间的取法 —— 选中时间落在 (X, Y] 显示 Y（第一个 ≥ 选中时间的评论），
+// 比如有时间顺序 A<B<C 三个评论：(0,A]→A、(A,B]→B、(B,C]→C、(C,现在)→C（保持上一个）。
+// 在按评论时间升序的副本上查找，避免插入顺序影响结果
 const displayedComment = computed(() => {
+  const sorted = [...comments.value].sort(
+    (a, b) => new Date(a.created_time).getTime() - new Date(b.created_time).getTime(),
+  )
   const selected = selectedTradeDate.value
-  if (!selected) return comments.value[0] ?? null
+  if (!selected) return sorted[sorted.length - 1] ?? null
   const keyOf = (d: string) => (props.range === '10y' ? d.slice(0, 7) : d)
   const selectedKey = keyOf(selected)
   return (
-    comments.value.find(c => keyOf(commentDate(c)) <= selectedKey) ??
-    comments.value[comments.value.length - 1] ??
+    sorted.find(c => keyOf(commentDate(c)) >= selectedKey) ??
+    sorted[sorted.length - 1] ??
     null
   )
 })
@@ -176,7 +202,7 @@ const completionText = (comment: StockComment | null | undefined): string | null
   parts.push(`起始 ${then}`)
   if (comment.targetPrice != null && cur != null) {
     const percent = progressPercent(cur, then, comment.targetPrice, progressMethod.value)
-    if (percent != null) parts.push(`进度 ${Math.round(percent)}%`)
+    if (percent != null) parts.push(`进度 ${percent.toFixed(1)}%`)
   }
   return parts.join(' · ')
 }
@@ -237,11 +263,10 @@ const openCommentModal = () => {
   commentInput.value = ''
   targetPriceInput.value = ''
   selectedTags.value = []
-  modalPriceSnapshot.value = lastPrice.value
   showCommentModal.value = true
 }
 
-// 评论弹窗里的“当前价格”：打开弹窗时定格，不随后续行情刷新
+// 浏览评论弹窗里的“当前价格”：打开弹窗时定格实时价，不随后续行情刷新
 const modalPriceSnapshot = ref<number | null>(null)
 
 // 浏览评论弹窗：点击卡片上的评论打开，可左右切换历史评论
@@ -277,6 +302,14 @@ const commentModalDate = computed(
   () => editingCommentDate.value || selectedTradeDate.value || defaultCommentDate.value
 )
 
+// 评论的「当时价格」：编辑用该评论已存的价格；添加用选中日期的收盘价（拿不到退回现价）
+const modalThenPrice = computed(() => {
+  if (editingCommentId.value) {
+    return comments.value.find(c => c._id === editingCommentId.value)?.currentPrice ?? null
+  }
+  return priceAtDate(commentModalDate.value) ?? lastPrice.value
+})
+
 const openEditComment = () => {
   if (!userStore.isLogin) {
     toastStore.showToast({ content: '登录后才能编辑', type: '!' })
@@ -288,7 +321,6 @@ const openEditComment = () => {
   editingCommentDate.value = commentDate(comment)
   commentInput.value = comment.content
   targetPriceInput.value = comment.targetPrice != null ? String(comment.targetPrice) : ''
-  modalPriceSnapshot.value = lastPrice.value
   // 已在设置里删除的 tag 视为遗失，只选中仍然存在的
   selectedTags.value = (comment.tags ?? []).filter(t => availableTags.value.includes(t))
   showBrowseModal.value = false
@@ -358,9 +390,16 @@ const submitComment = async () => {
         tags: selectedTags.value,
         date: selectedTradeDate.value || defaultCommentDate.value || undefined,
         targetPrice,
-        currentPrice: lastPrice.value ?? undefined,
+        // 当时价格 = 评论日期的收盘价（不再是提交时的实时价）
+        currentPrice: modalThenPrice.value ?? undefined,
       })
-      comments.value.unshift(comment)
+      // 按评论时间（倒序）插入到正确位置：评论日期可能是历史日期，直接 unshift 会打乱时间序
+      const createdTime = new Date(comment.created_time).getTime()
+      const insertAt = comments.value.findIndex(
+        c => new Date(c.created_time).getTime() < createdTime
+      )
+      if (insertAt < 0) comments.value.push(comment)
+      else comments.value.splice(insertAt, 0, comment)
       toastStore.showToast({ content: '评论成功', type: 'OK' })
     }
     editingCommentId.value = null
@@ -526,8 +565,8 @@ onUnmounted(() => {
       <div class="target-price-row">
         <span class="target-price-label">期望价格</span>
         <Input v-model="targetPriceInput" placeholder="选填，画在 K 线图上" />
-        <span v-if="modalPriceSnapshot != null" class="snapshot-price"
-          >当前 {{ modalPriceSnapshot.toFixed(2) }}</span
+        <span v-if="modalThenPrice != null" class="snapshot-price"
+          >当时 {{ modalThenPrice.toFixed(2) }}</span
         >
       </div>
       <div class="tag-picker">

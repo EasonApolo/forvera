@@ -181,10 +181,13 @@ const formatBytes = (bytes?: number) => {
     }
   }
   &.small {
-    padding: .25rem .25rem;
+    padding: 0 .25rem;
     font-size: .75rem;
     width: auto;
-    line-height: 0.75rem;
+    // 固定高度（与旧版视觉高度一致）+ 交给 .button 的 flex 垂直居中，
+    // 不再依赖字体的 half-leading 计算，PC/移动端表现一致
+    height: 20px;
+    line-height: 1;
 
     .loading-svg {
       width: 14px;

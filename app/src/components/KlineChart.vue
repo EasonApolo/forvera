@@ -86,8 +86,8 @@ const candles = computed(() => {
 const upColor = '#ef5350'
 const downColor = '#26a69a'
 
-// 评论标记：有期望价格的节点画竖虚线（收盘价连到目标价）+ 目标价横虚线；
-// 无期望价格的节点画短竖线刻度
+// 评论标记：所有评论节点画短竖线刻度；选中（active）评论若设了目标价，
+// 其节点画 当时价→目标价 的纵虚线（样式与目标价横线一致）
 const pad2 = (v: number) => String(v).padStart(2, '0')
 const commentMarksLayer = computed(() => {
   const empty = {
@@ -105,8 +105,8 @@ const commentMarksLayer = computed(() => {
   // 坐标钳制在图内，目标价超出量程时线指向边缘
   const clampY = (v: number) => Math.max(0, Math.min(CHART_H, y(v)))
   const verticals: Array<{ x: number; y1: number; y2: number }> = []
-  // 最新价横虚线常驻（灰色，无论有无评论/目标价）；active 评论的当时价线另画
-  const horizontals: Array<{ y: number; kind: 'target' | 'current' }> = []
+  // 横线三件套：最新价（灰色实线，常驻）+ active 评论的目标价（主题色虚线）/当时价（橙色虚线）
+  const horizontals: Array<{ y: number; kind: 'target' | 'current' | 'then' }> = []
   const latest = chart.closes[n - 1]
   if (latest != null && Number.isFinite(latest)) {
     horizontals.push({ y: clampY(latest), kind: 'current' })
@@ -131,17 +131,26 @@ const commentMarksLayer = computed(() => {
     const close = chart.closes[idx]
     if (close == null) continue
     const x = (idx + 0.5) * slotW
-    if (m.targetPrice != null && m.targetPrice > 0) {
-      verticals.push({ x, y1: clampY(close), y2: clampY(m.targetPrice) })
+    if (m.date === props.activeDate && m.targetPrice != null && m.targetPrice > 0) {
+      // 纵线只画选中评论的：当时价格 → 目标价格（缺当时价时退回该节点收盘价）
+      const startPrice =
+        m.currentPrice != null && m.currentPrice > 0 ? m.currentPrice : close
+      verticals.push({ x, y1: clampY(startPrice), y2: clampY(m.targetPrice) })
     } else {
+      // 其他评论只画短竖线刻度标记位置
       const yc = clampY(close)
       verticals.push({ x, y1: Math.max(0, yc - 6), y2: Math.min(CHART_H, yc + 6) })
     }
   }
-  // 横虚线：常驻最新价（灰色）+ active 评论的目标价（主题色）；当时价不画线
-  const active = marks.find(m => m.date === props.activeDate)
-  if (active && active.targetPrice != null && active.targetPrice > 0) {
-    horizontals.push({ y: clampY(active.targetPrice), kind: 'target' })
+  // active 评论的目标价/当时价横线（当时价不依赖目标价，有就画）
+  const activeMark = marks.find(m => m.date === props.activeDate)
+  if (activeMark) {
+    if (activeMark.targetPrice != null && activeMark.targetPrice > 0) {
+      horizontals.push({ y: clampY(activeMark.targetPrice), kind: 'target' })
+    }
+    if (activeMark.currentPrice != null && activeMark.currentPrice > 0) {
+      horizontals.push({ y: clampY(activeMark.currentPrice), kind: 'then' })
+    }
   }
   return { verticals, horizontals }
 })
@@ -240,9 +249,9 @@ const svgRef = ref<SVGSVGElement | null>(null)
 const dragging = ref(false)
 // 竖线常驻：选中的蜡烛下标，数据到达/切换后默认最右边一根，抬起不清除
 const selectedIndex = ref<number | null>(null)
-// 提示框跟随指针，位于指针右下方 (x, y) 偏移处，不限定在图内；仅拖拽时展示。
-// 右侧空间放不下时翻转到指针左侧（x 偏移取负、右缘贴指针）
-const pointerPos = ref<{ x: number; y: number } | null>(null)
+// 提示框跟随指针，默认位于指针右下方 (x, y) 偏移处；仅拖拽时展示。
+// 翻转按视口判定（不是图表宽度）：展开态图表只占卡片一半宽，按图宽判定会常态翻到左边
+const pointerPos = ref<{ x: number; y: number; clientX: number } | null>(null)
 const tooltipEl = ref<HTMLElement | null>(null)
 
 const emit = defineEmits<{
@@ -267,7 +276,7 @@ const selectAt = (clientX: number, clientY: number) => {
   if (!n) return
   const rect = svg.getBoundingClientRect()
   if (!rect.width) return
-  pointerPos.value = { x: clientX - rect.left, y: clientY - rect.top }
+  pointerPos.value = { x: clientX - rect.left, y: clientY - rect.top, clientX }
   const x = ((clientX - rect.left) / rect.width) * CHART_W
   const index = Math.max(0, Math.min(n - 1, Math.floor((x / CHART_W) * n)))
   selectedIndex.value = index
@@ -346,13 +355,12 @@ watch(
 
 const tooltipStyle = computed(() => {
   if (!selectedInfo.value || !pointerPos.value) return undefined
-  const offsetX = Number(props.tooltipOffset?.x) || 20
+  const offsetX = Math.abs(Number(props.tooltipOffset?.x)) || 20
   const offsetY = Number(props.tooltipOffset?.y) || 20
   const x = pointerPos.value.x
-  const containerW = svgRef.value?.getBoundingClientRect().width ?? 0
   const width = tooltipEl.value?.offsetWidth ?? 0
-  // 右缘会顶到/超出图表右边缘时，整体翻到指针左侧，保持同样的间距
-  const flip = containerW > 0 && x + offsetX + width > containerW
+  // 右缘会顶到/超出屏幕右边缘时，整体翻到指针左侧，保持同样的间距
+  const flip = pointerPos.value.clientX + offsetX + width > window.innerWidth
   return {
     left: `${x + (flip ? -offsetX : offsetX)}px`,
     top: `${pointerPos.value.y + offsetY}px`,
@@ -397,10 +405,16 @@ const tooltipStyle = computed(() => {
         :x2="CHART_W"
         :y1="h.y"
         :y2="h.y"
-        :stroke="h.kind === 'current' ? 'var(--text-secondary)' : 'var(--primary-color)'"
-        stroke-width="0.6"
-        stroke-dasharray="3 3"
-        opacity="0.4"
+        :stroke="
+          h.kind === 'current'
+            ? 'var(--text-secondary)'
+            : h.kind === 'then'
+              ? '#fa8c16'
+              : 'var(--primary-color)'
+        "
+        :stroke-width="h.kind === 'current' ? 0.8 : 0.6"
+        :stroke-dasharray="h.kind === 'current' ? undefined : '3 3'"
+        :opacity="h.kind === 'current' ? 0.55 : 0.5"
       />
       <line
         v-for="(v, i) in commentMarksLayer.verticals"
@@ -410,7 +424,7 @@ const tooltipStyle = computed(() => {
         :y1="v.y1"
         :y2="v.y2"
         stroke="var(--primary-color)"
-        stroke-width="0.8"
+        stroke-width="0.6"
         stroke-dasharray="3 3"
         opacity="0.5"
       />
@@ -495,8 +509,10 @@ const tooltipStyle = computed(() => {
 
   .y-axis-layer {
     position: absolute;
+    // 必须铺满整个图高（与 SVG 同高）：百分比按 CHART_H 计算，
+    // 底部留 12px 会让 tick 比 K 线/横线的实际位置整体偏高
     top: 0;
-    bottom: 12px;
+    bottom: 0;
     left: 0;
     pointer-events: none;
   }

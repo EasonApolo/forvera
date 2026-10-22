@@ -1215,15 +1215,9 @@ onMounted(async () => {
   transform: translate(-50%, -50%);
   border-radius: 50%;
   box-sizing: border-box;
-  background: transparent;
-  border: 1.5px solid #000;
+  background: var(--primary-color, #42b983);
   pointer-events: none;
   z-index: 5;
-}
-
-// 暗色模式下用浅色描边，避免和深色背景融在一起
-:global(:root.dark .weight-dot) {
-  border-color: rgba(255, 255, 255, 0.85);
 }
 
 // 目标体重线：与体重折线同色，虚线密度与每日标准线一致
