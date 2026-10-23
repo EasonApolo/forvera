@@ -31,8 +31,13 @@ export class UpdateUserSettingsDTO {
     playgroundSort?: string[];
     diet?: {
       standardCalories?: number;
+      /** 每日代谢（kcal，默认 2000） */
+      dailyMetabolism?: number;
       dietStartDate?: string | null;
       targetWeight?: number | null;
+      /** 体重图纵轴上下限（默认 100/75） */
+      weightMin?: number;
+      weightMax?: number;
     };
     stock?: {
       chartWidth?: number;
@@ -75,8 +80,11 @@ export interface User extends Document {
     playgroundSort?: string[];
     diet?: {
       standardCalories?: number;
+      dailyMetabolism?: number;
       dietStartDate?: string | null;
       targetWeight?: number | null;
+      weightMin?: number;
+      weightMax?: number;
     };
     aiSetting?: AiSetting;
     stock?: {

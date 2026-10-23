@@ -197,7 +197,6 @@ watch(
     :show="showReplyPanel"
     @update:show="closeReplyPanel"
     placement="bottom"
-    :padding-bottom="false"
     :blur-backdrop="false"
     :hide-footer="true"
     :max-width="560"

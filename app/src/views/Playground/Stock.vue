@@ -603,6 +603,8 @@ const saveSettings = async () => {
   <Modal
     :show="showAddModal"
     @update:show="showAddModal = $event"
+    :placement="'bottom'"
+    :padding-bottom="true"
     title="添加标的"
     :hide-footer="true"
   >

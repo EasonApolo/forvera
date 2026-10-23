@@ -83,8 +83,11 @@ const settingsModal = reactive({
   show: false,
   saving: false,
   standardCalories: 2000,
+  dailyMetabolism: 2000,
   dietStartDate: null as string | null,
   targetWeight: '' as string | number,
+  weightMax: '' as string | number,
+  weightMin: '' as string | number,
 })
 
 const recordModal = reactive({
@@ -152,24 +155,38 @@ const dietConfig = computed(() => {
   const standardNumber = Number(rawStandard)
   const rawTargetWeight = (userInfo.value.settings?.diet as any)?.targetWeight
   const targetWeightNumber = Number(rawTargetWeight)
+  // 体重图纵轴上下限（默认 100/75）；任一非法（非正数）或上限<=下限时整体退回默认
+  const rawWeightMax = Number((userInfo.value.settings?.diet as any)?.weightMax)
+  const rawWeightMin = Number((userInfo.value.settings?.diet as any)?.weightMin)
+  const weightScaleOk =
+    Number.isFinite(rawWeightMax) && rawWeightMax > 0 &&
+    Number.isFinite(rawWeightMin) && rawWeightMin > 0 &&
+    rawWeightMax > rawWeightMin
+  // 每日代谢（kcal，默认 2000），非法值退回默认
+  const rawMetabolism = Number((userInfo.value.settings?.diet as any)?.dailyMetabolism)
   return {
     standardCalories: Number.isFinite(standardNumber) && standardNumber > 0 ? standardNumber : 2000,
     dietStartDate: userInfo.value.settings?.diet?.dietStartDate || null,
     targetWeight: rawTargetWeight != null && rawTargetWeight !== '' && Number.isFinite(targetWeightNumber) && targetWeightNumber > 0
       ? targetWeightNumber
       : null,
-  } as { standardCalories: number; dietStartDate: string | null; targetWeight: number | null }
+    dailyMetabolism: Number.isFinite(rawMetabolism) && rawMetabolism > 0 ? rawMetabolism : 2000,
+    weightMax: weightScaleOk ? rawWeightMax : 100,
+    weightMin: weightScaleOk ? rawWeightMin : 75,
+  } as { standardCalories: number; dietStartDate: string | null; targetWeight: number | null; dailyMetabolism: number; weightMax: number; weightMin: number }
 })
 const totalCalories = computed(() => summary.value.days.reduce((total, day) => total + day.totalCalories - (day.totalNegativeCalories || 0), 0))
 const maxDayCalories = computed(() => Math.max(...summary.value.days.map(day => Math.max(0, day.totalCalories)), 1))
-// 纵轴上限至少包含每日标准，保证标准线始终画在图内
-const maxCalories = computed(() => Math.max(maxDayCalories.value, dietConfig.value.standardCalories))
-const thresholdBottom = computed(() => {
-  const standard = Math.max(dietConfig.value.standardCalories, 1)
-  // 与柱子同一纵轴（maxCalories 已包含每日标准），保证标准线落在图内
+// 纵轴上限至少包含每日标准和每日代谢，保证两条参考线始终画在图内
+const maxCalories = computed(() => Math.max(maxDayCalories.value, dietConfig.value.standardCalories, dietConfig.value.dailyMetabolism))
+const toBottomPercent = (value: number) => {
+  // 与柱子同一纵轴（maxCalories 已包含两条参考线），保证线落在图内
   const highest = Math.max(maxCalories.value, 1)
-  return Math.max(0, Math.min(100, (standard / highest) * 100))
-})
+  return Math.max(0, Math.min(100, (value / highest) * 100))
+}
+const thresholdBottom = computed(() => toBottomPercent(Math.max(dietConfig.value.standardCalories, 1)))
+// 每日代谢线位置（与标准线同一纵轴）
+const metabolismBottom = computed(() => toBottomPercent(Math.max(dietConfig.value.dailyMetabolism, 1)))
 
 const recentFoods = computed(() => summary.value.recentFoods.slice(0, 5))
 const searchFoods = computed(() => {
@@ -459,10 +476,13 @@ const openRecordModal = () => {
 const openSettingsModal = () => {
   settingsModal.show = true
   settingsModal.standardCalories = dietConfig.value.standardCalories
+  settingsModal.dailyMetabolism = dietConfig.value.dailyMetabolism
   settingsModal.dietStartDate = dietConfig.value.dietStartDate && dietConfig.value.dietStartDate > currentDay.value
     ? currentDay.value
     : dietConfig.value.dietStartDate || null
   settingsModal.targetWeight = dietConfig.value.targetWeight != null ? formatDietNumber(dietConfig.value.targetWeight) : ''
+  settingsModal.weightMax = formatDietNumber(dietConfig.value.weightMax)
+  settingsModal.weightMin = formatDietNumber(dietConfig.value.weightMin)
 }
 
 const closeRecordModal = () => {
@@ -577,17 +597,31 @@ const saveRecord = async () => {
 }
 
 const saveSettings = async (dietStartDate: string | null = settingsModal.dietStartDate) => {
+  const weightMaxInput = Number(settingsModal.weightMax)
+  const weightMinInput = Number(settingsModal.weightMin)
+  if (
+    !Number.isFinite(weightMaxInput) || weightMaxInput <= 0 ||
+    !Number.isFinite(weightMinInput) || weightMinInput <= 0 ||
+    weightMaxInput <= weightMinInput
+  ) {
+    toastStore.showToast({ content: '体重上下限需为正数，且上限大于下限', type: '!' })
+    return
+  }
   settingsModal.saving = true
   try {
     const normalizedDietStartDate = dietStartDate && dietStartDate > currentDay.value ? currentDay.value : dietStartDate
     const targetWeightInput = Number(settingsModal.targetWeight)
+    const dailyMetabolismInput = Number(settingsModal.dailyMetabolism)
     await userStore.updateSettings({
       diet: {
         standardCalories: settingsModal.standardCalories,
+        dailyMetabolism: Number.isFinite(dailyMetabolismInput) && dailyMetabolismInput > 0 ? dailyMetabolismInput : 2000,
         dietStartDate: normalizedDietStartDate,
         targetWeight: settingsModal.targetWeight !== '' && settingsModal.targetWeight != null && Number.isFinite(targetWeightInput) && targetWeightInput > 0
           ? targetWeightInput
           : null,
+        weightMax: weightMaxInput,
+        weightMin: weightMinInput,
       },
     })
     settingsModal.show = false
@@ -715,8 +749,7 @@ const onWeightInputClear = () => {
 
 /**
  * 体重折线（覆盖在统计图上）：
- * - 设了目标体重：纵轴顶部 = 100kg，底部 = 目标体重 - 5kg 的固定刻度
- * - 未设目标体重：退回窗口内 min/max 归一化（上下各留 10% 边距）
+ * - 纵轴刻度直接读设置的体重上下限（默认 100/75），超出范围的点截断在图内
  * - 窗口前/后紧邻的体重（服务端各多返回一条）也连进折线，把线延伸出图表边界，但不画节点
  */
 const weightChart = computed(() => {
@@ -742,18 +775,9 @@ const weightChart = computed(() => {
   if (!inner.length) return { inner, line: '' }
 
   const mapY = (weight: number) => {
-    const target = dietConfig.value.targetWeight
-    if (target != null) {
-      const top = 100
-      const bottom = target - 5
-      return Math.max(0, Math.min(100, ((top - weight) / (top - bottom)) * 100))
-    }
-    // 刻度只由窗口内体重决定，延伸点只做映射并截断在图内
-    const values = inner.map(p => p.weight)
-    const min = Math.min(...values)
-    const max = Math.max(...values)
-    const span = Math.max(max - min, 0.5)
-    return Math.max(0, Math.min(100, 10 + ((max - weight) / span) * 80))
+    const top = dietConfig.value.weightMax
+    const bottom = dietConfig.value.weightMin
+    return Math.max(0, Math.min(100, ((top - weight) / (top - bottom)) * 100))
   }
   inner.forEach(p => {
     p.y = mapY(p.weight)
@@ -781,13 +805,45 @@ const weightPoints = computed(() => weightChart.value.inner)
 
 const weightPolyline = computed(() => weightChart.value.line)
 
-// 目标体重参考线（与折线同一纵轴刻度）。折线/节点用的是距顶部百分比，这里要换成 CSS bottom 百分比
+// 目标体重参考线（与折线同一纵轴刻度：设置的体重上下限）。折线/节点用的是距顶部百分比，这里要换成 CSS bottom 百分比
 const targetWeightLineBottom = computed(() => {
   const target = dietConfig.value.targetWeight
   if (target == null) return null
-  const top = 100
-  const bottom = target - 5
+  const top = dietConfig.value.weightMax
+  const bottom = dietConfig.value.weightMin
   return Math.max(0, Math.min(100, ((target - bottom) / (top - bottom)) * 100))
+})
+
+/**
+ * 横虚线左侧的小标签落位：默认放线上方（label 底边 = 线位置 + 1%），
+ * 与已放置标签的占位带重叠时改放线下方（如每日代谢与每日目标同值时文字会叠在一起）。
+ * 占位带按标签高 ≈12px 折算为图高（120px）的 10% 估算。
+ */
+const chartLineLabels = computed(() => {
+  const lines = [
+    { key: 'metabolism', label: '每日代谢', bottom: metabolismBottom.value },
+    { key: 'target', label: '每日目标', bottom: thresholdBottom.value },
+  ]
+  if (targetWeightLineBottom.value != null) {
+    lines.push({ key: 'weight', label: '体重目标', bottom: targetWeightLineBottom.value })
+  }
+  const LABEL_H = 10
+  const placed: Array<{ bottom: number; top: number }> = []
+  return lines
+    .slice()
+    .sort((a, b) => a.bottom - b.bottom)
+    .map(line => {
+      const aboveBottom = Math.min(line.bottom + 1, 100)
+      const overlaps = (b: number, t: number) => placed.some(p => b < p.top && t > p.bottom)
+      if (!overlaps(aboveBottom, aboveBottom + LABEL_H)) {
+        placed.push({ bottom: aboveBottom, top: aboveBottom + LABEL_H })
+        return { ...line, labelBottom: aboveBottom }
+      }
+      // 放线下方：顶边贴线下 1%，且不越出图底
+      const belowTop = Math.max(line.bottom - 1, LABEL_H)
+      placed.push({ bottom: belowTop - LABEL_H, top: belowTop })
+      return { ...line, labelBottom: belowTop - LABEL_H }
+    })
 })
 
 const updateMonth = (value: string | number | null) => {
@@ -836,8 +892,15 @@ onMounted(async () => {
 
         <div class="chart-wrap">
           <div class="chart-bars">
+            <div class="metabolism-line" :style="{ bottom: `${metabolismBottom}%` }"></div>
             <div class="threshold-line" :style="{ bottom: `${thresholdBottom}%` }"></div>
             <div v-if="targetWeightLineBottom != null" class="target-weight-line" :style="{ bottom: `${targetWeightLineBottom}%` }"></div>
+            <div
+              v-for="item in chartLineLabels"
+              :key="item.key"
+              class="line-label"
+              :style="{ bottom: `${item.labelBottom}%` }"
+            >{{ item.label }}</div>
             <button v-for="day in chartBars" :key="day.dayKey" class="bar-item" :class="{ active: day.dayKey === selectedDayKey }" @click="selectDay(day.dayKey)">
               <div class="bar-track">
                 <div class="bar-outline" :style="{ height: `${day.barHeight + day.negativeHeight}%` }"></div>
@@ -999,8 +1062,20 @@ onMounted(async () => {
             <Input v-model="settingsModal.standardCalories" type="number" min="1" step="1" />
           </div>
           <div class="field-group">
+            <div class="field-label">每日代谢（kcal）</div>
+            <Input v-model="settingsModal.dailyMetabolism" type="number" min="1" step="1" />
+          </div>
+          <div class="field-group">
             <div class="field-label">目标体重（kg）</div>
             <Input v-model="settingsModal.targetWeight" type="number" min="1" step="0.1" placeholder="未设置" />
+          </div>
+          <div class="field-group">
+            <div class="field-label">体重上限（kg）</div>
+            <Input v-model="settingsModal.weightMax" type="number" min="1" step="0.1" />
+          </div>
+          <div class="field-group">
+            <div class="field-label">体重下限（kg）</div>
+            <Input v-model="settingsModal.weightMin" type="number" min="1" step="0.1" />
           </div>
           <div class="field-group">
             <div class="field-label">减肥起始日期</div>
@@ -1123,6 +1198,34 @@ onMounted(async () => {
   background: repeating-linear-gradient(90deg, rgba(255, 77, 79, 0.8) 0 2px, transparent 2px 4px);
   pointer-events: none;
   z-index: 3;
+}
+
+// 每日代谢线：中性灰虚线，与目标线（红）、体重目标线（主题色）区分
+.metabolism-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: repeating-linear-gradient(90deg, var(--text-secondary) 0 2px, transparent 2px 4px);
+  opacity: 0.7;
+  pointer-events: none;
+  z-index: 3;
+}
+
+// 横虚线左侧的小标签：底边对齐到线的落位（chartLineLabels 计算），
+// 背景取卡片底色，压在柱子/折线上时可读
+.line-label {
+  position: absolute;
+  left: 2px;
+  font-size: 9px;
+  line-height: 1.3;
+  color: var(--text-secondary);
+  background: var(--card-bg);
+  padding: 0 2px;
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 6;
+  white-space: nowrap;
 }
 
 .chart-bars {
@@ -1480,7 +1583,8 @@ onMounted(async () => {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  padding: 1rem;
+  // 底边距与 Modal 组件的 placement-bottom 对齐（避开底部导航栏）
+  padding: 1rem 1rem 84px;
   box-sizing: border-box;
 }
 

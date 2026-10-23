@@ -297,6 +297,13 @@ const analyze = async (targetWord?: string, isRegenerate = false, navigate = tru
     fixAnalysisMojibake(result.value)
     word.value = q
 
+    // 查过的词服务端已从待学列表移除，本地同步去掉（loadLearningWords 稍后兜底刷新）
+    const learnedWord = q.trim().toLowerCase()
+    if (learningWords.value.some((item) => item.word === learnedWord)) {
+      learningWords.value = learningWords.value.filter((item) => item.word !== learnedWord)
+      learningTotal.value = Math.max(0, learningTotal.value - 1)
+    }
+
     // 变形词/拼写纠错：模型判定后改为查询原形或纠错词（只重定向一层，避免循环）
     const redirectWord = (
       result.value.isWordValid
@@ -324,7 +331,7 @@ const analyze = async (targetWord?: string, isRegenerate = false, navigate = tru
       return
     }
 
-    await Promise.allSettled([loadRecent(), loadSearchPanel(word.value), loadCategoryGroups()])
+    await Promise.allSettled([loadRecent(), loadSearchPanel(word.value), loadCategoryGroups(), loadLearningWords()])
     showSearchPanel.value = false
     currentTab.value = 'list'
   } catch (err: any) {
@@ -337,7 +344,7 @@ const analyze = async (targetWord?: string, isRegenerate = false, navigate = tru
       content: analysisError.value,
       type: 'ERR',
     })
-    await Promise.allSettled([loadRecent(), loadSearchPanel(word.value), loadCategoryGroups()])
+    await Promise.allSettled([loadRecent(), loadSearchPanel(word.value), loadCategoryGroups(), loadLearningWords()])
   } finally {
     loading.value = false
   }
