@@ -176,7 +176,7 @@ const WordAnalysisSchema: GenAISchema = {
                 classification: {
                   type: Type.ARRAY,
                   description:
-                    '该词义在格拉斯哥英语历史分类词典（Historical Thesaurus of English）概念层级中的完整路径：第一层为三大主干（外部世界/精神世界/社会世界）之一，逐层细化到该概念真实所在的末端类目（HTE 末端类目通常在第 4~7 层，至少 4 层）；禁止使用被查词本身或其释义充当分类名，禁止生造 HTE 中不存在的层级',
+                    '该词义在格拉斯哥英语历史分类词典（Historical Thesaurus of English）概念层级中的完整路径，类目名一律使用 HTE 原生英文名，严禁翻译成中文：第一层为三大主干（The external world/The mind/Society）之一，逐层细化到该概念真实所在的末端类目（HTE 末端类目通常在第 4~7 层，至少 4 层）；禁止使用被查词本身或其释义充当分类名，禁止生造 HTE 中不存在的层级',
                   items: {
                     type: Type.STRING,
                   },
@@ -377,11 +377,12 @@ class DictionaryService {
 
   6. 词义通用分类：
   - 每个词义（definitions 的每一项）都必须给出 classification：通用分类路径数组，参照格拉斯哥大学《格拉斯哥英语历史分类词典》（Historical Thesaurus of English, HTE）的概念层级。
-  - 第一层必须且只能是 HTE 的三大主干之一：「外部世界」（自然界、物质、生物、空间、时间等）、「精神世界」（感知、情感、思想、意志、认知、语言等）、「社会世界」（社会组织、法律、政治、经济、文化、技术、风俗等）。
+  - 分类名必须使用 HTE 原生英文类目名，严禁翻译成中文或改写成中文译名，以保证跨词一致。
+  - 第一层必须且只能是 HTE 的三大主干之一：The external world（自然界、物质、生物、空间、时间等）、The mind（感知、情感、思想、意志、认知、语言等）、Society（社会组织、法律、政治、经济、文化、技术、风俗等）。
   - 之后沿 HTE 概念树逐层细化，一直给到该概念真实所在的末端类目。HTE 的末端类目绝大多数位于第 4~7 层，禁止在第 3 层处截断；只有概念确实位于 HTE 上层节点时才允许更浅的路径。
-  - 参照示例（真实 HTE 深度）：blacksmith => 社会 > 经济 > 职业与工作 > 手工业者 > 金属工人 > 铁匠（6 层）；anger => 精神世界 > 情感 > 情感状态 > 消极情感 > 愤怒（5 层）；harbor => 外部世界 > 建造环境 > 建筑物 > 水运建筑 > 港口（5 层）。
-  - 分类名使用 HTE 类目的通行中文译名（简体中文）；禁止使用被查词本身、其释义或例句内容充当分类名。
-  - 一致性优先：若提供了「已有分类路径」，语义匹配时必须复用完全相同的路径前缀（包括用字），不要为同一概念另造近义路径。${knownCategoriesBlock}
+  - 参照示例（真实 HTE 深度，注意类目名保持英文）：blacksmith => Society > Economy > Occupations and work > Craftsmen > Metal workers > Blacksmith（6 层）；anger => The mind > Emotion > Emotional states > Negative emotions > Anger（5 层）；harbor => The external world > Built environment > Buildings > Water transport structures > Harbor（5 层）。
+  - 类目名保持英文原文，大小写遵循 HTE 通行写法（主干为 The external world / The mind / Society）；禁止使用被查词本身、其释义或例句内容充当分类名。
+  - 一致性优先：若提供了「已有分类路径」，语义匹配时必须复用完全相同的路径（包括大小写与用词），不要为同一概念另造近义路径。${knownCategoriesBlock}
   - 多义词的不同词义可以归属不同分类路径；同一词的多个词义若语义相近，可共用同一路径。`;
 
     return prompt;
@@ -604,13 +605,13 @@ class DictionaryService {
         .map(toTreeNode)
         .sort((a, b) => {
           if (b.count !== a.count) return b.count - a.count;
-          return a.label.localeCompare(b.label, 'zh');
+          return a.label.localeCompare(b.label, 'en');
         });
       return {
         label: node.label,
         count: node.words.size + children.reduce((sum, child) => sum + child.count, 0),
         words: Array.from(node.words.values())
-          .sort((a, b) => a.localeCompare(b, 'zh'))
+          .sort((a, b) => a.localeCompare(b, 'en'))
           .map((word) => ({ word, wordLower: word.toLowerCase() })),
         children,
       };
@@ -620,7 +621,7 @@ class DictionaryService {
       .map(toTreeNode)
       .sort((a, b) => {
         if (b.count !== a.count) return b.count - a.count;
-        return a.label.localeCompare(b.label, 'zh');
+        return a.label.localeCompare(b.label, 'en');
       });
 
     if (unclassified.size) {
@@ -629,7 +630,7 @@ class DictionaryService {
         count: unclassified.size,
         words: Array.from(unclassified.entries())
           .map(([wordLower, word]) => ({ word, wordLower }))
-          .sort((a, b) => a.word.localeCompare(b.word, 'zh')),
+          .sort((a, b) => a.word.localeCompare(b.word, 'en')),
         children: [],
       });
     }
@@ -643,7 +644,7 @@ class DictionaryService {
 
   /** 取分类树中 HTE 体系（三大主干）的完整路径（按词数降序）喂给 prompt，让新查询优先复用已有类目；excludeWord 用于排除被查词自身，避免复用锁定旧路径 */
   async getKnownCategoryPaths(limit = 30, excludeWord?: string) {
-    const HTE_TRUNKS = ['外部世界', '精神世界', '社会世界'];
+    const HTE_TRUNKS = ['the external world', 'the mind', 'society'];
     const { items } = await this.getCategoryGroups(excludeWord);
     const paths: { path: string; count: number }[] = [];
     const walk = (
@@ -658,7 +659,12 @@ class DictionaryService {
         walk(node.children as typeof nodes, path);
       }
     };
-    walk(items.filter((item: { label: string }) => HTE_TRUNKS.includes(item.label)), []);
+    walk(
+      items.filter((item: { label: string }) =>
+        HTE_TRUNKS.includes(item.label.trim().toLowerCase()),
+      ),
+      [],
+    );
     return paths
       .sort((a, b) => b.count - a.count)
       .slice(0, limit)

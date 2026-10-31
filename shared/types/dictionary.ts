@@ -8,7 +8,7 @@ export type DictionaryDefinition = {
   phonetic?: string | null
   example: string
   exampleTranslation: string
-  /** 该词义的 3~5 层通用分类路径（从大类到小类） */
+  /** 该词义的通用分类路径（从大类到小类），类目名为 HTE 原生英文 */
   classification: string[]
   synonymsAnalysis: {
     term: string
