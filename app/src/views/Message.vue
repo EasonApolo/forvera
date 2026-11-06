@@ -71,7 +71,8 @@ const editMessage = (message: Message) => {
 
 const closeReplyPanel = () => {
   showReplyPanel.value = false
-  messageStore.clearMessageInput()
+  // 关闭不清空：存为草稿，再次打开同一回复/编辑上下文即可恢复
+  messageStore.saveMessageDraft()
 }
 
 const deleteMessage = async (message: Message) => {

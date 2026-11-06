@@ -30,7 +30,6 @@ const syncSettings = (settings: Record<string, any>) => {
     .catch(e => console.error('sync settings failed', e))
 }
 
-const WATCHLIST_KEY = 'klineWatchlist'
 // 当前选中的 K 线范围（日K/周K/月K），卡片 tab 与添加弹窗的迷你图共用
 const currentRange = ref<ChartRange>('1y')
 
@@ -60,44 +59,27 @@ const onBottomNavSelect = (key: string) => {
   }
 }
 
-// watchlist：登录时存 user.settings.stock.watchlist（跨设备同步），
-// 未登录退回 localStorage（换浏览器/清缓存会丢，登录后可恢复）
+// watchlist：只存服务端 user.settings.stock.watchlist（登录跨设备同步），
+// 服务端为唯一数据源：到达或变化（含清空）时直接采用，不再落 localStorage
 const watchlist = ref<MarketItem[]>([])
 const sameWatchlist = (a: MarketItem[], b: MarketItem[]) =>
   a.length === b.length && a.every((item, i) => item.symbol === b[i]?.symbol)
 
-const loadWatchlist = () => {
-  try {
-    const saved = localStorage.getItem(WATCHLIST_KEY)
-    const parsed = saved ? JSON.parse(saved) : []
-    watchlist.value = Array.isArray(parsed) ? parsed : []
-  } catch {
-    watchlist.value = []
-  }
-}
 const saveWatchlist = () => {
-  localStorage.setItem(WATCHLIST_KEY, JSON.stringify(watchlist.value))
   // 服务端按 symbol+name 过滤校验后合并进 settings.stock，失败不影响本地
   syncSettings({ stock: { watchlist: watchlist.value } })
 }
 
-loadWatchlist()
-
-// 用户信息（含 settings）异步到达后：服务端有数据则以服务端为准；
-// 服务端为空而本地有数据 → 把本地备份到服务端
+// immediate：进页面前路由守卫已 await getUserInfo，挂载时服务端数据通常已就位
 watch(
   () => userStore.userInfo.settings.stock?.watchlist,
   serverList => {
     if (!userStore.isLogin || !Array.isArray(serverList)) return
-    if (serverList.length) {
-      if (!sameWatchlist(serverList as MarketItem[], watchlist.value)) {
-        watchlist.value = serverList as MarketItem[]
-        localStorage.setItem(WATCHLIST_KEY, JSON.stringify(watchlist.value))
-      }
-    } else if (watchlist.value.length) {
-      saveWatchlist()
+    if (!sameWatchlist(serverList as MarketItem[], watchlist.value)) {
+      watchlist.value = serverList as MarketItem[]
     }
-  }
+  },
+  { immediate: true },
 )
 
 const addStock = (item: MarketSearchResult) => {
@@ -123,40 +105,30 @@ const addStock = (item: MarketSearchResult) => {
   toastStore.showToast({ content: `已添加 ${item.name}`, type: 'OK' })
 }
 
-// 分组：存 user.settings.stock.groups（与 watchlist 同样的 localStorage 兜底 + 服务端同步）
+// 分组：只存 user.settings.stock.groups，与 watchlist 一样以服务端为唯一数据源
 // activeGroup：null=全部不过滤，''=无分组，其它=对应分组
-const GROUPS_KEY = 'klineGroups'
 const groups = ref<string[]>([])
 // 进入页面默认选中默认分组；手动切换过后不再跟随默认分组变化
 const groupTouched = ref(false)
 const activeGroup = ref<string | null>(null)
 
-const loadGroups = () => {
-  try {
-    const saved = localStorage.getItem(GROUPS_KEY)
-    const parsed = saved ? JSON.parse(saved) : []
-    groups.value = Array.isArray(parsed) ? parsed.filter((g: unknown) => typeof g === 'string') : []
-  } catch {
-    groups.value = []
-  }
-}
 const saveGroups = () => {
-  localStorage.setItem(GROUPS_KEY, JSON.stringify(groups.value))
   syncSettings({ stock: { groups: groups.value } })
 }
-loadGroups()
 watch(
   () => userStore.userInfo.settings.stock?.groups,
   serverGroups => {
     if (!userStore.isLogin || !Array.isArray(serverGroups)) return
-    if (serverGroups.length) {
-      groups.value = serverGroups.filter((g): g is string => typeof g === 'string')
-      localStorage.setItem(GROUPS_KEY, JSON.stringify(groups.value))
-    } else if (groups.value.length) {
-      saveGroups()
-    }
-  }
+    const next = serverGroups.filter((g): g is string => typeof g === 'string')
+    if (next.length === groups.value.length && next.every((g, i) => g === groups.value[i])) return
+    groups.value = next
+  },
+  { immediate: true },
 )
+
+// 清理历史版本 localStorage 兜底（klineWatchlist/klineGroups）遗留的数据
+localStorage.removeItem('klineWatchlist')
+localStorage.removeItem('klineGroups')
 
 // 分组弹窗：assign=修改某只股票的分组（管理模式的☰），enter=进入分组（navbar）
 // activeGroup：null=全部不过滤，''=无分组（伪分组，不可删除），其它=对应分组

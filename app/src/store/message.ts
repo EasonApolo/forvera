@@ -18,12 +18,45 @@ export const useMessageStore = defineStore('message', {
         anonymous: true,
         editTarget: null as Message | null,
       },
+      // 按上下文存的输入草稿（仅内存，刷新页面即清空）：
+      // 根发言 ''、回复 <parent id>、编辑 edit:<id>
+      messageDrafts: {} as Record<string, { content: string; files: File[] }>,
       loading: false,
       anonymousNameList: [],
     }
   },
+  getters: {
+    // 当前输入所属的草稿上下文
+    draftKey: state =>
+      state.messageWrapper.editTarget
+        ? `edit:${state.messageWrapper.editTarget._id}`
+        : state.messageInput.parent || '',
+  },
   actions: {
+    /** 把当前输入存为所属上下文的草稿；内容与图片均为空则移除该草稿 */
+    saveMessageDraft() {
+      const key = this.draftKey
+      const { content, files } = this.messageInput
+      if (content.trim() || files.length) {
+        this.messageDrafts[key] = { content, files: [...files] }
+      } else {
+        delete this.messageDrafts[key]
+      }
+    },
+    /** 恢复当前上下文的草稿；无草稿则保持刚重置的空输入 */
+    restoreMessageDraft() {
+      const draft = this.messageDrafts[this.draftKey]
+      if (draft) {
+        this.messageInput.content = draft.content
+        this.messageInput.files = [...draft.files]
+      }
+    },
+    /** 发送成功后丢弃当前上下文的草稿 */
+    discardMessageDraft() {
+      delete this.messageDrafts[this.draftKey]
+    },
     reply(message?: Message) {
+      this.saveMessageDraft()
       this.clearMessageInput()
       if (message) {
         this.messageInput.parent = message._id
@@ -31,11 +64,21 @@ export const useMessageStore = defineStore('message', {
           message.level === 0 ? message._id : message.ancestor
         this.messageWrapper.replyToUsername = message.user.username
       }
+      this.restoreMessageDraft()
     },
     editMessage(message: Message) {
+      this.saveMessageDraft()
       this.clearMessageInput()
       this.messageInput.content = message.content
       this.messageWrapper.editTarget = message
+      // 有未完成的编辑草稿则用草稿覆盖线上内容
+      this.restoreMessageDraft()
+    },
+    /** 进入独立发送页：重置为根发言上下文，并恢复根发言草稿 */
+    startNewMessage() {
+      this.saveMessageDraft()
+      this.clearMessageInput()
+      this.restoreMessageDraft()
     },
     clearMessageInput() {
       this.messageInput = {

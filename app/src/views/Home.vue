@@ -58,7 +58,8 @@ const replyTo = () => {
 
 const closeReplyPanel = () => {
   showReplyPanel.value = false
-  messageStore.clearMessageInput()
+  // 关闭不清空：存为草稿，再次打开即可恢复
+  messageStore.saveMessageDraft()
 }
 </script>
 

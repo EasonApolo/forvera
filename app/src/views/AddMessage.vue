@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
-import { reactive, ref, computed } from 'vue'
+import { reactive, ref, computed, onMounted } from 'vue'
 import Btn from '../components/Btn.vue'
 import List from '../components/layout/List.vue'
 import Card from '../components/Card.vue'
@@ -67,8 +67,22 @@ const onRemove = (removeIndex: number) => {
   messageStore.messageInput.files = allSelectedImages.map(obj => obj.file)
 }
 
+// 弹层（Modal v-if）每次打开都会重新挂载：从 store 恢复当前上下文草稿里的图片；
+// 独立页则先重置为根发言上下文（避免带入上次回复的 parent）
+onMounted(async () => {
+  if (!props.floating) {
+    messageStore.startNewMessage()
+  }
+  const files = messageInput.value.files
+  if (files.length) {
+    const restored = await Promise.all(files.map(readFile))
+    allSelectedImages.push(...restored)
+  }
+})
+
 const closePanel = () => {
-  messageStore.clearMessageInput()
+  // 关闭不清空：存为草稿，重新打开（同一上下文）可恢复
+  messageStore.saveMessageDraft()
   if (props.floating) {
     emit('close')
     return
@@ -86,22 +100,26 @@ const send = async () => {
   if (isEditing.value) {
     const target = messageWrapper.value.editTarget!
     loading.value.send = true
-    const res = await messageStore.updateMessageContent(
-      target._id,
-      messageInput.value.content
-    )
-    loading.value.send = false
-    if (res) {
+    try {
+      const res = await messageStore.updateMessageContent(
+        target._id,
+        messageInput.value.content
+      )
+      if (!res) {
+        toastStore.showToast({ content: '编辑失败，看看控制台', type: 'ERR' })
+        return
+      }
       toastStore.showToast({ content: '编辑成功～', type: 'OK' })
-    } else {
-      toastStore.showToast({ content: '编辑失败，看看控制台', type: 'ERR' })
-    }
-    messageStore.clearMessageInput()
-    if (props.floating) {
-      emit('sent')
-      emit('close')
-    } else {
-      mainStore.router.go(-1)
+      messageStore.discardMessageDraft()
+      messageStore.clearMessageInput()
+      if (props.floating) {
+        emit('sent')
+        emit('close')
+      } else {
+        mainStore.router.go(-1)
+      }
+    } finally {
+      loading.value.send = false
     }
     return
   }
@@ -114,24 +132,29 @@ const send = async () => {
   }
   loading.value.send = true
   const t1 = Date.now()
-  const res = await messageStore.addMessage()
-  loading.value.send = false
-  if (res) {
-    toastStore.showToast({ content: `发送成功～`, type: 'OK' })
-  } else {
-    let errContent = '发送失败，看看控制台'
-    if (Date.now() - t1 > 3000) {
-      errContent =
-        '发送失败，好像等了很久，可能是后端超时或nginx超时或网不行或cloudflare不行'
+  try {
+    const res = await messageStore.addMessage()
+    if (!res) {
+      // 发送失败保留输入，等用户重试或手动关闭（关闭时存草稿）
+      let errContent = '发送失败，看看控制台'
+      if (Date.now() - t1 > 3000) {
+        errContent =
+          '发送失败，好像等了很久，可能是后端超时或nginx超时或网不行或cloudflare不行'
+      }
+      toastStore.showToast({ content: errContent, type: 'ERR' })
+      return
     }
-    toastStore.showToast({ content: errContent, type: 'ERR' })
-  }
-  messageStore.clearMessageInput()
-  if (props.floating) {
-    emit('sent')
-    emit('close')
-  } else {
-    mainStore.router.go(-1)
+    toastStore.showToast({ content: `发送成功～`, type: 'OK' })
+    messageStore.discardMessageDraft()
+    messageStore.clearMessageInput()
+    if (props.floating) {
+      emit('sent')
+      emit('close')
+    } else {
+      mainStore.router.go(-1)
+    }
+  } finally {
+    loading.value.send = false
   }
 }
 
@@ -160,7 +183,7 @@ const loading = ref({ send: false })
             - {{ userStore.isLogin ? '' : '当前未登录，登录后' }}可以{{
               messageWrapper.replyToUsername ? '' : '附带最多3张图片和'
             }}切换身份。<br />
-            - 退出页面会清空，不要在这里打一堆字哦。<br />
+            - 关闭后内容会保留为草稿，刷新页面才会清空。<br />
             - 正在以{{
               messageWrapper.anonymous ? '随机' : userStore.userInfo.username
             }}身份{{
@@ -229,7 +252,7 @@ const loading = ref({ send: false })
               - {{ userStore.isLogin ? '' : '当前未登录，登录后' }}可以{{
                 messageWrapper.replyToUsername ? '' : '附带最多3张图片和'
               }}切换身份。<br />
-              - 退出页面会清空，不要在这里打一堆字哦。<br />
+              - 关闭后内容会保留为草稿，刷新页面才会清空。<br />
               - 正在以{{
                 messageWrapper.anonymous ? '随机' : userStore.userInfo.username
               }}身份{{
