@@ -69,6 +69,15 @@ const serverHandler = (req, res) => {
     return;
   }
 
+  // %00（null 字节）等控制字符能顺利通过 decodeURIComponent，却会让 fs.stat 同步抛错（曾导致进程崩溃），直接拒绝。
+  if (/[\x00-\x1f\x7f]/.test(pathname)) {
+    console.warn(`[serve-static] 400 control chars in path: ${req.url}`);
+    res.statusCode = 400;
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.end('Bad Request');
+    return;
+  }
+
   if (pathname === '/') {
     pathname = '/index.html';
   }
