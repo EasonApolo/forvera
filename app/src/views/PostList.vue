@@ -53,8 +53,13 @@ const groupedPosts = computed(() => {
     }
   })
 
-  // 添加最近分组（如果有文章）
+  // 添加最近分组（如果有文章）：组内按更新时间倒序，最近更新的排最上面；
+  // 年份组保持接口返回的 created_time 倒序
   if (recentGroup.posts.length > 0) {
+    recentGroup.posts.sort(
+      (a, b) =>
+        new Date(b.updated_time).getTime() - new Date(a.updated_time).getTime()
+    )
     groups.push(recentGroup)
   }
 
