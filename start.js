@@ -128,6 +128,92 @@ async function waitForHttp(name, url, logFile, retries = 20, insecure = false) {
   return false
 }
 
+// ── SEO：文章列表注入 ──
+function fetchJson(url, insecure) {
+  return new Promise((resolve, reject) => {
+    const lib = url.startsWith('https') ? https : http
+    const req = lib.get(url, { rejectUnauthorized: !insecure, timeout: 10000 }, res => {
+      let body = ''
+      res.on('data', chunk => { body += chunk })
+      res.on('end', () => {
+        if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`))
+        try {
+          resolve(JSON.parse(body))
+        } catch (err) {
+          reject(err)
+        }
+      })
+    })
+    req.on('error', reject)
+    req.on('timeout', () => {
+      req.destroy()
+      reject(new Error('timeout'))
+    })
+  })
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+}
+
+const SEO_MARK_START = '<!-- seo-post-links:start -->'
+const SEO_MARK_END = '<!-- seo-post-links:end -->'
+
+/**
+ * SEO 产物生成（每次启动后执行，均带标记幂等）：
+ * 1. 把文章列表以隐藏 <a> 注入 dist/index.html：爬虫可见（能顺着链接进入文章页），
+ *    页面不可见（hidden 属性，且在 #app 之外不影响挂载）。
+ * 2. 生成 dist/sitemap.xml，供提交给 Google Search Console / Bing 等搜索引擎。
+ */
+async function buildSeoArtifacts(cfg, proto, insecure) {
+  const indexPath = path.join(APP_DIR, 'dist', 'index.html')
+  try {
+    const posts = await fetchJson(`${proto}://127.0.0.1:${cfg.SERVER_PORT}/api/post`, insecure)
+    if (!Array.isArray(posts) || posts.length === 0) {
+      console.log('[seo] No posts returned, skip SEO artifacts')
+      return
+    }
+    const site = `https://${cfg.CADDY_DOMAIN}`
+
+    const links = posts
+      .filter(post => post && post._id)
+      .map(post => `      <a href="/post/${post._id}">${escapeHtml(post.title || post._id)}</a>`)
+      .join('\n')
+    const block = `    ${SEO_MARK_START}\n    <div hidden id="seo-post-links">\n${links}\n    </div>\n    ${SEO_MARK_END}\n  `
+    let html = fs.readFileSync(indexPath, 'utf8')
+    const start = html.indexOf(SEO_MARK_START)
+    const end = html.indexOf(SEO_MARK_END)
+    if (start !== -1 && end !== -1) {
+      html = html.slice(0, start) + html.slice(end + SEO_MARK_END.length)
+    }
+    html = html.replace('</body>', `${block}</body>`)
+    fs.writeFileSync(indexPath, html)
+
+    const urls = [
+      `  <url><loc>${site}/</loc></url>`,
+      ...posts
+        .filter(post => post && post._id)
+        .map(post => {
+          const lastmod = post.updated_time
+            ? new Date(post.updated_time).toISOString().slice(0, 10)
+            : ''
+          return `  <url><loc>${site}/post/${post._id}</loc>${lastmod ? `<lastmod>${lastmod}</lastmod>` : ''}</url>`
+        }),
+    ]
+    const sitemap = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`
+    fs.writeFileSync(path.join(APP_DIR, 'dist', 'sitemap.xml'), sitemap)
+
+    console.log(`[seo] Injected ${posts.length} post links into ${indexPath}`)
+    console.log(`[seo] Wrote sitemap with ${urls.length} urls -> ${path.join(APP_DIR, 'dist', 'sitemap.xml')}`)
+  } catch (err) {
+    console.log(`[seo] Warning: failed to build SEO artifacts: ${err.message}`)
+  }
+}
+
 // ── Caddy ──
 function installCaddyIfNeeded() {
   if (commandExists('caddy')) return
@@ -245,6 +331,8 @@ async function main() {
     env: {
       ...process.env,
       APP_PORT: String(cfg.APP_PORT),
+      SERVER_PORT: String(cfg.SERVER_PORT),
+      CADDY_DOMAIN: cfg.CADDY_DOMAIN,
       SSL_CERT_PATH: cfg.SSL_CERT_PATH,
       SSL_KEY_PATH: cfg.SSL_KEY_PATH,
       FORVERA_FORCE_HTTP: cfg.FORVERA_FORCE_HTTP,
@@ -272,6 +360,9 @@ async function main() {
     20,
     insecure
   )
+
+  // 前后端就绪后生成 SEO 产物：首页注入隐藏文章链接 + sitemap.xml（SPA 首屏是空壳，这些让爬虫第一波抓取就能发现文章）
+  await buildSeoArtifacts(cfg, proto, insecure)
 
   // [5/5] 配置 Caddy（仅在 root + systemctl 环境下安装并加载配置）
   console.log('[5/5] Configuring Caddy...')
