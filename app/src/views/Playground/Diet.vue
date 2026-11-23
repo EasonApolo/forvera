@@ -78,6 +78,8 @@ const summary = ref<DietSummary>({
   weights: [],
 })
 const selectedMonth = ref<string | null>(null)
+const selectedYear = ref<string | null>(null)
+const timeSpan = ref<'month' | 'year'>('month')
 
 const settingsModal = reactive({
   show: false,
@@ -137,17 +139,44 @@ function buildMonthOptions(centerMonth = currentMonthKey(), offset = 5) {
   return options
 }
 
-// 非管理员只读：只看统计图，无设置/添加/当天记录
+function buildYearOptions(offset = 5) {
+  const year = new Date().getFullYear()
+  const options: string[] = []
+  for (let delta = offset; delta >= 0; delta -= 1) {
+    options.push(String(year - delta))
+  }
+  return options
+}
+
+function mondayKey(dayKey: string) {
+  const date = dayKeyToDate(dayKey)
+  const weekday = date.getDay()
+  const offset = weekday === 0 ? 6 : weekday - 1
+  date.setDate(date.getDate() - offset)
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+function roundTenth(value: number) {
+  return Math.round(value * 10) / 10
+}
+
+// 非管理员只读：只看统计图，无设置/添加/当天记录。年视图同样只读。
 const isAdmin = computed(() => Number(userInfo.value?.role) === 3)
+const isYearSpan = computed(() => timeSpan.value === 'year')
+const canEditDiet = computed(() => isAdmin.value && !isYearSpan.value)
 const navItems = computed(() => {
   const items = [{ key: 'back', label: '‹ 返回' }]
-  if (isAdmin.value) {
+  if (canEditDiet.value) {
     items.push({ key: 'add', label: '添加' })
   }
   return items
 })
 
 const monthOptions = computed(() => buildMonthOptions())
+const yearOptions = computed(() => buildYearOptions())
+const stepperValue = computed(() => (isYearSpan.value ? selectedYear.value : selectedMonth.value))
+const stepperOptions = computed(() => (isYearSpan.value ? yearOptions.value : monthOptions.value))
+const stepperPlaceholder = computed(() => (isYearSpan.value ? '最近一年' : '最近一个月'))
 const currentDay = computed(() => currentDayKey())
 const dietConfig = computed(() => {
   // 登录读用户设置；未登录（匿名只读视图）退回 summary 返回的配置
@@ -176,7 +205,43 @@ const dietConfig = computed(() => {
   } as { standardCalories: number; dietStartDate: string | null; targetWeight: number | null; dailyMetabolism: number; weightMax: number; weightMin: number }
 })
 const totalCalories = computed(() => summary.value.days.reduce((total, day) => total + day.totalCalories - (day.totalNegativeCalories || 0), 0))
-const maxDayCalories = computed(() => Math.max(...summary.value.days.map(day => Math.max(0, day.totalCalories)), 1))
+/**
+ * 年视图把每天收成自然周（周一开始）。
+ * 当天正负热量都是 0 视为缺漏，不参与该周平均；整周都缺漏则柱子为 0。
+ * 有记录的天用净热量（摄入 - 消耗）取平均。
+ */
+const chartDays = computed<DietDay[]>(() => {
+  if (!isYearSpan.value) return summary.value.days
+  const groups = new Map<string, DietDay[]>()
+  for (const day of summary.value.days) {
+    const key = mondayKey(day.dayKey)
+    const list = groups.get(key)
+    if (list) list.push(day)
+    else groups.set(key, [day])
+  }
+  const weeks: DietDay[] = []
+  for (const [weekKey, days] of groups) {
+    const counted = days.filter(day => (day.totalCalories || 0) !== 0 || (day.totalNegativeCalories || 0) !== 0)
+    let totalCalories = 0
+    let totalNegativeCalories = 0
+    if (counted.length) {
+      const net = counted.reduce((sum, day) => sum + day.totalCalories - (day.totalNegativeCalories || 0), 0) / counted.length
+      const rounded = roundTenth(net)
+      if (rounded > 0) totalCalories = rounded
+      else if (rounded < 0) totalNegativeCalories = roundTenth(Math.abs(rounded))
+    }
+    const monday = dayKeyToDate(weekKey)
+    weeks.push({
+      dayKey: weekKey,
+      label: `${monday.getMonth() + 1}/${monday.getDate()}`,
+      totalCalories,
+      totalNegativeCalories,
+      recordCount: counted.reduce((sum, day) => sum + (day.recordCount || 0), 0),
+    })
+  }
+  return weeks
+})
+const maxDayCalories = computed(() => Math.max(...chartDays.value.map(day => Math.max(0, day.totalCalories)), 1))
 // 纵轴上限至少包含每日标准和每日代谢，保证两条参考线始终画在图内
 const maxCalories = computed(() => Math.max(maxDayCalories.value, dietConfig.value.standardCalories, dietConfig.value.dailyMetabolism))
 const toBottomPercent = (value: number) => {
@@ -246,7 +311,7 @@ const formatDietNumber = (value: number) => {
   return Number.isInteger(rounded) ? `${rounded}` : `${rounded}`.replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1')
 }
 
-const chartBars = computed(() => summary.value.days.map(day => {
+const chartBars = computed(() => chartDays.value.map(day => {
   const grossPositive = Math.max(0, day.totalCalories)
   const grossNegative = day.totalNegativeCalories || 0
   const netHeight = Math.max(0, grossPositive - grossNegative)
@@ -433,7 +498,9 @@ function mixGreenToRed(progress: number) {
 const loadSummary = async () => {
   loading.value = true
   try {
-    const params = selectedMonth.value ? { month: selectedMonth.value } : {}
+    const params = isYearSpan.value
+      ? { year: selectedYear.value || 'recent' }
+      : (selectedMonth.value ? { month: selectedMonth.value } : {})
     const data = await request('diet/summary', 'GET', params)
     const normalizedSummary = data as DietSummary
     normalizedSummary.foods = normalizedSummary.foods.map(food => ({ ...food, unit: displayUnit(food.unit) as DietUnit }))
@@ -560,7 +627,7 @@ const backToFoodSelect = () => {
 }
 
 const selectDay = (dayKey: string) => {
-  if (!isAdmin.value) return
+  if (!canEditDiet.value) return
   selectedDayKey.value = dayKey
 }
 
@@ -753,24 +820,50 @@ const onWeightInputClear = () => {
  * - 窗口前/后紧邻的体重（服务端各多返回一条）也连进折线，把线延伸出图表边界，但不画节点
  */
 const weightChart = computed(() => {
-  const days = summary.value.days
+  const days = chartDays.value
   const n = days.length
   if (!n) return { inner: [] as { x: number; y: number; weight: number }[], line: '' }
 
-  const firstDayKey = days[0].dayKey
-  const lastDayKey = days[n - 1].dayKey
+  const windowDays = summary.value.days
+  const firstDayKey = windowDays[0]?.dayKey || days[0].dayKey
+  const lastDayKey = windowDays[windowDays.length - 1]?.dayKey || days[n - 1].dayKey
   const sorted = [...summaryWeights.value].sort((a, b) => (a.day_key < b.day_key ? -1 : 1))
-  const before = sorted.length > 0 && sorted[0].day_key < firstDayKey ? sorted[0] : null
-  const after = sorted.length > 0 && sorted[sorted.length - 1].day_key > lastDayKey ? sorted[sorted.length - 1] : null
-
-  const weightMap = new Map(sorted.filter(w => w.day_key >= firstDayKey && w.day_key <= lastDayKey).map(w => [w.day_key, w.weight]))
   const inner: { x: number; y: number; weight: number }[] = []
-  days.forEach((day, index) => {
-    const w = weightMap.get(day.dayKey)
-    if (w != null) {
-      inner.push({ x: ((index + 0.5) / n) * 100, y: 0, weight: w })
-    }
-  })
+  let before: { day_key: string; weight: number } | null = null
+  let after: { day_key: string; weight: number } | null = null
+
+  if (isYearSpan.value) {
+    // 同一自然周内的体重取平均；窗口外、且不属于这些周的最近一条只用来把折线伸出边界
+    const weekKeys = new Set(days.map(day => day.dayKey))
+    const buckets = new Map<string, number[]>()
+    sorted.forEach(item => {
+      const key = mondayKey(item.day_key)
+      if (weekKeys.has(key)) {
+        const list = buckets.get(key)
+        if (list) list.push(item.weight)
+        else buckets.set(key, [item.weight])
+        return
+      }
+      if (key < days[0].dayKey) before = item
+      else if (!after) after = item
+    })
+    days.forEach((day, index) => {
+      const values = buckets.get(day.dayKey)
+      if (!values?.length) return
+      const weight = roundTenth(values.reduce((sum, value) => sum + value, 0) / values.length)
+      inner.push({ x: ((index + 0.5) / n) * 100, y: 0, weight })
+    })
+  } else {
+    before = sorted.length > 0 && sorted[0].day_key < firstDayKey ? sorted[0] : null
+    after = sorted.length > 0 && sorted[sorted.length - 1].day_key > lastDayKey ? sorted[sorted.length - 1] : null
+    const weightMap = new Map(sorted.filter(w => w.day_key >= firstDayKey && w.day_key <= lastDayKey).map(w => [w.day_key, w.weight]))
+    days.forEach((day, index) => {
+      const w = weightMap.get(day.dayKey)
+      if (w != null) {
+        inner.push({ x: ((index + 0.5) / n) * 100, y: 0, weight: w })
+      }
+    })
+  }
   // 窗口内一个体重都没有时不画线（没有可连的节点）
   if (!inner.length) return { inner, line: '' }
 
@@ -786,15 +879,18 @@ const weightChart = computed(() => {
   const linePoints = [...inner]
   const dayDiff = (fromKey: string, toKey: string) =>
     Math.round((dayKeyToDate(toKey).getTime() - dayKeyToDate(fromKey).getTime()) / 86400000)
+  // 年视图每个槽位是一周，窗口外的延伸按天数 / 7 换算槽位
+  const slotDays = isYearSpan.value ? 7 : 1
+  const anchorStart = days[0].dayKey
+  const anchorEnd = days[n - 1].dayKey
   if (before) {
-    // 比 firstDayKey 早 k 天 → 槽位 index = -k，x 为负，画到左边界外被 svg 裁掉
-    const k = dayDiff(before.day_key, firstDayKey)
-    linePoints.unshift({ x: ((0.5 - k) / n) * 100, y: mapY(before.weight), weight: before.weight })
+    // 比锚点早 k 个槽位 → x 为负，画到左边界外被 svg 裁掉
+    const k = dayDiff(before.day_key, anchorStart) / slotDays
+    if (k > 0) linePoints.unshift({ x: ((0.5 - k) / n) * 100, y: mapY(before.weight), weight: before.weight })
   }
   if (after) {
-    // 比 lastDayKey 晚 k 天 → 槽位 index = n - 1 + k
-    const k = dayDiff(lastDayKey, after.day_key)
-    linePoints.push({ x: ((n - 0.5 + k) / n) * 100, y: mapY(after.weight), weight: after.weight })
+    const k = dayDiff(anchorEnd, after.day_key) / slotDays
+    if (k > 0) linePoints.push({ x: ((n - 0.5 + k) / n) * 100, y: mapY(after.weight), weight: after.weight })
   }
   const line = linePoints.length >= 2 ? linePoints.map(p => `${p.x},${p.y}`).join(' ') : ''
   return { inner, line }
@@ -846,12 +942,18 @@ const chartLineLabels = computed(() => {
     })
 })
 
-const updateMonth = (value: string | number | null) => {
-  if (typeof value === 'string' && value) {
-    selectedMonth.value = value
+const updateStepper = (value: string | number | null) => {
+  const next = typeof value === 'string' && value ? value : null
+  if (isYearSpan.value) {
+    selectedYear.value = next
     return
   }
-  selectedMonth.value = null
+  selectedMonth.value = next
+}
+
+const setTimeSpan = (span: 'month' | 'year') => {
+  if (timeSpan.value === span) return
+  timeSpan.value = span
 }
 
 const updateCaloriesUnit = (value: number | string | null) => {
@@ -861,7 +963,7 @@ const updateCaloriesUnit = (value: number | string | null) => {
   }
 }
 
-watch(selectedMonth, () => {
+watch([timeSpan, selectedMonth, selectedYear], () => {
   void loadSummary()
 })
 
@@ -874,19 +976,29 @@ onMounted(async () => {
 <template>
   <List>
     <template v-slot:content>
-      <div class="page-head">
-        <Btn v-if="isAdmin" class="settings-btn" small @click="openSettingsModal">设置</Btn>
+      <div v-if="canEditDiet" class="page-head">
+        <Btn class="settings-btn" small @click="openSettingsModal">设置</Btn>
       </div>
 
       <Card class="summary-card">
         <div class="summary-head">
           <StepperFilter
-            :value="selectedMonth"
-            :options="monthOptions"
+            class="summary-stepper"
+            :value="stepperValue"
+            :options="stepperOptions"
             :nullable="true"
             nullable-position="max"
-            @update:value="updateMonth"
+            :placeholder="stepperPlaceholder"
+            :btn-size="20"
+            :btn-font-size="12"
+            :btn-mobile-size="20"
+            :btn-mobile-font-size="12"
+            @update:value="updateStepper"
           />
+          <div class="span-toggle">
+            <Btn small :type="timeSpan === 'month' ? 'primary' : undefined" @click="setTimeSpan('month')">月</Btn>
+            <Btn small :type="timeSpan === 'year' ? 'primary' : undefined" @click="setTimeSpan('year')">年</Btn>
+          </div>
           <div class="summary-weight-change">{{ weightChangeLabel }}</div>
         </div>
 
@@ -901,7 +1013,7 @@ onMounted(async () => {
               class="line-label"
               :style="{ bottom: `${item.labelBottom}%` }"
             >{{ item.label }}</div>
-            <button v-for="day in chartBars" :key="day.dayKey" class="bar-item" :class="{ active: day.dayKey === selectedDayKey }" @click="selectDay(day.dayKey)">
+            <button v-for="day in chartBars" :key="day.dayKey" class="bar-item" :class="{ active: !isYearSpan && day.dayKey === selectedDayKey, readonly: isYearSpan }" @click="selectDay(day.dayKey)">
               <div class="bar-track">
                 <div class="bar-outline" :style="{ height: `${day.barHeight + day.negativeHeight}%` }"></div>
                 <div class="bar-fill" :style="{ height: `${day.barHeight}%`, background: day.barColor }"></div>
@@ -916,7 +1028,7 @@ onMounted(async () => {
         </div>
       </Card>
 
-      <Card v-if="isAdmin" class="today-card">
+      <Card v-if="canEditDiet" class="today-card">
         <div class="card-head">
           <div class="card-title">{{ selectedDayLabel }}</div>
           <Btn small class="prev-day-btn" @click="selectDay(prevDayKey(selectedDayKey))">前一天</Btn>
@@ -1136,6 +1248,19 @@ onMounted(async () => {
   justify-content: flex-start;
 }
 
+.summary-head :deep(.summary-stepper) {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.span-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+}
+
 .prev-day-btn,
 .back-today-btn {
   flex: 0 0 auto;
@@ -1245,6 +1370,10 @@ onMounted(async () => {
   padding: 0;
   background: transparent;
   cursor: pointer;
+
+  &.readonly {
+    cursor: default;
+  }
   /* 每天占一等分槽位，4px 柱体居中，间距随容器宽度自适应 */
   flex: 1 1 0;
   min-width: 0;

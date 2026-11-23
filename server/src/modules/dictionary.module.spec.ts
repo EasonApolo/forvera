@@ -95,6 +95,67 @@ describe('DictionaryService learning words', () => {
   });
 });
 
+describe('DictionaryService adoptAnalysis', () => {
+  const Service = Reflect.getMetadata(MODULE_METADATA.PROVIDERS, DictionaryModule)
+    .find((provider: any) => provider !== AiService);
+
+  const analysis = (fields: Record<string, unknown>) => JSON.stringify(fields);
+
+  it('moves a misspelled lookup onto the corrected word from the same result', async () => {
+    const findOne = jest.fn(async () => null);
+    const findOneAndUpdate = jest.fn(async () => ({}));
+    const deleteMany = jest.fn(async () => ({ deletedCount: 1 }));
+    const learningDelete = jest.fn(async () => ({ deletedCount: 1 }));
+    const service = new Service(
+      { findOne, findOneAndUpdate, deleteMany },
+      { deleteMany: learningDelete, countDocuments: jest.fn(async () => 0) },
+      {} as any,
+    );
+
+    const result = await service.adoptAnalysis('gretest', analysis({
+      isWordValid: false,
+      searchedWord: 'gretest',
+      correctedWord: 'greatest',
+      canonicalWord: 'greatest',
+      word: 'greatest',
+    }), 'record-1');
+
+    expect(result).toMatchObject({ relinked: true, target: 'greatest' });
+    expect(findOneAndUpdate).toHaveBeenCalledWith(
+      { word: 'greatest' },
+      { $set: { aiRecordId: 'record-1' }, $unset: { analysis: '', root: '' } },
+      { upsert: true, new: true },
+    );
+    expect(deleteMany).toHaveBeenCalledWith({ word: 'gretest' });
+    expect(learningDelete).toHaveBeenCalledWith({ word: 'greatest' });
+  });
+
+  it('points an existing target word at the same running ai record', async () => {
+    const findOneAndUpdate = jest.fn(async () => ({}));
+    const deleteMany = jest.fn(async () => ({ deletedCount: 1 }));
+    const service = new Service(
+      { findOneAndUpdate, deleteMany },
+      { deleteMany: jest.fn(async () => ({ deletedCount: 0 })), countDocuments: jest.fn(async () => 0) },
+      {} as any,
+    );
+
+    const result = await service.adoptAnalysis('added', analysis({
+      isWordValid: true,
+      searchedWord: 'added',
+      canonicalWord: 'add',
+      word: 'add',
+    }), 'record-new');
+
+    expect(result).toMatchObject({ relinked: true, target: 'add' });
+    expect(findOneAndUpdate).toHaveBeenCalledWith(
+      { word: 'add' },
+      { $set: { aiRecordId: 'record-new' }, $unset: { analysis: '', root: '' } },
+      { upsert: true, new: true },
+    );
+    expect(deleteMany).toHaveBeenCalledWith({ word: 'added' });
+  });
+});
+
 describe('DictionaryService categories', () => {
   const Service = Reflect.getMetadata(MODULE_METADATA.PROVIDERS, DictionaryModule)
     .find((provider: any) => provider !== AiService);
@@ -108,8 +169,8 @@ describe('DictionaryService categories', () => {
 
   it('builds a nested category tree with subtree counts and an unclassified bucket', async () => {
     const rows = [
-      { word: 'chop', aiRecordId: 'r1' },
-      { word: 'chopper', aiRecordId: 'r2' },
+      { word: 'chop', aiRecordId: 'r1', updatedAt: new Date('2026-01-02T00:00:00.000Z') },
+      { word: 'chopper', aiRecordId: 'r2', createdAt: new Date('2026-01-01T00:00:00.000Z') },
       { word: 'legacy', aiRecordId: 'r3' },
     ];
     const dictionaryModel = {
@@ -142,6 +203,10 @@ describe('DictionaryService categories', () => {
     expect(items[0].children[0]).toMatchObject({ label: '饮食', count: 2 });
     expect(items[0].children[0].children[0].words.map((w: any) => w.word).sort())
       .toEqual(['chop', 'chopper']);
+    expect(items[0].children[0].children[0].words).toEqual(expect.arrayContaining([
+      expect.objectContaining({ word: 'chop', updatedAt: '2026-01-02T00:00:00.000Z' }),
+      expect.objectContaining({ word: 'chopper', updatedAt: '2026-01-01T00:00:00.000Z' }),
+    ]));
     expect(items[2]).toMatchObject({
       label: '未分类', count: 1,
       words: [expect.objectContaining({ word: 'legacy' })],

@@ -161,6 +161,32 @@ describe('AiService.stream', () => {
     expect(res.write).toHaveBeenCalledWith(expect.stringContaining('"status":"streaming"'));
   });
 
+  it('sends the stored result when a record finishes before reconnect subscribes', async () => {
+    const streaming = { ...existing, status: 'streaming', content: '{"partial":true}' };
+    const done = { ...existing, status: 'done', content: '{\n  "value": 1\n}' };
+    let reads = 0;
+    const model = {
+      findById: jest.fn(() => ({
+        lean: async () => (reads++ === 0 ? streaming : done),
+      })),
+      findOne: jest.fn(() => ({ sort: () => ({ lean: async () => null }) })),
+      create: jest.fn(async (data) => ({ ...data, _id: 'new-record' })),
+      updateOne: jest.fn(async () => ({})),
+    };
+    const provider = { generateStream: jest.fn() };
+    const service = new AiService(model as any, provider as any, provider as any);
+    const res = makeResponse();
+
+    await service.stream({ recordId: existing._id, res: res as any });
+
+    const events = res.write.mock.calls.map(([data]) => JSON.parse(data.slice(6)));
+    expect(events.map((event) => event.status)).toEqual(['streaming', 'done']);
+    expect(events[1].content).toBe(done.content);
+    expect(res.end).toHaveBeenCalled();
+    expect(model.create).not.toHaveBeenCalled();
+    expect(provider.generateStream).not.toHaveBeenCalled();
+  });
+
   it('returns completed records when given a record id', async () => {
     const { service, model } = makeService(existing);
     const res = makeResponse();

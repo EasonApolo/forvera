@@ -155,16 +155,16 @@ export class DietService {
     return days;
   }
 
-  private buildMonthDays(month: string, stats: Map<string, DietDailyStatItem>) {
-    const start = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, 1);
-    const end = new Date(start);
-    end.setMonth(end.getMonth() + 1);
-    return this.buildDays(start, end, stats);
-  }
-
-  private buildRecentDays(days = 30, stats: Map<string, DietDailyStatItem>) {
-    const { start, end } = this.parseRecentRange(days);
-    return this.buildDays(start, end, stats);
+  /** year=recent 为滚动 365 天；year=YYYY 为该公历年。未传年份时仍走月份或最近 30 天。 */
+  private resolveSummaryRange(month?: string, year?: string) {
+    if (year === 'recent') return this.parseRecentRange(365);
+    if (year && /^\d{4}$/.test(year)) {
+      const start = new Date(Number(year), 0, 1);
+      const end = new Date(Number(year) + 1, 0, 1);
+      return { month: year, start, end };
+    }
+    const isMonthMode = !!month && /^\d{4}-\d{2}$/.test(month);
+    return isMonthMode ? this.parseMonth(month) : this.parseRecentRange(30);
   }
 
   private normalizeUnit(unit?: string): DietUnit {
@@ -182,7 +182,7 @@ export class DietService {
     return `${name || ''}`.trim();
   }
 
-  private async calcWeightChangeLabel(config: { standard_calories: number; diet_start_date: string | null }) {
+  private async calcWeightChangeLabel(config: { daily_metabolism: number; diet_start_date: string | null }) {
     const startDayKey = config.diet_start_date?.trim();
     if (!startDayKey) return '';
 
@@ -205,7 +205,7 @@ export class DietService {
     const dayCount = Math.max(0, Math.floor((new Date(yesterday).getTime() - startDate.getTime()) / 86400000) + 1);
 
     const actualCalories = stats.reduce((sum, s) => sum + (s.total_calories - (s.total_negative_calories || 0)), 0);
-    const expectedCalories = dayCount * config.standard_calories;
+    const expectedCalories = dayCount * config.daily_metabolism;
     const weightKg = (actualCalories - expectedCalories) / 7 / 1000;
     return `${dayCount}天${weightKg >= 0 ? '+' : ''}${weightKg.toFixed(1)}kg`;
   }
@@ -215,17 +215,19 @@ export class DietService {
     return new Date(year, month - 1, day, 12, 0, 0, 0);
   }
 
-  async getSummary(month?: string) {
+  async getSummary(month?: string, year?: string) {
+    const range = this.resolveSummaryRange(month, year);
     try {
       // 不再按用户过滤；饮食配置取自任一配置过 diet 的用户（单用户应用）
       const user = await this.userModel.findOne({ 'settings.diet': { $exists: true } }).select('settings').lean().exec();
       const dietSettings = (user as any)?.settings?.diet || {};
+      const metabolism = Number(dietSettings.dailyMetabolism);
       const config = {
         standard_calories: dietSettings.standardCalories || 2000,
+        daily_metabolism: Number.isFinite(metabolism) && metabolism > 0 ? metabolism : 2000,
         diet_start_date: dietSettings.dietStartDate || null,
       };
-      const isMonthMode = !!month && /^\d{4}-\d{2}$/.test(month);
-      const { month: monthKey, start, end } = isMonthMode ? this.parseMonth(month) : this.parseRecentRange(30);
+      const { month: monthKey, start, end } = range;
       const dayKeyStart = this.toDayKey(start);
       const dayKeyEnd = this.toDayKey(end);
       const [records, dailyStats, latestRecords, weightsInWindow, weightBefore, weightAfter] = await Promise.all([
@@ -281,13 +283,11 @@ export class DietService {
         recentFoods,
         records,
         dailyStats,
-        days: isMonthMode ? this.buildMonthDays(monthKey, statsMap) : this.buildRecentDays(30, statsMap),
+        days: this.buildDays(start, end, statsMap),
         month: monthKey,
         weightChangeLabel: await this.calcWeightChangeLabel(config),
       };
     } catch (error) {
-      const isMonthMode = !!month && /^\d{4}-\d{2}$/.test(month);
-      const { month: monthKey } = isMonthMode ? this.parseMonth(month) : this.parseRecentRange(30);
       const fallbackConfig = {
         standard_calories: 2000,
         diet_start_date: null,
@@ -299,8 +299,8 @@ export class DietService {
         records: [],
         weights: [],
         dailyStats: [],
-        days: isMonthMode ? this.buildMonthDays(monthKey, new Map()) : this.buildRecentDays(30, new Map()),
-        month: monthKey,
+        days: this.buildDays(range.start, range.end, new Map()),
+        month: range.month,
         weightChangeLabel: '',
       };
     }
@@ -449,8 +449,8 @@ export class DietController {
 
   @Public()
   @Get('summary')
-  async summary(@Query('month') month?: string) {
-    return await this.dietService.getSummary(month);
+  async summary(@Query('month') month?: string, @Query('year') year?: string) {
+    return await this.dietService.getSummary(month, year);
   }
 
   @Public()

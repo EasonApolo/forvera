@@ -17,6 +17,14 @@ export interface MarketItem {
   addedAt?: number
 }
 
+/** 全站共用的标的目录。和用户无关，只有管理员能改。 */
+export interface StockCatalog {
+  watchlist: MarketItem[]
+  groups: string[]
+  /** 进入页面时选中的分组，空串表示未分组 */
+  defaultGroup: string
+}
+
 export interface MarketChart {
   /** 标的代码 */
   symbol: string

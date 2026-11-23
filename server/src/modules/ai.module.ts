@@ -104,6 +104,8 @@ export type AiStreamModelParams = {
 };
 export type AiStreamHooks = {
   onStart?: (recordId: string) => Promise<void> | void;
+  /** 生成结束、写入记录之后、把 done 事件发给客户端之前 */
+  onDone?: (recordId: string, content: string) => Promise<void> | void;
 };
 export type AiRequest = {
   recordId?: string;
@@ -321,6 +323,7 @@ export class AiService {
     prompt: string;
     temperature?: number;
     schema?: object;
+    onDone?: AiStreamHooks['onDone'];
   } & AiStreamModelParams) {
     const { recordId } = params;
     let fullText = '';
@@ -383,6 +386,7 @@ export class AiService {
               },
             },
           );
+          await this.invokeOnDone(params.onDone, recordId, content);
           this.emit(recordId, params.modelId, { status: 'done', content });
           this.releaseEmitter(recordId);
           return;
@@ -397,6 +401,7 @@ export class AiService {
         { _id: recordId },
         { $set: { status: 'done', content } },
       );
+      await this.invokeOnDone(params.onDone, recordId, content);
       this.emit(recordId, params.modelId, { status: 'done', content });
       this.releaseEmitter(recordId);
     } catch (err: any) {
@@ -426,11 +431,21 @@ export class AiService {
   }
 
   /** 把某个 record 的 SSE 写到 res（历史 + 可选后续） */
-  private attachSse(res: Response, recordId: string, record: AiRecordDocument) {
+  private async attachSse(
+    res: Response,
+    recordId: string,
+    record: AiRecordDocument,
+    recheck = false,
+  ) {
+    let closed = false;
     const write = (data: AiSseChunk) => {
-      if (!res.writableEnded) {
-        res.write(`data: ${JSON.stringify(data)}\n\n`);
-      }
+      if (closed || res.writableEnded) return;
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+    const end = () => {
+      if (closed || res.writableEnded) return;
+      closed = true;
+      res.end();
     };
 
     // 根据当前状态先推一次，至少要给前端recordId
@@ -444,19 +459,19 @@ export class AiService {
       errorType: record.errorType || undefined,
     });
 
-    // 已结束
+    // 已结束：直接把落库内容交给前端
     if (this.isEnd(record)) {
-      res.end();
+      end();
       return;
     }
 
-    // 3) 未结束：订阅后续
+    // 未结束：订阅后续。生成不依赖这条连接，断线后重连会再次走到这里。
     const em = this.getEmitter(recordId);
     const onChunk = (chunk: AiSseChunk) => {
       write({ ...chunk, recordId });
       if (this.isEnd(chunk)) {
         em.off('chunk', onChunk);
-        if (!res.writableEnded) res.end();
+        end();
       }
     };
     em.on('chunk', onChunk);
@@ -466,6 +481,21 @@ export class AiService {
     };
     res.on('close', cleanup);
     res.on('error', cleanup);
+
+    if (!recheck) return;
+    // 订阅前记录可能已经结束，补一次库里的最终状态，避免重连挂住。
+    const latest = await this.aiRecordModel.findById(recordId).lean();
+    if (!latest || !this.isEnd(latest)) return;
+    em.off('chunk', onChunk);
+    write({
+      recordId,
+      status: latest.status,
+      content: latest.content || '',
+      error: latest.error || undefined,
+      errorType: latest.errorType || undefined,
+      modelId: MODEL_IDS[latest.modelId as AiProviderType] || latest.modelId,
+    });
+    end();
   }
 
   private setSseHeaders(res: Response) {
@@ -488,12 +518,12 @@ export class AiService {
 
     if (previous && ['pending', 'connecting', 'streaming'].includes(previous.status)) {
       this.setSseHeaders(params.res);
-      this.attachSse(params.res, String(previous._id), previous);
+      await this.attachSse(params.res, String(previous._id), previous, true);
       return String(previous._id);
     }
     if (previous && ['done', 'error'].includes(previous.status) && !params.regenerate) {
       this.setSseHeaders(params.res);
-      this.attachSse(params.res, String(previous._id), previous);
+      await this.attachSse(params.res, String(previous._id), previous);
       return String(previous._id);
     }
 
@@ -522,7 +552,7 @@ export class AiService {
     const recordId = String(record._id);
     await params.onStart?.(recordId);
     this.setSseHeaders(params.res);
-    this.attachSse(params.res, recordId, record);
+    await this.attachSse(params.res, recordId, record);
     void this.runGeneration({
       recordId,
       provider,
@@ -530,8 +560,22 @@ export class AiService {
       prompt,
       temperature: params.temperature,
       schema: params.schema,
+      onDone: params.onDone,
     });
     return recordId;
+  }
+
+  private async invokeOnDone(
+    onDone: AiStreamHooks['onDone'],
+    recordId: string,
+    content: string,
+  ) {
+    if (!onDone) return;
+    try {
+      await onDone(recordId, content);
+    } catch (error) {
+      this.logger.error(error);
+    }
   }
 
   async getRecord(_id: string) {

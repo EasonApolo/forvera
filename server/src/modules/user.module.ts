@@ -157,6 +157,38 @@ export class UserService implements OnModuleInit {
     return userInfo;
   }
 
+  /**
+   * 标的目录改成全站一份之前，数据在管理员自己的 settings.stock 里。
+   * 取标的最多的那个管理员，作为首次建档的来源。
+   */
+  async findStockCatalogSeed(): Promise<{
+    watchlist: NonNullable<NonNullable<User['settings']>['stock']>['watchlist'];
+    groups: string[];
+    defaultGroup: string;
+  } | null> {
+    const admins = await this.userModel
+      .find({ role: 3 })
+      .select('settings.stock')
+      .lean()
+      .exec();
+    let best: NonNullable<User['settings']>['stock'] | null = null;
+    let bestCount = 0;
+    for (const admin of admins) {
+      const stock = (admin as { settings?: User['settings'] }).settings?.stock;
+      const count = Array.isArray(stock?.watchlist) ? stock.watchlist.length : 0;
+      if (count > bestCount) {
+        best = stock;
+        bestCount = count;
+      }
+    }
+    if (!best || bestCount === 0) return null;
+    return {
+      watchlist: best.watchlist || [],
+      groups: Array.isArray(best.groups) ? best.groups : [],
+      defaultGroup: typeof best.defaultGroup === 'string' ? best.defaultGroup : '',
+    };
+  }
+
   async getUserByName(username: string): Promise<User | null> {
     const user = await this.userModel.findOne({ username: username }).exec();
     console.log('getUserByName', user);

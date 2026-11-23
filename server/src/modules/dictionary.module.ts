@@ -338,9 +338,9 @@ class DictionaryService {
   严格遵守以下要求：
   1. 有效性与原形检查：
   - 若不是有效单词，isWordValid 设为 false。
-  - 若输入是某词的变形（时态/复数/比较级等，如 added, buzzing, greatest）且本身没有独立含义，searchedWord 保留原输入，canonicalWord 返回原形（如 add, buzz, great），word 与 canonicalWord 一致，isWordValid 仍为 true。
-  - 若输入疑似拼写错误且你能高置信推断出本来的词（如 gretest → greatest、recieve → receive），isWordValid 设为 false，invalidReason 简述原因，correctedWord 填推断出的正确原形（小写）。
-  - 若输入既不是有效单词，也没有高置信的相近词，correctedWord 留空。
+  - 若输入是某词的变形（时态/复数/比较级等，如 added, buzzing, greatest）且本身没有独立含义，searchedWord 保留原输入，canonicalWord 返回原形（如 add, buzz, great），word 与 canonicalWord 一致，isWordValid 仍为 true。音标、释义、词根、分类等其余字段全部直接分析这个原形。
+  - 若输入疑似拼写错误且你能高置信推断出本来的词（如 gretest → greatest、recieve → receive），isWordValid 设为 false，invalidReason 简述原因，correctedWord 填推断出的正确原形（小写），word 与 canonicalWord 都等于 correctedWord。音标、释义、词根、分类等其余字段全部直接分析这个正确词。
+  - 若输入既不是有效单词，也没有高置信的相近词，correctedWord 留空，不要编造词条。
 
   2. 词义划分（参照 HTE）：
   - meanings 必须按词性去重分组：每个不重复的词性只对应一个 meanings 项，该词性的所有词义全部放进这一项的 definitions 数组；严禁同一词性出现多个 meanings 项（例如输出两个 noun、各含一条词义是错误的，应合并为一个 noun 项、definitions 里包含全部名词词义）。
@@ -398,6 +398,44 @@ class DictionaryService {
       { $set: { aiRecordId }, $unset: { analysis: '', root: '' } },
       { upsert: true, new: true },
     );
+  }
+
+  /**
+   * 变形或拼写纠正时，这次生成的 ai record 继续有效。
+   * 把同一个 aiRecordId 改挂到目标词上，并删掉输入词条。
+   * 之后对目标词的 analyze 会带着这条 recordId 重连，不会新开生成。
+   */
+  resolveStoredWord(analysis?: Partial<DictionaryWordAnalysis> | null) {
+    if (!analysis) return '';
+    const raw = analysis.isWordValid
+      ? analysis.word || analysis.canonicalWord || ''
+      : analysis.correctedWord || '';
+    return this.normalizeWord(raw);
+  }
+
+  async adoptAnalysis(queriedWord: string, content: string, aiRecordId: string) {
+    const source = this.normalizeWord(queriedWord);
+    if (!source || !aiRecordId) return { relinked: false, target: source };
+
+    let analysis: DictionaryWordAnalysis | null = null;
+    try {
+      analysis = JSON.parse(content) as DictionaryWordAnalysis;
+    } catch {
+      analysis = null;
+    }
+    const target = this.resolveStoredWord(analysis);
+    if (!target || target === source) {
+      return { relinked: false, target: source };
+    }
+
+    await this.upsertAiLink(target, aiRecordId);
+    await this.dictionaryModel.deleteMany({ word: source });
+    try {
+      await this.deleteLearningWord(target);
+    } catch (error) {
+      console.error('delete learning word failed', error);
+    }
+    return { relinked: true, target };
   }
 
   async getAiRecords(recordIds: string[]) {
@@ -565,9 +603,23 @@ class DictionaryService {
       latestByWord.set(wordLower, row);
     }
 
+    interface WordEntry {
+      word: string;
+      updatedAt?: string;
+    }
+    const toIso = (value?: Date) => {
+      if (!value) return undefined;
+      const time = new Date(value).getTime();
+      return Number.isFinite(time) ? new Date(time).toISOString() : undefined;
+    };
+    const entryFor = (row: (typeof rows)[number]): WordEntry => ({
+      word: row.word,
+      updatedAt: toIso(row.updatedAt || row.createdAt),
+    });
+
     interface CategoryNode {
       label: string;
-      words: Map<string, string>;
+      words: Map<string, WordEntry>;
       children: Map<string, CategoryNode>;
     }
     const makeNode = (label: string): CategoryNode => ({
@@ -576,14 +628,15 @@ class DictionaryService {
       children: new Map(),
     });
     const rootNode = makeNode('');
-    const unclassified = new Map<string, string>();
+    const unclassified = new Map<string, WordEntry>();
 
     for (const row of latestByWord.values()) {
       const paths = this.getClassificationPaths(
         records.get(row.aiRecordId)?.content,
       );
+      const entry = entryFor(row);
       if (!paths.length) {
-        unclassified.set(row.word.toLowerCase(), row.word);
+        unclassified.set(row.word.toLowerCase(), entry);
         continue;
       }
       for (const path of paths) {
@@ -596,7 +649,7 @@ class DictionaryService {
           }
           node = child;
         }
-        node.words.set(row.word.toLowerCase(), row.word);
+        node.words.set(row.word.toLowerCase(), entry);
       }
     }
 
@@ -610,9 +663,13 @@ class DictionaryService {
       return {
         label: node.label,
         count: node.words.size + children.reduce((sum, child) => sum + child.count, 0),
-        words: Array.from(node.words.values())
-          .sort((a, b) => a.localeCompare(b, 'en'))
-          .map((word) => ({ word, wordLower: word.toLowerCase() })),
+        words: Array.from(node.words.entries())
+          .sort((a, b) => a[1].word.localeCompare(b[1].word, 'en'))
+          .map(([wordLower, entry]) => ({
+            word: entry.word,
+            wordLower,
+            updatedAt: entry.updatedAt,
+          })),
         children,
       };
     };
@@ -629,7 +686,11 @@ class DictionaryService {
         label: '未分类',
         count: unclassified.size,
         words: Array.from(unclassified.entries())
-          .map(([wordLower, word]) => ({ word, wordLower }))
+          .map(([wordLower, entry]) => ({
+            word: entry.word,
+            wordLower,
+            updatedAt: entry.updatedAt,
+          }))
           .sort((a, b) => a.word.localeCompare(b.word, 'en')),
         children: [],
       });
@@ -691,6 +752,15 @@ class DictionaryController {
     const existingRecord = saved?.aiRecordId
       ? await this.aiService.getRecord(saved.aiRecordId)
       : null;
+    // 已完成的旧记录如果本身是错拼/变形，打开时直接改挂到目标词，不再生成
+    if (
+      !data.isRegenerate &&
+      existingRecord?.status === 'done' &&
+      existingRecord.content &&
+      saved?.aiRecordId
+    ) {
+      await this.dictionaryService.adoptAnalysis(word, existingRecord.content, saved.aiRecordId);
+    }
     const knownCategoryPaths = await this.dictionaryService.getKnownCategoryPaths(30, word);
     await this.aiService.stream({
       recordId: existingRecord ? saved.aiRecordId : undefined,
@@ -702,6 +772,9 @@ class DictionaryController {
       res,
       onStart: async (aiRecordId: string) => {
         await this.dictionaryService.upsertAiLink(word, aiRecordId);
+      },
+      onDone: async (aiRecordId: string, content: string) => {
+        await this.dictionaryService.adoptAnalysis(word, content, aiRecordId);
       },
     });
     // 查过的词视为已学，从待学列表移除（失败不影响查询结果）

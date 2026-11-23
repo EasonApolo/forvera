@@ -160,6 +160,51 @@ async function serveBotPage(pathname, res) {
   return true;
 }
 
+// ── sitemap.xml / robots.txt：实时生成 ──
+// 文章发布/更新后最长 10 分钟自动反映到 sitemap（含 lastmod），无需重新部署；
+// 生成失败时回退静态流程（start.js 部署时也落了一份 sitemap.xml 兜底）。
+let sitemapCache = { expiresAt: 0, body: '' };
+
+function buildSitemapXml(posts) {
+  const urls = [
+    `  <url><loc>https://${siteDomain}/</loc></url>`,
+    ...posts
+      .filter(post => post && post._id)
+      .map(post => {
+        const lastmod = post.updated_time
+          ? new Date(post.updated_time).toISOString().slice(0, 10)
+          : '';
+        return `  <url><loc>https://${siteDomain}/post/${encodeURIComponent(post._id)}</loc>${lastmod ? `<lastmod>${lastmod}</lastmod>` : ''}</url>`;
+      }),
+  ];
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`;
+}
+
+async function serveSeoFile(pathname, res) {
+  if (pathname === '/robots.txt') {
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end(`User-agent: *\nAllow: /\n\nSitemap: https://${siteDomain}/sitemap.xml\n`);
+    return true;
+  }
+  if (sitemapCache.expiresAt > Date.now()) {
+    res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' });
+    res.end(sitemapCache.body);
+    return true;
+  }
+  try {
+    const posts = await fetchJsonApi('/api/post');
+    if (!Array.isArray(posts)) return false;
+    const xml = buildSitemapXml(posts);
+    sitemapCache = { expiresAt: Date.now() + BOT_CACHE_TTL, body: xml };
+    res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' });
+    res.end(xml);
+    return true;
+  } catch (err) {
+    console.warn(`[serve-static] sitemap build failed: ${err.message}`);
+    return false;
+  }
+}
+
 const serverHandler = async (req, res) => {
   try {
     const reqUrl = new URL(req.url || '/', 'http://localhost');
@@ -183,6 +228,11 @@ const serverHandler = async (req, res) => {
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
       res.end('Bad Request');
       return;
+    }
+
+    // sitemap.xml / robots.txt 实时生成，任何 UA 都可访问
+    if (pathname === '/sitemap.xml' || pathname === '/robots.txt') {
+      if (await serveSeoFile(pathname, res)) return;
     }
 
     // 爬虫请求文章页/首页时返回动态渲染的真实 HTML，失败回退正常流程

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import List from '@/components/layout/List.vue'
 import Card from '@/components/Card.vue'
@@ -56,13 +56,13 @@ const streamText = ref('')
 const streamModelId = ref('')
 const streamStatus = ref<'connecting' | 'streaming'>('connecting')
 const analysisError = ref('')
-const recent = ref<Partial<DictionaryRecord>[]>([])
 const searchResults = ref<Partial<DictionaryRecord>[]>([])
 
+type CategoryWord = { word: string; wordLower: string; updatedAt?: string }
 type CategoryNode = {
   label: string
   count: number
-  words: { word: string; wordLower: string }[]
+  words: CategoryWord[]
   children: CategoryNode[]
 }
 const categoryTree = ref<CategoryNode[]>([])
@@ -71,6 +71,12 @@ const categoryWordCount = ref(0)
 const selectedCategoryPath = ref<string[]>([])
 const categoryColumnsRef = ref<HTMLElement | null>(null)
 const loading = ref(false)
+/** 同一次查词的代数。离开词页或发起另一次查词时递增，过期请求不能再改界面。 */
+let lookupEpoch = 0
+let reconnectAttempt = 0
+let reconnectTimer: number | null = null
+let pendingReconnectWord = ''
+let pendingReconnectEpoch = 0
 const searchLoading = ref(false)
 const currentTab = ref<'action' | 'list'>('list')
 const showSearchPanel = ref(false)
@@ -85,7 +91,7 @@ const pageMode = computed<'home' | 'word'>(() => {
 
 type CategoryColumn = {
   categories: CategoryNode[]
-  words: { word: string; wordLower: string }[]
+  words: CategoryWord[]
 }
 
 /** 类 Finder 列视图：第 1 列是顶层分类，选中后追加下一列（分类在前、词汇在后） */
@@ -120,11 +126,6 @@ const navItems = computed(() => {
   }
   return items
 })
-
-const loadRecent = async () => {
-  const res = await request('dictionary/recent', 'get', { limit: 12 }, { withCredentials: false })
-  recent.value = Array.isArray(res?.items) ? res.items : []
-}
 
 const loadSearchPanel = async (keyword = '') => {
   searchLoading.value = true
@@ -163,33 +164,49 @@ const loadLearningWords = async () => {
   learningTotal.value = Number(res?.total) || 0
 }
 
-// ==================== 全部词汇（按字母表分组） ====================
+// ==================== 全部词汇（最近按查询时间，全部按字母分组） ====================
 
-/** 分类树里包含所有已查过的词（含未分类组），摊平去重后按字母排序 */
-const allWordGroups = computed(() => {
-  const unique = new Map<string, string>()
+type AllWord = { word: string; updatedAt: number }
+
+/** 分类树里包含所有已查过的词（含未分类组），摊平去重，保留最近一次查询时间 */
+const allWords = computed(() => {
+  const unique = new Map<string, AllWord>()
   const stack = [...categoryTree.value]
   while (stack.length) {
     const node = stack.pop()!
-    for (const w of node.words) {
-      if (!unique.has(w.wordLower)) unique.set(w.wordLower, w.word)
+    for (const item of node.words) {
+      const updatedAt = item.updatedAt ? Date.parse(item.updatedAt) : 0
+      const prev = unique.get(item.wordLower)
+      if (!prev || updatedAt > prev.updatedAt) {
+        unique.set(item.wordLower, { word: item.word, updatedAt: Number.isFinite(updatedAt) ? updatedAt : 0 })
+      }
     }
     stack.push(...node.children)
   }
-  const sorted = Array.from(unique.values()).sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))
+  return Array.from(unique.values())
+})
+
+const allWordMode = ref<'recent' | 'all'>('recent')
+
+const recentWords = computed(() =>
+  [...allWords.value].sort((a, b) => b.updatedAt - a.updatedAt || a.word.localeCompare(b.word, 'en')),
+)
+
+const allWordGroups = computed(() => {
+  const sorted = [...allWords.value].sort((a, b) => a.word.toLowerCase().localeCompare(b.word.toLowerCase()))
   const groups: { letter: string; words: string[] }[] = []
-  for (const word of sorted) {
-    const letter = word[0].toUpperCase()
+  for (const item of sorted) {
+    const letter = item.word[0]?.toUpperCase() || '#'
     const last = groups[groups.length - 1]
     if (last && last.letter === letter) {
-      last.words.push(word)
+      last.words.push(item.word)
     } else {
-      groups.push({ letter, words: [word] })
+      groups.push({ letter, words: [item.word] })
     }
   }
   return groups
 })
-const allWordCount = computed(() => allWordGroups.value.reduce((sum, group) => sum + group.words.length, 0))
+const allWordCount = computed(() => allWords.value.length)
 
 const addLearningWords = async () => {
   const text = learningInput.value.trim()
@@ -232,34 +249,133 @@ const scheduleSearch = (keyword: string) => {
   if (searchTimer.value) {
     window.clearTimeout(searchTimer.value)
   }
+  if (!keyword) {
+    searchResults.value = []
+    return
+  }
   searchTimer.value = window.setTimeout(() => {
     void loadSearchPanel(keyword)
   }, 180)
 }
 
-const analyze = async (targetWord?: string, isRegenerate = false, navigate = true, allowRedirect = true) => {
+/** 变形取 word/canonicalWord，拼写纠正取 correctedWord。返回用于入库和跳转的小写词 */
+const resolveStoredWord = (analysis: DictionaryWordAnalysis) => {
+  const raw = analysis.isWordValid
+    ? analysis.word || analysis.canonicalWord || ''
+    : analysis.correctedWord || ''
+  return raw.trim().toLowerCase()
+}
+
+type LookupError = Error & { errorType?: 'network' | 'api'; reconnect?: boolean; serverError?: boolean }
+
+const reconnectError = (message: string) => {
+  const error = new Error(message) as LookupError
+  error.reconnect = true
+  return error
+}
+
+/** 切走应用时浏览器会掐掉 SSE，Safari 报 Load failed。这不是查询失败。 */
+const isReconnectable = (err: LookupError | null | undefined) => {
+  if (!err || err.serverError || err.errorType) return false
+  if (err.reconnect) return true
+  if (err.name === 'AbortError' || err.name === 'NetworkError') return true
+  return /load failed|failed to fetch|networkerror|network error|connection was lost|\baborted\b|\babort\b|cancelled|canceled/i.test(`${err.message || ''}`)
+}
+
+const isCurrentLookup = (epoch: number, q: string) => {
+  if (epoch !== lookupEpoch || pageMode.value !== 'word') return false
+  const routeWord = `${route.params.word || ''}`.trim().toLowerCase()
+  return routeWord === q.trim().toLowerCase()
+}
+
+const clearReconnectTimer = () => {
+  if (reconnectTimer === null) return
+  window.clearTimeout(reconnectTimer)
+  reconnectTimer = null
+}
+
+/** 离开词页时丢掉这次查词的连接状态。服务端生成继续，下次打开再连。 */
+const cancelLookup = () => {
+  lookupEpoch += 1
+  reconnectAttempt = 0
+  pendingReconnectWord = ''
+  pendingReconnectEpoch = 0
+  clearReconnectTimer()
+  loading.value = false
+}
+
+const resumeReconnect = () => {
+  if (document.visibilityState === 'hidden' || !pendingReconnectWord) return
+  const q = pendingReconnectWord
+  const epoch = pendingReconnectEpoch
+  pendingReconnectWord = ''
+  armReconnect(q, epoch)
+}
+
+/** 页面还在后台时先记下词，回到前台再连。仍在前台则短延迟重试，避免空转。 */
+const armReconnect = (q: string, epoch: number) => {
+  clearReconnectTimer()
+  if (!isCurrentLookup(epoch, q)) return
+  if (document.visibilityState === 'hidden') {
+    pendingReconnectWord = q
+    pendingReconnectEpoch = epoch
+    return
+  }
+  const delay = Math.min(5000, 300 * 2 ** reconnectAttempt)
+  reconnectAttempt += 1
+  reconnectTimer = window.setTimeout(() => {
+    reconnectTimer = null
+    if (!isCurrentLookup(epoch, q)) return
+    if (document.visibilityState === 'hidden') {
+      pendingReconnectWord = q
+      pendingReconnectEpoch = epoch
+      return
+    }
+    void analyze(q, false, false, true)
+  }, delay)
+}
+
+const analyze = async (targetWord?: string, isRegenerate = false, navigate = true, reconnect = false) => {
   const q = `${targetWord || searchWord.value}`.trim()
-  if (!q || loading.value) return
+  if (!q) return
+  const sameWordLoading = loading.value && word.value.trim().toLowerCase() === q.toLowerCase()
+  if (sameWordLoading && !reconnect) return
+
+  const epoch = ++lookupEpoch
+  pendingReconnectWord = ''
+  pendingReconnectEpoch = 0
+  clearReconnectTimer()
+  if (!reconnect) reconnectAttempt = 0
 
   loading.value = true
   word.value = q
-  result.value = null
-  streamText.value = ''
-  streamModelId.value = ''
-  streamStatus.value = 'connecting'
   analysisError.value = ''
+  streamStatus.value = 'connecting'
+  // 重连沿用已经收到的文本，快照到达后会覆盖；新查询才清空。
+  if (!reconnect) {
+    result.value = null
+    streamText.value = ''
+    streamModelId.value = ''
+  }
 
+  let handoff = false
   try {
     if (navigate) {
       await router.push({ name: 'dictionaryWord', params: { word: q } })
     }
+    if (epoch !== lookupEpoch) return
     showSearchPanel.value = false
     const response = await fetch(new URL('/api/dictionary/analyze', ip), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ word: q, isRegenerate }),
     })
-    if (!response.ok || !response.body) throw new Error(`查询失败 (${response.status})`)
+    if (epoch !== lookupEpoch) return
+    if (!response.ok || !response.body) {
+      const error = new Error(`查询失败 (${response.status})`) as LookupError
+      if ([502, 503, 504].includes(response.status) || (response.ok && !response.body)) error.reconnect = true
+      throw error
+    }
 
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
@@ -267,14 +383,21 @@ const analyze = async (targetWord?: string, isRegenerate = false, navigate = tru
     let content = ''
     let completed = false
     const readEvent = (event: string) => {
+      if (epoch !== lookupEpoch) return
       const data = event.split('\n').filter(line => line.startsWith('data: ')).map(line => line.slice(6)).join('\n')
       if (!data) return
-      const chunk = JSON.parse(data) as { status?: string; content?: string; text?: string; modelId?: string; error?: string; errorType?: 'network' | 'api' }
+      let chunk: { status?: string; content?: string; text?: string; modelId?: string; error?: string; errorType?: 'network' | 'api' }
+      try {
+        chunk = JSON.parse(data)
+      } catch {
+        throw reconnectError('查询中断')
+      }
       if (chunk.modelId) streamModelId.value = chunk.modelId
       if (chunk.status === 'connecting' || chunk.status === 'streaming') streamStatus.value = chunk.status
       if (chunk.error) {
-        const error = new Error(chunk.error) as Error & { errorType?: 'network' | 'api' }
+        const error = new Error(chunk.error) as LookupError
         error.errorType = chunk.errorType
+        error.serverError = true
         throw error
       }
       if (chunk.content !== undefined && chunk.status !== 'done') streamText.value = chunk.content
@@ -283,6 +406,10 @@ const analyze = async (targetWord?: string, isRegenerate = false, navigate = tru
       if (chunk.status === 'done') completed = true
     }
     while (true) {
+      if (epoch !== lookupEpoch) {
+        await reader.cancel().catch(() => undefined)
+        return
+      }
       const { value, done } = await reader.read()
       buffer = (buffer + decoder.decode(value, { stream: !done })).replace(/\r\n/g, '\n')
       const events = buffer.split('\n\n')
@@ -290,51 +417,56 @@ const analyze = async (targetWord?: string, isRegenerate = false, navigate = tru
       for (const event of events) readEvent(event)
       if (done) break
     }
+    if (epoch !== lookupEpoch) return
     if (buffer.trim()) readEvent(buffer)
-    if (!completed) throw new Error('查询中断，请重新查询以继续接收')
+    if (!completed) throw reconnectError('查询中断')
 
     result.value = JSON.parse(content) as DictionaryWordAnalysis
     fixAnalysisMojibake(result.value)
     word.value = q
+    reconnectAttempt = 0
+
+    const storedWord = resolveStoredWord(result.value)
+    const queriedWord = q.trim().toLowerCase()
 
     // 查过的词服务端已从待学列表移除，本地同步去掉（loadLearningWords 稍后兜底刷新）
-    const learnedWord = q.trim().toLowerCase()
-    if (learningWords.value.some((item) => item.word === learnedWord)) {
-      learningWords.value = learningWords.value.filter((item) => item.word !== learnedWord)
-      learningTotal.value = Math.max(0, learningTotal.value - 1)
-    }
+    const learnedWords = new Set([queriedWord, storedWord].filter(Boolean))
+    const beforeCount = learningWords.value.length
+    learningWords.value = learningWords.value.filter((item) => !learnedWords.has(item.word))
+    learningTotal.value = Math.max(0, learningTotal.value - (beforeCount - learningWords.value.length))
 
-    // 变形词/拼写纠错：模型判定后改为查询原形或纠错词（只重定向一层，避免循环）
-    const redirectWord = (
-      result.value.isWordValid
-        ? `${result.value.word || ''}`
-        : `${result.value.correctedWord || ''}`
-    ).trim().toLowerCase()
-    if (allowRedirect && isAdmin.value && redirectWord && redirectWord !== q.toLowerCase()) {
+    // 后端在发出 done 之前，已经把同一个 ai record 挂到目标词上。
+    // 这里只换地址再走一次普通查询：服务端按 recordId 重连，不会新开生成。
+    if (storedWord && storedWord !== queriedWord) {
+      if (epoch !== lookupEpoch) return
       if (!result.value.isWordValid) {
         toastStore.showToast({
-          content: `未找到 "${q}"，已自动查询相近词 "${redirectWord}"`,
+          content: `未找到 "${q}"，已跳转到 "${storedWord}"`,
           type: '?',
         })
       }
-      loading.value = false // 递归调用内部的 loading 守卫需要放行
-      await analyze(redirectWord, false, true, false)
-      // 重定向成功后清掉变形/错拼的词条，避免分类树出现重复或拼错的词
-      if (result.value && `${result.value.word || ''}`.toLowerCase() === redirectWord) {
-        try {
-          await request('dictionary/delete', 'post', { word: q }, { withCredentials: false })
-          await Promise.allSettled([loadCategoryGroups(), loadRecent()])
-        } catch {
-          // 清理失败不影响主流程
-        }
-      }
+      word.value = storedWord
+      loading.value = false
+      await router.replace({ name: 'dictionaryWord', params: { word: storedWord } })
+      await analyze(storedWord, false, false)
       return
     }
 
-    await Promise.allSettled([loadRecent(), loadSearchPanel(word.value), loadCategoryGroups(), loadLearningWords()])
+    if (epoch !== lookupEpoch) return
+    await Promise.allSettled([loadSearchPanel(word.value), loadCategoryGroups(), loadLearningWords()])
+    if (epoch !== lookupEpoch) return
     showSearchPanel.value = false
     currentTab.value = 'list'
   } catch (err: any) {
+    if (epoch !== lookupEpoch) return
+    // 切走应用或连接被掐掉：不提示 Load failed。还在这个词上就重连，已经离开就丢掉。
+    if (isReconnectable(err)) {
+      if (isCurrentLookup(epoch, q)) {
+        handoff = true
+        armReconnect(q, epoch)
+      }
+      return
+    }
     if (err?.errorType === 'network') {
       analysisError.value = `网络连接失败：${err?.message || '无法连接 AI 服务'}，请检查网络后重试`
     } else {
@@ -344,9 +476,9 @@ const analyze = async (targetWord?: string, isRegenerate = false, navigate = tru
       content: analysisError.value,
       type: 'ERR',
     })
-    await Promise.allSettled([loadRecent(), loadSearchPanel(word.value), loadCategoryGroups(), loadLearningWords()])
+    await Promise.allSettled([loadSearchPanel(word.value), loadCategoryGroups(), loadLearningWords()])
   } finally {
-    loading.value = false
+    if (!handoff && epoch === lookupEpoch) loading.value = false
   }
 }
 
@@ -378,8 +510,6 @@ const removeWord = async () => {
     showSearchPanel.value = false
     await router.push({ name: 'dictionary' })
 
-    await loadRecent()
-    await loadSearchPanel('')
     await loadCategoryGroups()
 
     toastStore.showToast({
@@ -505,6 +635,7 @@ const syncByRoute = async () => {
     return
   }
 
+  cancelLookup()
   result.value = null
   analysisError.value = ''
   word.value = ''
@@ -529,11 +660,19 @@ watch(
 )
 
 onMounted(() => {
-  void loadRecent()
-  void loadSearchPanel('')
+  document.addEventListener('visibilitychange', resumeReconnect)
+  window.addEventListener('pageshow', resumeReconnect)
   void loadCategoryGroups()
   void loadLearningWords()
   void syncByRoute()
+})
+
+onUnmounted(() => {
+  document.removeEventListener('visibilitychange', resumeReconnect)
+  window.removeEventListener('pageshow', resumeReconnect)
+  lookupEpoch += 1
+  pendingReconnectWord = ''
+  clearReconnectTimer()
 })
 </script>
 
@@ -591,14 +730,29 @@ onMounted(() => {
       </Card>
 
       <Card v-if="pageMode === 'home'">
-        <template #title>全部词汇<span class="learning-total">（{{ allWordCount }}）</span></template>
+        <template #title>
+          <div class="all-words-head">
+            <span>全部词汇<span class="learning-total">（{{ allWordCount }}）</span></span>
+            <span class="all-words-mode">
+              <Btn small :type="allWordMode === 'recent' ? 'primary' : undefined" @click="allWordMode = 'recent'">最近</Btn>
+              <Btn small :type="allWordMode === 'all' ? 'primary' : undefined" @click="allWordMode = 'all'">全部</Btn>
+            </span>
+          </div>
+        </template>
         <div class="all-words-list">
           <div v-if="!allWordCount" class="category-empty">no result</div>
-          <template v-for="group in allWordGroups" :key="group.letter">
-            <div class="letter-header">{{ group.letter }}</div>
-            <div class="word-chip" v-for="word in group.words" :key="word" @click="goWord(word)">
-              {{ word }}
+          <template v-if="allWordMode === 'recent'">
+            <div class="word-chip" v-for="item in recentWords" :key="item.word" @click="goWord(item.word)">
+              {{ item.word }}
             </div>
+          </template>
+          <template v-else>
+            <template v-for="group in allWordGroups" :key="group.letter">
+              <div class="letter-header">{{ group.letter }}</div>
+              <div class="word-chip" v-for="item in group.words" :key="item" @click="goWord(item)">
+                {{ item }}
+              </div>
+            </template>
           </template>
         </div>
       </Card>
@@ -699,10 +853,10 @@ onMounted(() => {
     :placement="'bottom'"
     :blur-backdrop="false"
   >
-    <div class="search-results">
-      <div class="empty-text" v-if="(searchWord.length ? searchResults : recent).length === 0">no result</div>
+    <div v-if="searchWord.trim()" class="search-results">
+      <div class="empty-text" v-if="searchResults.length === 0">no result</div>
       <div
-        v-for="item in searchWord.length ? searchResults : recent"
+        v-for="item in searchResults"
         :key="item._id || item.word"
         class="item"
         @click="analyze(item.word)"
@@ -820,7 +974,21 @@ onMounted(() => {
   color: var(--text-secondary);
 }
 
-// 全部词汇卡片：字母分组 + 词块
+.all-words-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.all-words-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: normal;
+}
+
+// 全部词汇卡片：最近为时间顺序，全部为字母分组 + 词块
 .all-words-list {
   text-align: left;
   display: flex;

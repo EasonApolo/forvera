@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Patch,
   Delete,
   Body,
@@ -13,11 +14,14 @@ import {
 import { Injectable } from '@nestjs/common'
 import { MongooseModule, InjectModel } from '@nestjs/mongoose'
 import { Schema, Model, Document } from 'mongoose'
-import { Public } from 'src/guards/jwt-auth.guard'
+import { Public, Roles } from 'src/guards/jwt-auth.guard'
+import { UsersModule, UserService } from './user.module'
 import type {
   MarketChartResult,
+  MarketItem,
   MarketQuote,
   MarketSearchResult,
+  StockCatalog,
   StockComment,
 } from 'shared/types/stock'
 
@@ -355,6 +359,112 @@ export class StockCommentService {
   }
 }
 
+// 全站一份的标的目录。图表高度等偏好仍留在用户设置里。
+const StockWatchItemSchema = new Schema(
+  {
+    symbol: String,
+    name: String,
+    type: String,
+    exchange: String,
+    currency: String,
+    addedAt: Number,
+    group: String,
+  },
+  { _id: false },
+)
+
+const StockCatalogSchema = new Schema({
+  key: { type: String, required: true, unique: true },
+  watchlist: { type: [StockWatchItemSchema], default: [] },
+  groups: { type: [String], default: [] },
+  defaultGroup: { type: String, default: '' },
+})
+
+const CATALOG_KEY = 'default'
+const MAX_WATCHLIST = 200
+const MAX_GROUPS = 50
+
+const cleanWatchlist = (
+  items: Array<Partial<MarketItem> | null | undefined> | undefined | null,
+): MarketItem[] => {
+  if (!Array.isArray(items)) return []
+  return items
+    .filter((item): item is Partial<MarketItem> => !!item && typeof item.symbol === 'string' && typeof item.name === 'string')
+    .map(item => ({
+      symbol: `${item.symbol || ''}`.trim(),
+      name: `${item.name || ''}`.trim(),
+      type: typeof item.type === 'string' ? item.type : '',
+      exchange: typeof item.exchange === 'string' ? item.exchange : undefined,
+      currency: typeof item.currency === 'string' ? item.currency : undefined,
+      addedAt: Number.isFinite(Number(item.addedAt)) ? Number(item.addedAt) : undefined,
+      group: typeof item.group === 'string' && item.group.trim() ? item.group.trim() : undefined,
+    }))
+    .filter(item => item.symbol && item.name)
+    .slice(0, MAX_WATCHLIST)
+}
+
+const cleanGroups = (groups: string[] | undefined | null): string[] => {
+  if (!Array.isArray(groups)) return []
+  return Array.from(
+    new Set(groups.filter(group => typeof group === 'string').map(group => group.trim()).filter(Boolean)),
+  ).slice(0, MAX_GROUPS)
+}
+
+const toCatalog = (doc: {
+  watchlist?: MarketItem[]
+  groups?: string[]
+  defaultGroup?: string
+} | null): StockCatalog => ({
+  watchlist: doc?.watchlist || [],
+  groups: Array.isArray(doc?.groups) ? doc.groups : [],
+  defaultGroup: typeof doc?.defaultGroup === 'string' ? doc.defaultGroup : '',
+})
+
+@Injectable()
+export class StockCatalogService {
+  constructor(
+    @InjectModel('StockCatalog')
+    private readonly catalogModel: Model<StockCatalog & Document>,
+    private readonly userService: UserService,
+  ) {}
+
+  async getCatalog(): Promise<StockCatalog> {
+    const existing = await this.catalogModel.findOne({ key: CATALOG_KEY }).lean()
+    if (existing) return toCatalog(existing)
+    const seed = await this.userService.findStockCatalogSeed()
+    const created = await this.catalogModel
+      .findOneAndUpdate(
+        { key: CATALOG_KEY },
+        {
+          $setOnInsert: {
+            key: CATALOG_KEY,
+            watchlist: cleanWatchlist(seed?.watchlist),
+            groups: cleanGroups(seed?.groups),
+            defaultGroup: typeof seed?.defaultGroup === 'string' ? seed.defaultGroup.trim().slice(0, 30) : '',
+          },
+        },
+        { upsert: true, new: true },
+      )
+      .lean()
+    return toCatalog(created)
+  }
+
+  async updateCatalog(patch: Partial<StockCatalog>): Promise<StockCatalog> {
+    await this.getCatalog()
+    const $set: Partial<StockCatalog> = {}
+    if (Array.isArray(patch.watchlist)) $set.watchlist = cleanWatchlist(patch.watchlist)
+    if (Array.isArray(patch.groups)) $set.groups = cleanGroups(patch.groups)
+    if (typeof patch.defaultGroup === 'string') {
+      $set.defaultGroup = patch.defaultGroup.trim().slice(0, 30)
+    }
+    if (!Object.keys($set).length) return this.getCatalog()
+    const updated = await this.catalogModel
+      .findOneAndUpdate({ key: CATALOG_KEY }, { $set }, { new: true })
+      .lean()
+    return toCatalog(updated)
+  }
+}
+
 // Controller
 export class AddStockCommentDTO {
   symbol: string
@@ -373,7 +483,20 @@ export class MarketController {
   constructor(
     private readonly marketService: MarketService,
     private readonly commentService: StockCommentService,
+    private readonly catalogService: StockCatalogService,
   ) {}
+
+  @Public()
+  @Get('catalog')
+  async catalog() {
+    return this.catalogService.getCatalog()
+  }
+
+  @Roles(3)
+  @Put('catalog')
+  async updateCatalog(@Body() body: Partial<StockCatalog>) {
+    return this.catalogService.updateCatalog(body || {})
+  }
 
   @Public()
   @Get('search')
@@ -444,11 +567,13 @@ export class MarketController {
 
 @Module({
   imports: [
+    UsersModule,
     MongooseModule.forFeature([
       { name: 'StockComment', schema: StockCommentSchema },
+      { name: 'StockCatalog', schema: StockCatalogSchema },
     ]),
   ],
   controllers: [MarketController],
-  providers: [MarketService, StockCommentService],
+  providers: [MarketService, StockCommentService, StockCatalogService],
 })
 export class MarketModule {}

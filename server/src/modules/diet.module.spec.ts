@@ -94,3 +94,54 @@ describe('DietService food suggestions', () => {
     expect(recordModel.mock.calls[0][0]).toMatchObject({ calories_unit: 'kCal' });
   });
 });
+
+describe('DietService summary range', () => {
+  const dayKey = (date: Date) =>
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+  const service = () => {
+    const recordsFind = jest.fn().mockReturnValue(execQuery([]));
+    return {
+      recordsFind,
+      service: new DietService(
+        { findOne: () => execQuery(null) } as any,
+        { find: recordsFind, aggregate: jest.fn().mockResolvedValue([]) } as any,
+        { find: () => execQuery([]) } as any,
+        { find: () => execQuery([]), findOne: () => execQuery(null) } as any,
+      ),
+    };
+  };
+
+  it('uses the last 365 days when year=recent', async () => {
+    const { service: diet } = service();
+    const recent = await diet.getSummary(undefined, 'recent');
+    const end = new Date();
+    end.setHours(0, 0, 0, 0);
+    end.setDate(end.getDate() + 1);
+    const start = new Date(end);
+    start.setDate(start.getDate() - 365);
+    const last = new Date(end);
+    last.setDate(last.getDate() - 1);
+
+    expect(recent.days).toHaveLength(365);
+    expect(recent.days[0].dayKey).toBe(dayKey(start));
+    expect(recent.days[364].dayKey).toBe(dayKey(last));
+    expect(recent.month).toBe('');
+  });
+
+  it('uses the calendar year when year is YYYY, even if a month is also passed', async () => {
+    const { service: diet, recordsFind } = service();
+    const year = await diet.getSummary('2025-01', '2024');
+
+    expect(year.days).toHaveLength(366);
+    expect(year.days[0].dayKey).toBe('2024-01-01');
+    expect(year.days[365].dayKey).toBe('2024-12-31');
+    expect(year.month).toBe('2024');
+    expect(recordsFind).toHaveBeenCalledWith(expect.objectContaining({
+      recorded_time: {
+        $gte: new Date(2024, 0, 1),
+        $lt: new Date(2025, 0, 1),
+      },
+    }));
+  });
+});

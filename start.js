@@ -167,7 +167,8 @@ const SEO_MARK_END = '<!-- seo-post-links:end -->'
  * SEO 产物生成（每次启动后执行，均带标记幂等）：
  * 1. 把文章列表以隐藏 <a> 注入 dist/index.html：爬虫可见（能顺着链接进入文章页），
  *    页面不可见（hidden 属性，且在 #app 之外不影响挂载）。
- * 2. 生成 dist/sitemap.xml，供提交给 Google Search Console / Bing 等搜索引擎。
+ * 2. 生成 dist/sitemap.xml 兜底文件（serve-static 会优先实时生成 sitemap/robots.txt，
+ *    文章变动自动反映，无需重新部署；此文件仅在 API 不可用时兜底）。
  */
 async function buildSeoArtifacts(cfg, proto, insecure) {
   const indexPath = path.join(APP_DIR, 'dist', 'index.html')

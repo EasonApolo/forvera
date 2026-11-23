@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import List from '../../components/layout/List.vue'
 import PageHeader from '../../components/layout/PageHeader.vue'
@@ -14,14 +14,14 @@ import { request } from '../../utils/request'
 import { progressPercent, type ProgressMethod } from '../../utils/common'
 import { useToastStore } from '../../store/toast'
 import { useUserStore } from '../../store/user'
-import type { ChartRange, MarketItem, MarketQuote, MarketSearchResult, StockComment } from 'shared/types/stock'
+import type { ChartRange, MarketItem, MarketQuote, MarketSearchResult, StockCatalog, StockComment } from 'shared/types/stock'
 
 const toastStore = useToastStore()
 const userStore = useUserStore()
 const router = useRouter()
 
-// settings 同步串行化：服务端每个请求都是读整个 settings 再写回，
-// 并发请求会互相覆盖（比如删分组时 groups/watchlist 两个请求竞态，分组删了又回来）
+// 图表偏好仍按用户存。标的目录是全站一份，另走 catalog 接口。
+// 两类写入都串行，避免后发出的旧请求盖掉新的。
 let settingsSyncChain: Promise<unknown> = Promise.resolve()
 const syncSettings = (settings: Record<string, any>) => {
   if (!userStore.isLogin) return
@@ -29,6 +29,8 @@ const syncSettings = (settings: Record<string, any>) => {
     .then(() => userStore.updateSettings(settings))
     .catch(e => console.error('sync settings failed', e))
 }
+let catalogChain: Promise<unknown> = Promise.resolve()
+let catalogDirty = false
 
 // 当前选中的 K 线范围（日K/周K/月K），卡片 tab 与添加弹窗的迷你图共用
 const currentRange = ref<ChartRange>('1y')
@@ -59,30 +61,47 @@ const onBottomNavSelect = (key: string) => {
   }
 }
 
-// watchlist：只存服务端 user.settings.stock.watchlist（登录跨设备同步），
-// 服务端为唯一数据源：到达或变化（含清空）时直接采用，不再落 localStorage
+// 标的、分组、默认分组是全站一份，所有人读同一份，只有管理员写入
 const watchlist = ref<MarketItem[]>([])
-const sameWatchlist = (a: MarketItem[], b: MarketItem[]) =>
-  a.length === b.length && a.every((item, i) => item.symbol === b[i]?.symbol)
+const groups = ref<string[]>([])
+const defaultGroup = ref('')
+const catalogLoaded = ref(false)
 
-const saveWatchlist = () => {
-  // 服务端按 symbol+name 过滤校验后合并进 settings.stock，失败不影响本地
-  syncSettings({ stock: { watchlist: watchlist.value } })
+const saveCatalog = (patch: Partial<StockCatalog>) => {
+  if (!userStore.isAdmin) return
+  catalogDirty = true
+  catalogChain = catalogChain
+    .then(() => request('market/catalog', 'put', patch))
+    .catch(e => console.error('sync catalog failed', e))
 }
 
-// immediate：进页面前路由守卫已 await getUserInfo，挂载时服务端数据通常已就位
-watch(
-  () => userStore.userInfo.settings.stock?.watchlist,
-  serverList => {
-    if (!userStore.isLogin || !Array.isArray(serverList)) return
-    if (!sameWatchlist(serverList as MarketItem[], watchlist.value)) {
-      watchlist.value = serverList as MarketItem[]
-    }
-  },
-  { immediate: true },
-)
+const loadCatalog = async () => {
+  try {
+    const data = (await request('market/catalog')) as StockCatalog
+    if (catalogDirty) return
+    watchlist.value = Array.isArray(data?.watchlist) ? data.watchlist : []
+    groups.value = Array.isArray(data?.groups)
+      ? data.groups.filter((group): group is string => typeof group === 'string')
+      : []
+    defaultGroup.value = typeof data?.defaultGroup === 'string' ? data.defaultGroup : ''
+    catalogLoaded.value = true
+    if (!groupTouched.value) activeGroup.value = defaultGroup.value
+  } catch (e) {
+    console.error(e)
+    toastStore.showToast({ content: '标的加载失败', type: 'ERR' })
+  }
+}
+
+const ensureCatalog = () => {
+  if (catalogLoaded.value && userStore.isAdmin) return true
+  if (!catalogLoaded.value) {
+    toastStore.showToast({ content: '标的还在加载', type: '!' })
+  }
+  return false
+}
 
 const addStock = (item: MarketSearchResult) => {
+  if (!ensureCatalog()) return
   if (watchlist.value.some(it => it.symbol === item.symbol)) {
     toastStore.showToast({ content: '已添加过这个标的', type: '!' })
     return
@@ -100,31 +119,15 @@ const addStock = (item: MarketSearchResult) => {
         ? activeGroup.value || undefined
         : defaultGroup.value || undefined,
   })
-  saveWatchlist()
+  saveCatalog({ watchlist: watchlist.value })
   showAddModal.value = false
   toastStore.showToast({ content: `已添加 ${item.name}`, type: 'OK' })
 }
 
-// 分组：只存 user.settings.stock.groups，与 watchlist 一样以服务端为唯一数据源
 // activeGroup：null=全部不过滤，''=无分组，其它=对应分组
-const groups = ref<string[]>([])
 // 进入页面默认选中默认分组；手动切换过后不再跟随默认分组变化
 const groupTouched = ref(false)
 const activeGroup = ref<string | null>(null)
-
-const saveGroups = () => {
-  syncSettings({ stock: { groups: groups.value } })
-}
-watch(
-  () => userStore.userInfo.settings.stock?.groups,
-  serverGroups => {
-    if (!userStore.isLogin || !Array.isArray(serverGroups)) return
-    const next = serverGroups.filter((g): g is string => typeof g === 'string')
-    if (next.length === groups.value.length && next.every((g, i) => g === groups.value[i])) return
-    groups.value = next
-  },
-  { immediate: true },
-)
 
 // 清理历史版本 localStorage 兜底（klineWatchlist/klineGroups）遗留的数据
 localStorage.removeItem('klineWatchlist')
@@ -137,16 +140,11 @@ const groupModalMode = ref<'assign' | 'enter'>('enter')
 const groupAssignSymbol = ref('')
 const newGroupInput = ref('')
 
-// 默认分组（存 user.settings.stock.defaultGroup，空=无分组）
-const defaultGroup = computed(() => userStore.userInfo.settings.stock?.defaultGroup ?? '')
-// 进入页面选中默认分组；用户手动切换后不再跟随
-watch(
-  defaultGroup,
-  g => {
-    if (!groupTouched.value) activeGroup.value = g
-  },
-  { immediate: true }
-)
+// 目录加载完成前不跟随，避免先被空的默认分组滤掉全部标的
+watch(defaultGroup, g => {
+  if (!catalogLoaded.value || groupTouched.value) return
+  activeGroup.value = g
+})
 
 const openGroupModal = (mode: 'assign' | 'enter', symbol = '') => {
   groupModalMode.value = mode
@@ -156,6 +154,7 @@ const openGroupModal = (mode: 'assign' | 'enter', symbol = '') => {
 }
 
 const addGroup = () => {
+  if (!ensureCatalog()) return
   const name = newGroupInput.value.trim()
   if (!name) {
     toastStore.showToast({ content: '分组名不能为空', type: '!' })
@@ -167,16 +166,17 @@ const addGroup = () => {
   }
   groups.value.push(name)
   newGroupInput.value = ''
-  saveGroups()
+  saveCatalog({ groups: groups.value })
 }
 
 const pickGroup = (name: string) => {
   if (groupModalMode.value === 'assign') {
+    if (!ensureCatalog()) return
     const item = watchlist.value.find(it => it.symbol === groupAssignSymbol.value)
     if (item) {
       // 空串=无分组，清掉 group 字段
       item.group = name || undefined
-      saveWatchlist()
+      saveCatalog({ watchlist: watchlist.value })
     }
     showGroupModal.value = false
   } else {
@@ -188,14 +188,13 @@ const pickGroup = (name: string) => {
 
 const setDefaultGroup = (name: string) => {
   if (defaultGroup.value === name) return
-  if (!userStore.isLogin) {
-    toastStore.showToast({ content: '登录后才能保存设置', type: '!' })
-    return
-  }
-  syncSettings({ stock: { defaultGroup: name } })
+  if (!ensureCatalog()) return
+  defaultGroup.value = name
+  saveCatalog({ defaultGroup: name })
 }
 
 const removeGroup = (name: string) => {
+  if (!ensureCatalog()) return
   if (!confirm(`确定删除分组「${name}」吗？分组内的标的会被清空。`)) return
   groups.value = groups.value.filter(g => g !== name)
   // 清空该分组里的标的（移出分组，标的本身保留）
@@ -206,15 +205,22 @@ const removeGroup = (name: string) => {
     groupTouched.value = true
     activeGroup.value = null
   }
-  saveGroups()
-  saveWatchlist()
+  const patch: Partial<StockCatalog> = {
+    groups: groups.value,
+    watchlist: watchlist.value,
+  }
   // 被删的是默认分组则重置为无分组
-  if (defaultGroup.value === name) syncSettings({ stock: { defaultGroup: '' } })
+  if (defaultGroup.value === name) {
+    defaultGroup.value = ''
+    patch.defaultGroup = ''
+  }
+  saveCatalog(patch)
 }
 
 const removeStock = (symbol: string) => {
+  if (!ensureCatalog()) return
   watchlist.value = watchlist.value.filter(it => it.symbol !== symbol)
-  saveWatchlist()
+  saveCatalog({ watchlist: watchlist.value })
 }
 
 // 列表排序：涨跌幅（实时报价）/ 进度（最新评论的完成百分比，无进度排最后）；
@@ -517,6 +523,10 @@ const saveSettings = async () => {
   }
   settingsSaving.value = false
 }
+
+onMounted(() => {
+  void loadCatalog()
+})
 </script>
 
 <template>
