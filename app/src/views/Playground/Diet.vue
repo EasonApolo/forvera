@@ -1249,7 +1249,7 @@ onMounted(async () => {
 }
 
 .summary-head :deep(.summary-stepper) {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   width: auto;
   min-width: 0;
 }
