@@ -16,8 +16,8 @@ eason-s.life {
 		reverse_proxy localhost:3000
 	}
 
-	# 首页文章列表和文章页由 Next.js 服务端渲染(10001)。/postList 在 Next 里 308 到 /。
-	@ssr path / /postList /postList/ /post/*
+	# 首页、文章页，以及 Next 的样式和脚本(10001)。/postList 在 Next 里 308 到 /。
+	@ssr path / /postList /postList/ /post/* /_next/*
 	handle @ssr {
 		reverse_proxy localhost:10001
 	}
