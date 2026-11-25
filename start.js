@@ -54,7 +54,24 @@ function loadEnv() {
     }
     process.env[key] = val
   }
+  repairProxyEnv()
   console.log(`[env] loaded ${envFile}`)
+}
+
+// npm 会用 new URL() 解析代理。值为 host:port 时补上 http://，否则安装依赖直接失败。
+function repairProxyEnv() {
+  const keys = ['http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY', 'all_proxy', 'ALL_PROXY']
+  for (const key of keys) {
+    const val = process.env[key]
+    if (!val) continue
+    try {
+      new URL(val)
+    } catch {
+      if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(val)) {
+        process.env[key] = `http://${val}`
+      }
+    }
+  }
 }
 
 // 以 shell 执行命令，默认继承 stdio；allowFail 时吞掉错误。
