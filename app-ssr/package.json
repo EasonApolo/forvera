@@ -1,0 +1,20 @@
+{
+  "name": "app-ssr",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -H 0.0.0.0 -p 10001",
+    "build": "next build",
+    "start": "next start -H 0.0.0.0"
+  },
+  "dependencies": {
+    "next": "15.5.29",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.5",
+    "@types/react": "19.1.0",
+    "@types/react-dom": "19.1.0",
+    "typescript": "5.7.3"
+  }
+}

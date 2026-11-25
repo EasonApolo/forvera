@@ -81,7 +81,11 @@ function stopByPort(port) {
 }
 
 function ports() {
-  const list = [Number(envOr('SERVER_PORT', '3000')), Number(envOr('APP_PORT', '10000'))]
+  const list = [
+    Number(envOr('SERVER_PORT', '3000')),
+    Number(envOr('APP_PORT', '10000')),
+    Number(envOr('SSR_PORT', '10001')),
+  ]
   for (const p of envOr('APP_FALLBACK_PORTS', '4173 5173').split(/\s+/).filter(Boolean)) {
     list.push(Number(p))
   }

@@ -31,15 +31,6 @@ import UserManageVue from './views/UserManage.vue'
 import BackupManageVue from './views/BackupManage.vue'
 import DictionaryVue from './views/Playground/Dictionary.vue'
 
-// 最后访问的主要路由：仅这三个 tab 记录，打开首页时优先回到它
-const MAIN_ROUTE_NAMES = ['postList', 'twit', 'playground']
-const LAST_MAIN_ROUTE_KEY = 'lastMainRoute'
-
-function redirectLastMainRoute() {
-  const saved = localStorage.getItem(LAST_MAIN_ROUTE_KEY)
-  return MAIN_ROUTE_NAMES.includes(saved || '') ? { name: saved } : { name: 'postList' }
-}
-
 const routerOptions = {
   history: createWebHistory(),
   routes: [
@@ -47,8 +38,8 @@ const routerOptions = {
       path: '/',
       component: HomeVue,
       children: [
-        { path: '', redirect: () => redirectLastMainRoute() },
-        { path: 'postList', component: PostListVue, name: 'postList' },
+        { path: '', component: PostListVue, name: 'postList' },
+        { path: 'postList', redirect: to => ({ name: 'postList', query: to.query, hash: to.hash }) },
         { path: 'twit', component: MessageVue, name: 'twit' },
         { path: 'playground', component: Playground, name: 'playground' },
         { path: 'stock', component: StockVue, name: 'stock' },
@@ -120,14 +111,22 @@ const routerOptions = {
 const pinia = createPinia()
 export const router = createRouter(routerOptions)
 
-// 记录最后访问的主要路由（供首页重定向）
-router.afterEach((to) => {
-  if (typeof to.name === 'string' && MAIN_ROUTE_NAMES.includes(to.name)) {
-    localStorage.setItem(LAST_MAIN_ROUTE_KEY, to.name)
-  }
-})
-
 router.beforeEach(async (to, from) => {
+  // 文章列表和文章页由 app-ssr 输出 HTML。从 Vue 里进去必须整页跳转，不能停在单页路由上。
+  if (to.name === 'post' || to.name === 'postList') {
+    const here = `${window.location.pathname}${window.location.search}`
+    let same = here === to.fullPath
+    try {
+      same = decodeURI(here) === decodeURI(to.fullPath)
+    } catch {
+      same = here === to.fullPath
+    }
+    if (!same) {
+      window.location.assign(to.fullPath)
+      return false
+    }
+  }
+
   const userStore = useUserStore(pinia)
 
   if (!userStore.userInfo.token && localStorage.token) {

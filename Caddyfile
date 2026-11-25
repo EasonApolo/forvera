@@ -4,7 +4,7 @@
 # 前置条件：
 #   - Cloudflare DNS：eason-s.life A 记录 -> 47.82.96.3，DNS only（灰云）
 #   - 安全组放开 80（证书签发/HTTP 跳转）和 443（HTTPS 访问）入站
-#   - 后端跑在 localhost:3000，前端静态服务跑在 localhost:10000（纯 HTTP）
+#   - 后端跑在 localhost:3000，前端静态服务跑在 localhost:10000，文章 SSR 跑在 localhost:10001（纯 HTTP）
 
 eason-s.life {
 	# 压缩响应
@@ -14,6 +14,12 @@ eason-s.life {
 	@backend path /api/* /resource/* /socket.io/*
 	handle @backend {
 		reverse_proxy localhost:3000
+	}
+
+	# 首页文章列表和文章页由 Next.js 服务端渲染(10001)。/postList 在 Next 里 308 到 /。
+	@ssr path / /postList /postList/ /post/*
+	handle @ssr {
+		reverse_proxy localhost:10001
 	}
 
 	# 其余所有请求交给前端静态服务(10000)，SPA 路由由前端处理

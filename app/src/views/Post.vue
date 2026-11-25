@@ -439,7 +439,7 @@ onBeforeRouteLeave(() => {
     position: fixed;
     left: 0;
     right: 0;
-    width: 350px;
+    width: min(350px, calc(100% - 2.5rem));
     margin: 0 auto;
     bottom: 5.25rem;
     padding: 0.75rem;

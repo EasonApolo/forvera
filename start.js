@@ -13,6 +13,7 @@ const { stop } = require('./stop')
 
 const ROOT_DIR = __dirname
 const APP_DIR = path.join(ROOT_DIR, 'app')
+const SSR_DIR = path.join(ROOT_DIR, 'app-ssr')
 const SERVER_DIR = path.join(ROOT_DIR, 'server')
 const RUNTIME_DIR = path.join(ROOT_DIR, '.runtime')
 const LOG_DIR = path.join(RUNTIME_DIR, 'logs')
@@ -246,6 +247,7 @@ function configureCaddy() {
 function buildConfig() {
   return {
     APP_PORT: Number(envOr('APP_PORT', '10000')),
+    SSR_PORT: Number(envOr('SSR_PORT', '10001')),
     SERVER_PORT: Number(envOr('SERVER_PORT', '3000')),
     ENABLE_CADDY: envOr('ENABLE_CADDY', '1'),
     CADDY_DOMAIN: envOr('CADDY_DOMAIN', 'eason-s.life'),
@@ -290,6 +292,7 @@ async function main() {
   stop()
   waitPortFree(cfg.SERVER_PORT)
   waitPortFree(cfg.APP_PORT)
+  waitPortFree(cfg.SSR_PORT)
 
   // [2/5] 安装依赖（备份功能依赖 zip，缺失则直接退出）
   console.log('[2/5] Installing dependencies...')
@@ -301,13 +304,17 @@ async function main() {
   run('npm install', { cwd: SERVER_DIR })
   console.log('[deps] Installing app dependencies...')
   run('npm install', { cwd: APP_DIR })
+  console.log('[deps] Installing app-ssr dependencies...')
+  run('npm install', { cwd: SSR_DIR })
 
   // [3/5] 构建前后端产物
-  console.log('[3/5] Building server and app...')
+  console.log('[3/5] Building server, app, and app-ssr...')
   console.log('[build] Building server...')
   run('npm run build', { cwd: SERVER_DIR })
   console.log('[build] Building app...')
   run('npm run build', { cwd: APP_DIR })
+  console.log('[build] Building app-ssr...')
+  run('npm run build', { cwd: SSR_DIR })
 
   // [4/5] 后台启动 server 与 app（崩溃不自动重启）
   console.log('[4/5] Starting services in background...')
@@ -342,6 +349,17 @@ async function main() {
   appChild.unref()
   fs.writeFileSync(path.join(PID_DIR, 'app.pid'), String(appChild.pid))
 
+  // 文章页 SSR
+  const ssrOut = fs.openSync(path.join(LOG_DIR, 'ssr.log'), 'a')
+  const ssrChild = spawn('npm', ['run', 'start', '--', '-p', String(cfg.SSR_PORT)], {
+    cwd: SSR_DIR,
+    detached: true,
+    stdio: ['ignore', ssrOut, ssrOut],
+    env: process.env,
+  })
+  ssrChild.unref()
+  fs.writeFileSync(path.join(PID_DIR, 'ssr.pid'), String(ssrChild.pid))
+
   // 等待前后端健康检查通过
   const https_ = useHttps(cfg)
   const proto = https_ ? 'https' : 'http'
@@ -360,6 +378,13 @@ async function main() {
     path.join(LOG_DIR, 'app.log'),
     20,
     insecure
+  )
+  await waitForHttp(
+    'ssr',
+    `http://127.0.0.1:${cfg.SSR_PORT}/`,
+    path.join(LOG_DIR, 'ssr.log'),
+    30,
+    false
   )
 
   // 前后端就绪后生成 SEO 产物：首页注入隐藏文章链接 + sitemap.xml（SPA 首屏是空壳，这些让爬虫第一波抓取就能发现文章）
@@ -385,11 +410,13 @@ async function main() {
 
   const serverPid = fs.readFileSync(path.join(PID_DIR, 'server.pid'), 'utf8').trim()
   const appPid = fs.readFileSync(path.join(PID_DIR, 'app.pid'), 'utf8').trim()
+  const ssrPid = fs.readFileSync(path.join(PID_DIR, 'ssr.pid'), 'utf8').trim()
   console.log('')
   console.log(`Server started (pid=${serverPid}, port=${cfg.SERVER_PORT})`)
   console.log(`App started    (pid=${appPid}, port=${cfg.APP_PORT})`)
-  console.log(`Logs: ${path.join(LOG_DIR, 'server.log')} and ${path.join(LOG_DIR, 'app.log')}`)
-  console.log(`PIDs: ${path.join(PID_DIR, 'server.pid')} and ${path.join(PID_DIR, 'app.pid')}`)
+  console.log(`SSR started    (pid=${ssrPid}, port=${cfg.SSR_PORT})`)
+  console.log(`Logs: ${path.join(LOG_DIR, 'server.log')}, ${path.join(LOG_DIR, 'app.log')}, ${path.join(LOG_DIR, 'ssr.log')}`)
+  console.log(`PIDs: ${path.join(PID_DIR, 'server.pid')}, ${path.join(PID_DIR, 'app.pid')}, ${path.join(PID_DIR, 'ssr.pid')}`)
 }
 
 // ── 入口分发 ──

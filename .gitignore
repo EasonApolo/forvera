@@ -26,6 +26,8 @@ yarn-error.log*
 server/src/scripts/data
 app/package-lock.json
 server/package-lock.json
+app-ssr/package-lock.json
+app-ssr/.next
 .runtime/logs/app.log
 .runtime/logs/server.log
 .runtime/pids/app.pid
