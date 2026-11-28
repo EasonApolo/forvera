@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { request } from '../utils/request'
 import type { AiSetting, SetAiSettingDto } from 'shared/types/user'
+import { md5 } from 'shared/md5'
 
 export const useUserStore = defineStore('user', {
   state: () => ({
@@ -80,7 +81,10 @@ export const useUserStore = defineStore('user', {
       let token
       const payload = this.loginData
       if (!(payload.username && payload.password)) return
-      const res = await request('auth/login', 'POST', JSON.stringify(payload))
+      const res = await request('auth/login', 'POST', JSON.stringify({
+        username: payload.username,
+        password: md5(payload.password),
+      }))
       token = res.token
       if (token) {
         localStorage.token = token
@@ -115,7 +119,10 @@ export const useUserStore = defineStore('user', {
       const { token } = await request(
         'auth/register',
         'POST',
-        JSON.stringify(payload)
+        JSON.stringify({
+          username: payload.username,
+          password: md5(payload.password),
+        })
       )
       if (token) {
         localStorage.token = token

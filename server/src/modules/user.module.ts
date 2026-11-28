@@ -74,7 +74,8 @@ export class UpdateUserRoleDTO {
 export interface User extends Document {
   readonly _id?: string;
   readonly username: string;
-  readonly password: string;
+  password: string;
+  passwordMd5?: boolean;
   readonly role?: number;
   readonly settings?: {
     playgroundSort?: string[];
@@ -113,10 +114,13 @@ export interface User extends Document {
 // Schema
 import { Schema } from 'mongoose';
 import { JwtStrategy } from 'src/guards/jwt.strategy';
+import { md5 } from 'shared/md5';
 
 export const UserSchema = new Schema({
   username: { type: String, required: true, unique: true },
   password: { type: String, required: true },
+  /** true 表示 password 已是 MD5。启动迁移用它跳过已经迁过的用户，不靠哈希外形猜测。 */
+  passwordMd5: { type: Boolean, default: false },
   role: { type: Number, default: 1 },
   settings: { type: Schema.Types.Mixed, default: {} },
 });
@@ -143,6 +147,20 @@ export class UserService implements OnModuleInit {
       if (existingAnonymous) {
         this.anonymous = existingAnonymous;
       }
+    }
+    await this.migratePlaintextPasswords();
+  }
+
+  /** 把仍是明文的密码换成 MD5。passwordMd5 为 true 的不再处理。 */
+  async migratePlaintextPasswords() {
+    const users = await this.userModel.find({ passwordMd5: { $ne: true } }).exec();
+    for (const user of users) {
+      user.password = md5(user.password);
+      user.passwordMd5 = true;
+      await user.save();
+    }
+    if (users.length) {
+      console.log(`migrated ${users.length} plaintext passwords to md5`);
     }
   }
 
@@ -198,6 +216,7 @@ export class UserService implements OnModuleInit {
   async addUser(
     createUserDTO: CreateUserDTO,
     addIfNotExist?: boolean,
+    passwordAlreadyMd5 = false,
   ): Promise<User | null> {
     if (createUserDTO._id) {
       const byId = await this.userModel.findById(createUserDTO._id).exec();
@@ -214,6 +233,7 @@ export class UserService implements OnModuleInit {
     const userData: any = {
       username: createUserDTO.username,
       password: createUserDTO.password,
+      passwordMd5: passwordAlreadyMd5,
     };
     if (createUserDTO._id && Types.ObjectId.isValid(createUserDTO._id)) {
       userData._id = new Types.ObjectId(createUserDTO._id);

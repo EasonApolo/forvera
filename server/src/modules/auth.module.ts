@@ -20,6 +20,7 @@ import {
   jwtExpiresDate,
   JwtStrategy,
 } from 'src/guards/jwt.strategy';
+import { md5 } from 'shared/md5';
 
 @Injectable()
 export class AuthService {
@@ -30,7 +31,9 @@ export class AuthService {
 
   async validateUser(username: string, pass: string): Promise<any> {
     const user = await this.userService.getUserByName(username);
-    if (user && user.password === pass) {
+    // 新客户端传来的已是 MD5。旧页面仍可能发明文，迁完后用 md5(明文) 对上库里的值。
+    const passwordMatches = user && (user.password === pass || md5(pass) === user.password);
+    if (passwordMatches) {
       const result = {
         username: user.username,
         _id: user._id,
@@ -55,7 +58,7 @@ export class AuthService {
   }
 
   async register(user: CreateUserDTO) {
-    let res = await this.userService.addUser(user);
+    let res = await this.userService.addUser(user, false, true);
     if (!res) return null;
     return await this.getToken(res);
   }
