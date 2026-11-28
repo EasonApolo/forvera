@@ -37,6 +37,7 @@ export class UpdateTwitStatusDTO {
 
 export class UpdateTwitContentDTO {
   content: string;
+  status?: 0 | 1;
 }
 
 // Interface
@@ -198,11 +199,15 @@ export class TwitService {
       .exec()
   }
 
-  async updateTwitContent(twitId: string, content: string) {
+  async updateTwitContent(twitId: string, content: string, status?: 0 | 1) {
     const twit = await this.twitModel.findById(twitId)
     if (!twit) return null
-    // 仅修改文字，不动时间/用户名/图片等
-    await this.twitModel.findByIdAndUpdate(twitId, { content })
+    // 文字和隐藏一起保存。回复没有隐藏，只改顶级发言的 status。
+    const update: { content: string; status?: 0 | 1 } = { content }
+    if (!twit.ancestor && (status === 0 || status === 1)) {
+      update.status = status
+    }
+    await this.twitModel.findByIdAndUpdate(twitId, update)
     if (twit.ancestor) {
       return await this.getTwitById(twit.ancestor)
     }
@@ -349,7 +354,7 @@ export class TwitController {
     @Param('twitId') twitId,
     @Body() body: UpdateTwitContentDTO,
   ) {
-    return await this.twitService.updateTwitContent(twitId, body.content)
+    return await this.twitService.updateTwitContent(twitId, body.content, body.status)
   }
 }
 

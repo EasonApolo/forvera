@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
-import { reactive, ref, computed, onMounted } from 'vue'
+import { reactive, ref, computed, onMounted, watch } from 'vue'
 import Btn from '../components/Btn.vue'
 import List from '../components/layout/List.vue'
 import Card from '../components/Card.vue'
@@ -36,6 +36,21 @@ const { isLogin } = storeToRefs(userStore)
 
 // edit mode
 const isEditing = computed(() => !!messageWrapper.value.editTarget)
+const canToggleHide = computed(() => {
+  const target = messageWrapper.value.editTarget
+  return !!target && target.level === 0
+})
+const hideActive = ref(false)
+watch(
+  () => messageWrapper.value.editTarget?._id,
+  () => {
+    hideActive.value = messageWrapper.value.editTarget?.status === 0
+  },
+  { immediate: true },
+)
+const toggleHide = () => {
+  hideActive.value = !hideActive.value
+}
 const editPreviewImages = computed(() =>
   (messageWrapper.value.editTarget?.files || []).map(f => f.thumb)
 )
@@ -101,9 +116,11 @@ const send = async () => {
     const target = messageWrapper.value.editTarget!
     loading.value.send = true
     try {
+      const status = canToggleHide.value ? (hideActive.value ? 0 : 1) : undefined
       const res = await messageStore.updateMessageContent(
         target._id,
-        messageInput.value.content
+        messageInput.value.content,
+        status,
       )
       if (!res) {
         toastStore.showToast({ content: '编辑失败，看看控制台', type: 'ERR' })
@@ -177,7 +194,7 @@ const loading = ref({ send: false })
       <div class="content">
         <div class="tips">
           <template v-if="isEditing">
-            - 编辑模式中，仅可修改文字，图片不可编辑。<br />
+            - 编辑模式中，仅可修改文字{{ canToggleHide ? '和隐藏状态' : '' }}，图片不可编辑。<br />
           </template>
           <template v-else>
             - {{ userStore.isLogin ? '' : '当前未登录，登录后' }}可以{{
@@ -196,7 +213,7 @@ const loading = ref({ send: false })
         <Textarea
           class="input text-input"
           v-model="messageInput.content"
-          :rows="3"
+          :rows="10"
         />
         <DraggableGallery
           v-if="isEditing && editPreviewImages.length"
@@ -219,6 +236,11 @@ const loading = ref({ send: false })
             sendBtnContent
           }}</Btn>
           <div class="right">
+            <Btn
+              v-if="canToggleHide"
+              :type="hideActive ? 'primary' : undefined"
+              @click="toggleHide"
+            >隐藏</Btn>
             <FileInput
               v-if="
                 !isEditing &&
@@ -246,7 +268,7 @@ const loading = ref({ send: false })
         <div class="content">
           <div class="tips">
             <template v-if="isEditing">
-              - 编辑模式中，仅可修改文字，图片不可编辑。<br />
+              - 编辑模式中，仅可修改文字{{ canToggleHide ? '和隐藏状态' : '' }}，图片不可编辑。<br />
             </template>
             <template v-else>
               - {{ userStore.isLogin ? '' : '当前未登录，登录后' }}可以{{
@@ -265,7 +287,7 @@ const loading = ref({ send: false })
           <Textarea
             class="input text-input"
             v-model="messageInput.content"
-            :rows="3"
+            :rows="10"
           />
           <DraggableGallery
             v-if="isEditing && editPreviewImages.length"
@@ -326,10 +348,6 @@ const loading = ref({ send: false })
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-    }
-
-    > .action + .action {
-      margin-left: 0.5rem;
     }
 
     .right {

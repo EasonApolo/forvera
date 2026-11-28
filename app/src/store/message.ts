@@ -185,10 +185,10 @@ export const useMessageStore = defineStore('message', {
       }
       return res
     },
-    async updateMessageContent(messageId: string, content: string) {
-      const res: Message = await request(`twit/${messageId}/content`, 'PUT', {
-        content,
-      })
+    async updateMessageContent(messageId: string, content: string, status?: 0 | 1) {
+      const body: { content: string; status?: 0 | 1 } = { content }
+      if (status === 0 || status === 1) body.status = status
+      const res: Message = await request(`twit/${messageId}/content`, 'PUT', body)
       if (res) {
         this.processMessages(res)
         const updatedIndex = this.messages.findIndex(m => m._id === res._id)

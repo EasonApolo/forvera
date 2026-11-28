@@ -57,6 +57,9 @@ const clickImage = (images: string[], index: number) => {
   imageStore.preview(images[index])
 }
 
+const contentLines = (content?: string) =>
+  (content || '').split(/\r?\n/).filter(line => line.trim().length > 0)
+
 // reply
 const replyTo = (message?: Message) => {
   messageStore.reply(message)
@@ -83,25 +86,6 @@ const deleteMessage = async (message: Message) => {
       fetchMessages()
     } else {
       toastStore.showToast({ content: '删除失败', type: '!' })
-    }
-  }
-}
-
-const toggleMessageStatus = async (message: Message) => {
-  const nextStatus = message.status === 1 ? 0 : 1
-  const actionText = nextStatus === 1 ? '显示' : '隐藏'
-  if (confirm(`确定要${actionText}这条 twit 吗？`)) {
-    const res = await messageStore.updateMessageStatus(message._id, nextStatus)
-    if (res) {
-      toastStore.showToast({
-        content: `${actionText}成功`,
-        type: '!',
-      })
-    } else {
-      toastStore.showToast({
-        content: `${actionText}失败`,
-        type: '!',
-      })
     }
   }
 }
@@ -152,18 +136,13 @@ watch(
           <div class="name">{{ message.user.username }}</div>
           <div class="date">
             <span @click.stop="replyTo(message)">回复</span>
-            <span
-              v-if="isAdmin && message.level === 0"
-              @click.stop="toggleMessageStatus(message)"
-              >{{ message.status === 1 ? '隐藏' : '显示' }}</span
-            >
             <span v-if="isAdmin" @click.stop="editMessage(message)">编辑</span>
             <span v-if="isAdmin" @click.stop="deleteMessage(message)">删除</span
             >{{ formatDate(message.created_time) }}
           </div>
         </div>
         <div class="content selectable" @mousedown.stop @touchstart.stop @touchmove.stop>
-          {{ message.content }}
+          <p v-for="(line, index) in contentLines(message.content)" :key="index">{{ line }}</p>
         </div>
         <Gallery
           v-if="message.files.length"
@@ -186,7 +165,7 @@ watch(
               >{{ formatDate(reply.created_time) }}
             </div>
             <div class="content selectable" @mousedown.stop @touchstart.stop @touchmove.stop>
-              {{ reply.content }}
+              <p v-for="(line, index) in contentLines(reply.content)" :key="index">{{ line }}</p>
             </div>
           </div>
         </div>
@@ -200,6 +179,7 @@ watch(
     placement="bottom"
     :blur-backdrop="false"
     :hide-footer="true"
+    :close-on-mask="false"
     :max-width="560"
   >
     <AddMessage :floating="true" @close="closeReplyPanel" />
@@ -284,14 +264,21 @@ watch(
     color: #aaa;
 
     span {
-      margin-right: 0.5rem;
+      margin-right: 0.375rem;
       cursor: pointer;
     }
   }
 
   .content {
-    font-size: 15px;
-    white-space: break-spaces;
+    p {
+      margin: 2px 0 0;
+      font-size: 14px;
+      line-height: 21px;
+    }
+
+    p + p {
+      margin-top: 4px;
+    }
   }
 
   .selectable {

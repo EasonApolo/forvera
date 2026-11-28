@@ -29,6 +29,20 @@ const themeStore = useThemeStore()
 const { isDark, mode } = storeToRefs(themeStore)
 const { userInfo } = storeToRefs(userStore)
 const { myPosts } = storeToRefs(postStore)
+const groupedPosts = computed(() => {
+  const byYear = new Map<string, typeof myPosts.value>()
+  for (const post of myPosts.value) {
+    const date = new Date(post.created_time)
+    const year = Number.isNaN(date.getTime()) ? '' : `${date.getFullYear()}`
+    if (!year) continue
+    const list = byYear.get(year)
+    if (list) list.push(post)
+    else byYear.set(year, [post])
+  }
+  return [...byYear.keys()]
+    .sort((a, b) => Number(b) - Number(a))
+    .map(name => ({ name, posts: byYear.get(name) || [] }))
+})
 const isAdmin = computed(() => userInfo.value.role === 3)
 const currentUserId = computed(() => `${(userInfo.value as any)._id || ''}`)
 
@@ -152,28 +166,32 @@ const saveConfig = async () => {
           </HorizontalScroll>
         </Card>
       </div>
-      <div class="my-posts card-group">
+      <div class="my-posts">
         <GreyText>文章列表</GreyText>
-        <Card
-          class="item post"
-          v-for="post in myPosts"
-          :class="{ hidden: post.status !== 1 }"
-        >
-          <div class="post-info">
-            <div class="title-line">
-              <span class="title">{{ post.title }}</span>
-              <span class="author-tag" v-if="getPostAuthorTag(post)">by {{ getPostAuthorTag(post) }}</span>
-              <div class="meta-inline">
-                <span class="desc">{{ formatDate(post.updated_time) }}</span>
-                <span class="desc">{{ formatDate(post.created_time) }}</span>
-              </div>
+        <div v-for="group in groupedPosts" :key="group.name" class="year-group">
+          <GreyText>{{ group.name }}</GreyText>
+          <Card
+            class="item post"
+            v-for="post in group.posts"
+            :key="post._id"
+            :class="{ hidden: post.status !== 1 }"
+          >
+            <div class="post-info">
+              <div class="title-line">
+                <span class="title">{{ post.title }}</span>
+                <span class="author-tag" v-if="getPostAuthorTag(post)">by {{ getPostAuthorTag(post) }}</span>
+                <div class="meta-inline">
+                  <span class="desc">{{ formatDate(post.updated_time) }}</span>
+                  <span class="desc">{{ formatDate(post.created_time) }}</span>
+                </div>
                 <span v-if="post.status !== 1" class="status">隐藏</span>
+              </div>
             </div>
-          </div>
-          <div class="post-actions">
-            <Btn @click="edit(post._id)">修改</Btn>
-          </div>
-        </Card>
+            <div class="post-actions">
+              <Btn @click="edit(post._id)">修改</Btn>
+            </div>
+          </Card>
+        </div>
       </div>
     </template>
   </List>

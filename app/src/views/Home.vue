@@ -96,6 +96,7 @@ const closeReplyPanel = () => {
     :padding-bottom="true"
     :blur-backdrop="false"
     :hide-footer="true"
+    :close-on-mask="false"
     :max-width="560"
   >
     <AddMessage :floating="true" @close="closeReplyPanel" />

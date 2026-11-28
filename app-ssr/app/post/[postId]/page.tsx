@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import { getCategories, getPost, siteOrigin } from '@/lib/api'
 import { authorName, categoryTitles, formatDate, renderPostHtml } from '@/lib/content'
 import { PostChrome } from '../../post-chrome'
+import { PostImageViewer } from '../../image-viewer'
 
 type Props = { params: Promise<{ postId: string }> }
 
@@ -50,6 +51,7 @@ export default async function PostPage({ params }: Props) {
         </div>
         <div className="ending">—— 完 ——</div>
         <PostChrome toc={toc} postId={postId} />
+        <PostImageViewer postId={postId} />
       </div>
     </main>
   )

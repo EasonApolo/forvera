@@ -90,6 +90,18 @@ const rotateRight = () => {
   rotation.value += 90
 }
 
+const onDoubleClick = () => {
+  if (scale.value > 1) {
+    scale.value = 1
+    translateX.value = 0
+    translateY.value = 0
+    return
+  }
+  scale.value = 2
+  translateX.value = 0
+  translateY.value = 0
+}
+
 const closeViewer = () => {
   resetTransform()
   frameWidth.value = 0
@@ -290,7 +302,7 @@ watch(
           }"
           @click.stop
           @pointerdown.stop.prevent="onPointerDown"
-          @dblclick="resetTransform"
+          @dblclick.stop="onDoubleClick"
         >
           <img
             v-if="imageStore.thumbUrl"
@@ -344,6 +356,11 @@ watch(
   top: 1rem;
   right: 1rem;
   z-index: 3;
+}
+
+.image-viewer :deep(.circle-btn) {
+  box-shadow: none;
+  opacity: 0.75;
 }
 
 .toolbox {

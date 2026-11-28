@@ -582,6 +582,121 @@ code {
   margin: 0 auto;
   max-width: 100%;
   height: auto;
+  cursor: zoom-in;
+}
+
+.image-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  touch-action: none;
+  overscroll-behavior: contain;
+}
+
+.viewer-bg {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+}
+
+.viewer-circle {
+  appearance: none;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--card-bg);
+  color: var(--text-color);
+  box-shadow: none;
+  opacity: 0.75;
+  cursor: pointer;
+}
+
+.viewer-circle svg {
+  width: 60%;
+  height: 60%;
+  display: block;
+}
+
+.viewer-close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  z-index: 3;
+  width: 36px;
+  height: 36px;
+}
+
+.viewer-tools {
+  position: absolute;
+  left: 1rem;
+  top: 1rem;
+  z-index: 3;
+}
+
+.viewer-stage {
+  position: relative;
+  width: min(96vw, 1000px);
+  height: min(92vh, 900px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 8px;
+  z-index: 2;
+}
+
+.viewer-frame {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform-origin: center center;
+  transition: transform 0.08s ease-out;
+}
+
+.viewer-thumb {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  object-fit: contain;
+  border-radius: 8px;
+  pointer-events: none;
+}
+
+.viewer-original {
+  position: relative;
+  max-width: none;
+  max-height: none;
+  user-select: none;
+}
+
+@media (max-width: 768px) {
+  .viewer-close {
+    top: 0.75rem;
+    right: 0.75rem;
+    width: 40px;
+    height: 40px;
+  }
+
+  .viewer-tools {
+    left: 0.75rem;
+    top: 0.75rem;
+  }
+
+  .viewer-circle {
+    width: 36px;
+    height: 36px;
+  }
 }
 
 .image-description {
