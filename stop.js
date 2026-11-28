@@ -39,10 +39,20 @@ function loadEnv() {
 
 function capture(cmd) {
   try {
-    return execSync(cmd, { stdio: ['ignore', 'pipe', 'ignore'] }).toString()
-  } catch {
-    return ''
+    return execSync(cmd, { stdio: ['ignore', 'pipe', 'pipe'] }).toString()
+  } catch (err) {
+    return `${err.stdout || ''}${err.stderr || ''}`
   }
+}
+
+// lsof 在这台机器上看不到 next 占着的 10001，fuser 和 ss 可以。
+function pidsOnPort(port) {
+  const safePort = Number(port)
+  if (!Number.isInteger(safePort) || safePort <= 0) return []
+  const fromFuser = parsePids(capture(`fuser ${safePort}/tcp`))
+  if (fromFuser.length) return fromFuser
+  const fromSs = capture(`ss -ltnp 'sport = :${safePort}'`)
+  return [...fromSs.matchAll(/pid=(\d+)/g)].map(match => Number(match[1]))
 }
 
 function parsePids(text) {
@@ -65,7 +75,7 @@ function killPids(pids, signal) {
 
 // 通过端口找到 pid 并 kill（先 TERM 再 KILL）。
 function stopByPort(port) {
-  const pids = parsePids(capture(`lsof -ti tcp:${port}`))
+  const pids = pidsOnPort(port)
   if (pids.length === 0) {
     console.log(`[port ${port}] no process`)
     return
@@ -73,7 +83,7 @@ function stopByPort(port) {
   console.log(`[port ${port}] killing pids: ${pids.join(' ')}`)
   killPids(pids, 'SIGTERM')
   sleepSync(1)
-  const remain = parsePids(capture(`lsof -ti tcp:${port}`))
+  const remain = pidsOnPort(port)
   if (remain.length) {
     console.log(`[port ${port}] force killing: ${remain.join(' ')}`)
     killPids(remain, 'SIGKILL')
@@ -98,7 +108,7 @@ function stop() {
   console.log('Done.')
 }
 
-module.exports = { stop }
+module.exports = { stop, pidsOnPort }
 
 if (require.main === module) {
   loadEnv()

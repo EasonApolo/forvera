@@ -9,7 +9,7 @@ const fs = require('fs')
 const path = require('path')
 const http = require('http')
 const https = require('https')
-const { stop } = require('./stop')
+const { stop, pidsOnPort } = require('./stop')
 
 const ROOT_DIR = __dirname
 const APP_DIR = path.join(ROOT_DIR, 'app')
@@ -105,7 +105,7 @@ function parsePids(text) {
 // ── 停止相关 ──
 function waitPortFree(port) {
   for (let i = 0; i < 10; i++) {
-    if (parsePids(capture(`lsof -ti tcp:${port}`)).length === 0) return true
+    if (pidsOnPort(port).length === 0) return true
     sleepSync(1)
   }
   console.log(`[pre] Warning: port ${port} still in use after waiting`)
@@ -382,27 +382,45 @@ async function main() {
   const proto = https_ ? 'https' : 'http'
   const insecure = https_
 
-  await waitForHttp(
+  const started = [
+    ['server', serverChild.pid, path.join(LOG_DIR, 'server.log')],
+    ['app', appChild.pid, path.join(LOG_DIR, 'app.log')],
+    ['ssr', ssrChild.pid, path.join(LOG_DIR, 'ssr.log')],
+  ]
+  for (const [name, pid, logFile] of started) {
+    try {
+      process.kill(pid, 0)
+    } catch {
+      console.log(`[${name}] exited during startup, pid ${pid}`)
+      if (fs.existsSync(logFile)) console.log(capture(`tail -n 40 ${JSON.stringify(logFile)}`))
+      throw new Error(`${name} exited during startup`)
+    }
+  }
+
+  const serverOk = await waitForHttp(
     'server',
     `${proto}://127.0.0.1:${cfg.SERVER_PORT}/`,
     path.join(LOG_DIR, 'server.log'),
     20,
     insecure
   )
-  await waitForHttp(
+  const appOk = await waitForHttp(
     'app',
     `${proto}://127.0.0.1:${cfg.APP_PORT}/`,
     path.join(LOG_DIR, 'app.log'),
     20,
     insecure
   )
-  await waitForHttp(
+  const ssrOk = await waitForHttp(
     'ssr',
     `http://127.0.0.1:${cfg.SSR_PORT}/`,
     path.join(LOG_DIR, 'ssr.log'),
     30,
     false
   )
+  if (!serverOk || !appOk || !ssrOk) {
+    throw new Error('health check failed')
+  }
 
   // 前后端就绪后生成 SEO 产物：首页注入隐藏文章链接 + sitemap.xml（SPA 首屏是空壳，这些让爬虫第一波抓取就能发现文章）
   await buildSeoArtifacts(cfg, proto, insecure)
